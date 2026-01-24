@@ -29,7 +29,7 @@ final class BetResultManager {
         self.resultWindow = window
     }
     
-    func showBetResult(amount: Int, isWin: Bool, showBonus: Bool = false) {
+    func showBetResult(amount: Int, isWin: Bool, showBonus: Bool = false, description: String? = nil) {
         if resultWindow == nil {
             setupResultWindow()
         }
@@ -46,7 +46,7 @@ final class BetResultManager {
         ])
 
         // Animate the bet result container
-        betResultContainer.animateToAmount(amount, isWin: isWin, showBonus: showBonus)
+        betResultContainer.animateToAmount(amount, isWin: isWin, showBonus: showBonus, description: description)
         betResultContainer.show(isWin: isWin) {
             betResultContainer.removeFromSuperview()
         }
@@ -54,7 +54,7 @@ final class BetResultManager {
 }
 
 extension UIViewController {
-    func showBetResult(amount: Int, isWin: Bool, showBonus: Bool = false) {
-        BetResultManager.shared.showBetResult(amount: amount, isWin: isWin, showBonus: showBonus)
+    func showBetResult(amount: Int, isWin: Bool, showBonus: Bool = false, description: String? = nil) {
+        BetResultManager.shared.showBetResult(amount: amount, isWin: isWin, showBonus: showBonus, description: description)
     }
 }

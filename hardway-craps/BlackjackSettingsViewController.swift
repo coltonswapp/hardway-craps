@@ -13,6 +13,7 @@ final class BlackjackSettingsViewController: UITableViewController {
     private enum SettingsKeys {
         static let showTotals = "BlackjackShowTotals"
         static let showDeckCount = "BlackjackShowDeckCount"
+        static let showCardCount = "BlackjackShowCardCount"
         static let deckCount = "BlackjackDeckCount"
         static let rebetEnabled = "BlackjackRebetEnabled"
         static let fixedHandType = "BlackjackFixedHandType"
@@ -21,6 +22,7 @@ final class BlackjackSettingsViewController: UITableViewController {
     // Settings state
     private var showTotals: Bool = true
     private var showDeckCount: Bool = false
+    private var showCardCount: Bool = false
     private var deckCount: Int = 1
     private var rebetEnabled: Bool = false
 
@@ -91,6 +93,11 @@ final class BlackjackSettingsViewController: UITableViewController {
             showDeckCount = UserDefaults.standard.bool(forKey: SettingsKeys.showDeckCount)
         }
 
+        // Load showCardCount (default: false)
+        if UserDefaults.standard.object(forKey: SettingsKeys.showCardCount) != nil {
+            showCardCount = UserDefaults.standard.bool(forKey: SettingsKeys.showCardCount)
+        }
+
         // Load deckCount (default: 1)
         if UserDefaults.standard.object(forKey: SettingsKeys.deckCount) != nil {
             let savedDeckCount = UserDefaults.standard.integer(forKey: SettingsKeys.deckCount)
@@ -114,6 +121,7 @@ final class BlackjackSettingsViewController: UITableViewController {
     private func saveSettings() {
         UserDefaults.standard.set(showTotals, forKey: SettingsKeys.showTotals)
         UserDefaults.standard.set(showDeckCount, forKey: SettingsKeys.showDeckCount)
+        UserDefaults.standard.set(showCardCount, forKey: SettingsKeys.showCardCount)
         UserDefaults.standard.set(deckCount, forKey: SettingsKeys.deckCount)
         UserDefaults.standard.set(rebetEnabled, forKey: SettingsKeys.rebetEnabled)
 
@@ -142,7 +150,7 @@ final class BlackjackSettingsViewController: UITableViewController {
         case 0: // Actions
             return 1
         case 1: // Display Settings
-            return 2
+            return 3
         case 2: // Game Settings
             return 2
         case 3: // Testing
@@ -198,6 +206,11 @@ final class BlackjackSettingsViewController: UITableViewController {
             case 1: // Show Deck Count
                 configureSwitchCell(cell, title: "Show Deck Count", isOn: showDeckCount) { [weak self] isOn in
                     self?.showDeckCount = isOn
+                    self?.saveSettings()
+                }
+            case 2: // Card Counting
+                configureSwitchCell(cell, title: "Card Counting", isOn: showCardCount) { [weak self] isOn in
+                    self?.showCardCount = isOn
                     self?.saveSettings()
                 }
             default:

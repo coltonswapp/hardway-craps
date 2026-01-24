@@ -13,6 +13,7 @@ final class BlackjackGameplayViewController: UIViewController {
     private enum SettingsKeys {
         static let showTotals = "BlackjackShowTotals"
         static let showDeckCount = "BlackjackShowDeckCount"
+        static let showCardCount = "BlackjackShowCardCount"
         static let deckCount = "BlackjackDeckCount"
         static let rebetEnabled = "BlackjackRebetEnabled"
         static let rebetAmount = "BlackjackRebetAmount"
@@ -34,12 +35,18 @@ final class BlackjackGameplayViewController: UIViewController {
     private let dealerHandView = DealerHandView()
     private let playerHandView = PlayerHandView()
     private var splitHandView: PlayerHandView? // Second hand for split
-    private let playerControlStack = PlayerControlStack()
+
+    // Action buttons
+    private let standButton = ActionButton(title: "Stand")
+    private let doubleButton = ActionButton(title: "Double")
+    private let splitButton = CircularActionButton(systemIconName: "arrow.triangle.branch")
+    private var rightButtonStack: UIStackView!
     private var balanceView: BalanceView!
     private var chipSelector: ChipSelector!
     private var bottomStackView: UIStackView!
     private var instructionLabel: InstructionLabel!
     private var newHandButton: UIButton!
+    private var readyButton: UIButton!
     private var bonusStackView: UIStackView!
     private var bonusBetControls: [BonusBetControl] = []
     private let deckView = DeckView()
@@ -60,6 +67,8 @@ final class BlackjackGameplayViewController: UIViewController {
     private var gamePhase: PlayerControlStack.GamePhase = .waitingForBet
     private var showTotals: Bool = true
     private var showDeckCount: Bool = false
+    private var showCardCount: Bool = false
+    private var runningCount: Int = 0 // Card counting running count
     private var deck: [BlackjackHandView.Card] = []
     private var fixedHandType: FixedHandType? = nil
     private var playerBusted: Bool = false
@@ -83,7 +92,16 @@ final class BlackjackGameplayViewController: UIViewController {
     var selectedChipValue: Int {
         return chipSelector?.selectedValue ?? 1
     }
-    
+
+    // Peek amount for split hands - relative to screen width (20% on each side)
+    private func getPeekAmount() -> CGFloat {
+        return view.bounds.width * 0.20
+    }
+
+    private func getTotalPeekAmount() -> CGFloat {
+        return getPeekAmount() * 2 // Both sides
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
@@ -130,19 +148,19 @@ final class BlackjackGameplayViewController: UIViewController {
         setupInstructionLabel()
         setupDeckView()
         setupDealerHandView()
+        setupBonusStackView()
         setupBalanceView()
         setupChipSelector()
         setupBottomStackView()
-        setupNewHandButton()
-        setupPlayerControlStack()
         setupPlayerHandView()
-        setupBonusStackView()
+        setupActionButtons()
         
         // Apply loaded settings to UI
         dealerHandView.setTotalsHidden(!showTotals)
         playerHandView.setTotalsHidden(!showTotals)
         deckView.setCountLabelVisible(showDeckCount)
-        
+        deckView.setCardCountLabelVisible(showCardCount)
+
         resetGame()
         // Ensure controls are updated after initial setup
         updateControls()
@@ -213,6 +231,11 @@ final class BlackjackGameplayViewController: UIViewController {
             showDeckCount = UserDefaults.standard.bool(forKey: SettingsKeys.showDeckCount)
         }
 
+        // Load showCardCount (default: false)
+        if UserDefaults.standard.object(forKey: SettingsKeys.showCardCount) != nil {
+            showCardCount = UserDefaults.standard.bool(forKey: SettingsKeys.showCardCount)
+        }
+
         // Load deckCount (default: 1)
         if UserDefaults.standard.object(forKey: SettingsKeys.deckCount) != nil {
             let savedDeckCount = UserDefaults.standard.integer(forKey: SettingsKeys.deckCount)
@@ -258,6 +281,7 @@ final class BlackjackGameplayViewController: UIViewController {
     private func saveSettings() {
         UserDefaults.standard.set(showTotals, forKey: SettingsKeys.showTotals)
         UserDefaults.standard.set(showDeckCount, forKey: SettingsKeys.showDeckCount)
+        UserDefaults.standard.set(showCardCount, forKey: SettingsKeys.showCardCount)
         UserDefaults.standard.set(deckCount, forKey: SettingsKeys.deckCount)
     }
     
@@ -322,8 +346,9 @@ final class BlackjackGameplayViewController: UIViewController {
     
     private func setupDealerHandView() {
         dealerHandView.translatesAutoresizingMaskIntoConstraints = false
+        dealerHandView.isUserInteractionEnabled = false // Disable tapping on dealer hand
         view.addSubview(dealerHandView)
-        
+
         NSLayoutConstraint.activate([
             dealerHandView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             dealerHandView.topAnchor.constraint(equalTo: instructionLabel.bottomAnchor, constant: 16)
@@ -365,20 +390,13 @@ final class BlackjackGameplayViewController: UIViewController {
             constant: 20
         )
         minSpacingFromDealer.priority = .defaultLow
-        
-        let minSpacingFromPlayer = bonusStackView.bottomAnchor.constraint(
-            lessThanOrEqualTo: playerHandView.topAnchor,
-            constant: -20
-        )
-        minSpacingFromPlayer.priority = .defaultLow
-        
+
         NSLayoutConstraint.activate([
             bonusStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             bonusStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             bonusStackView.heightAnchor.constraint(equalToConstant: 55),
             fixedTopPosition,
-            minSpacingFromDealer,
-            minSpacingFromPlayer
+            minSpacingFromDealer
         ])
     }
 
@@ -430,55 +448,12 @@ final class BlackjackGameplayViewController: UIViewController {
         ])
     }
     
-    private func setupNewHandButton() {
-        newHandButton = UIButton(type: .system)
-        newHandButton.translatesAutoresizingMaskIntoConstraints = false
-        newHandButton.setTitle("New Hand", for: .normal)
-        newHandButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-        newHandButton.backgroundColor = HardwayColors.surfaceGray
-        newHandButton.setTitleColor(.white, for: .normal)
-        newHandButton.layer.cornerRadius = 16
-        newHandButton.layer.borderWidth = 1.5
-        newHandButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
-        newHandButton.isHidden = true
-        newHandButton.alpha = 0
-        
-        newHandButton.addTarget(self, action: #selector(newHandTapped), for: .touchUpInside)
-        
-        // Add touch animations similar to ActionButton
-        newHandButton.addTarget(self, action: #selector(newHandTouchDown), for: [.touchDown, .touchDragEnter])
-        newHandButton.addTarget(self, action: #selector(newHandTouchUp), for: [.touchUpInside, .touchDragExit, .touchCancel])
-        
-        view.addSubview(newHandButton)
-        
-        NSLayoutConstraint.activate([
-            newHandButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            newHandButton.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
-            newHandButton.heightAnchor.constraint(equalToConstant: 70),
-            newHandButton.widthAnchor.constraint(equalToConstant: 120)
-        ])
-    }
-    
-    @objc private func newHandTouchDown() {
-        guard newHandButton.isEnabled else { return }
-        UIView.animate(withDuration: 0.1, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            self.newHandButton.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
-        }
-    }
-    
-    @objc private func newHandTouchUp() {
-        guard newHandButton.isEnabled else { return }
-        UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0.5, options: [.curveEaseInOut, .allowUserInteraction]) {
-            self.newHandButton.transform = .identity
-        }
-        HapticsHelper.lightHaptic()
-    }
     
     private func setupPlayerHandView() {
         // Create the scroll view for hands
         handsScrollView = UIScrollView()
         handsScrollView.translatesAutoresizingMaskIntoConstraints = false
-        handsScrollView.isPagingEnabled = true
+        handsScrollView.isPagingEnabled = false // We'll implement custom paging in scrollViewWillEndDragging
         handsScrollView.showsHorizontalScrollIndicator = false
         handsScrollView.showsVerticalScrollIndicator = false
         handsScrollView.alwaysBounceVertical = false
@@ -487,7 +462,11 @@ final class BlackjackGameplayViewController: UIViewController {
         handsScrollView.isDirectionalLockEnabled = true  // Lock to horizontal scrolling only
         handsScrollView.contentInsetAdjustmentBehavior = .never  // Prevent iOS from adjusting insets
         handsScrollView.clipsToBounds = false  // Allow content to show beyond scroll view bounds
+        handsScrollView.isScrollEnabled = false // Will be enabled when split
         handsScrollView.delegate = self
+        handsScrollView.decelerationRate = .fast // Faster deceleration for snappier paging
+        // Add initial content insets to center single hand (will be updated when split)
+        handsScrollView.contentInset = UIEdgeInsets(top: 0, left: getPeekAmount(), bottom: 0, right: getPeekAmount())
         view.addSubview(handsScrollView)
         
         // Create the content stack view
@@ -502,7 +481,31 @@ final class BlackjackGameplayViewController: UIViewController {
         // Add player hand view to the stack
         playerHandView.translatesAutoresizingMaskIntoConstraints = false
         handsContentStackView.addArrangedSubview(playerHandView)
-        
+
+        // Configure tap action to trigger hit
+        playerHandView.onTap = { [weak self] in
+            guard let self = self else { return }
+            // Only trigger hit during player's turn and when on first hand
+            if self.gamePhase == .playerTurn && (!self.isSplit || self.activeHandIndex == 0) {
+                self.playerHitTapped()
+            }
+        }
+
+        // Configure when tapping is allowed
+        playerHandView.canTap = { [weak self] in
+            guard let self = self else { return false }
+            // Allow tapping only during player's turn, when on first hand, and not busted
+            if self.isSplit {
+                // In split mode, check if first hand is active and not busted
+                return self.gamePhase == .playerTurn &&
+                       self.activeHandIndex == 0 &&
+                       !self.splitHandStates[0].busted
+            } else {
+                // In regular mode, check if not busted
+                return self.gamePhase == .playerTurn && !self.playerBusted
+            }
+        }
+
         // Configure the bet control with closures
         configurePlayerHandBetControl(playerHandView.betControl)
         
@@ -511,25 +514,24 @@ final class BlackjackGameplayViewController: UIViewController {
         
         // Set a minimum height for normal size (approximately 200pt for cards + bet control)
         let minimumHeight: CGFloat = 200
-        // Inset from edges so you can see the next hand peeking
-        let horizontalInset: CGFloat = 100
-        
+
         NSLayoutConstraint.activate([
-            // Scroll view constraints - inset from edges to show adjacent hands peeking
-            handsScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: horizontalInset),
-            handsScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -horizontalInset),
-            handsScrollView.bottomAnchor.constraint(equalTo: playerControlStack.topAnchor, constant: -12),
-            handsScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: minimumHeight),
-            
+            // Scroll view constraints - edge to edge for better split hand visibility
+            handsScrollView.topAnchor.constraint(equalTo: bonusStackView.bottomAnchor, constant: 16),
+            handsScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            handsScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            handsScrollView.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -24),
+
             // Content stack view constraints (fills scroll view height, width determined by number of hands)
             handsContentStackView.topAnchor.constraint(equalTo: handsScrollView.topAnchor),
             handsContentStackView.bottomAnchor.constraint(equalTo: handsScrollView.bottomAnchor),
             handsContentStackView.leadingAnchor.constraint(equalTo: handsScrollView.leadingAnchor),
             handsContentStackView.trailingAnchor.constraint(equalTo: handsScrollView.trailingAnchor),
             handsContentStackView.heightAnchor.constraint(equalTo: handsScrollView.heightAnchor),
-            
-            // Each hand should be the width of the scroll view
-            playerHandView.widthAnchor.constraint(equalTo: handsScrollView.widthAnchor)
+
+            // Each hand should be slightly less than scroll view width to show peeking
+            // Using multiplier 0.6 (each hand is 60% of screen, leaving 20% peek on each side)
+            playerHandView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6)
         ])
     }
     
@@ -572,35 +574,106 @@ final class BlackjackGameplayViewController: UIViewController {
     
     
     private func scrollToHand(_ handIndex: Int, animated: Bool) {
-        let pageWidth = handsScrollView.bounds.width + handsContentStackView.spacing
-        let offset = CGPoint(x: pageWidth * CGFloat(handIndex), y: 0)
+        // Calculate the width of each hand plus spacing
+        let handWidth = handsScrollView.bounds.width - 160 // Each hand is 160pt narrower than scroll view
+        let spacing = handsContentStackView.spacing
+        let pageWidth = handWidth + spacing
+
+        // Calculate offset (accounting for content inset)
+        let offset = CGPoint(x: pageWidth * CGFloat(handIndex) - handsScrollView.contentInset.left, y: 0)
         handsScrollView.setContentOffset(offset, animated: animated)
     }
     
-    private func setupPlayerControlStack() {
-        playerControlStack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(playerControlStack)
-        
-        playerControlStack.onActionTapped = { [weak self] action in
-            guard let self = self else { return }
-            switch action {
-            case .hit:
-                self.playerHitTapped()
-            case .stand:
-                self.playerStandTapped()
-            case .double:
-                self.playerDoubleTapped()
-            case .split:
-                self.playerSplitTapped()
-            }
-        }
-        
+    private func setupActionButtons() {
+        // Stand button action
+        standButton.addTarget(self, action: #selector(playerStandTapped), for: .touchUpInside)
+
+        // Double button action
+        doubleButton.addTarget(self, action: #selector(playerDoubleTapped), for: .touchUpInside)
+
+        // Split button action
+        splitButton.addTarget(self, action: #selector(playerSplitTapped), for: .touchUpInside)
+
+        // Set up New Hand button
+        newHandButton = UIButton(type: .system)
+        newHandButton.translatesAutoresizingMaskIntoConstraints = false
+        newHandButton.setTitle("New Hand", for: .normal)
+        newHandButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        newHandButton.backgroundColor = HardwayColors.surfaceGray
+        newHandButton.setTitleColor(.white, for: .normal)
+        newHandButton.layer.cornerRadius = 16
+        newHandButton.layer.borderWidth = 1.5
+        newHandButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
+        newHandButton.isHidden = true
+        newHandButton.alpha = 0
+        newHandButton.addTarget(self, action: #selector(newHandTapped), for: .touchUpInside)
+
+        // Set up Ready button
+        readyButton = UIButton(type: .system)
+        readyButton.translatesAutoresizingMaskIntoConstraints = false
+        readyButton.setTitle("Ready?", for: .normal)
+        readyButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        readyButton.backgroundColor = HardwayColors.surfaceGray
+        readyButton.setTitleColor(.white, for: .normal)
+        readyButton.layer.cornerRadius = 16
+        readyButton.layer.borderWidth = 1.5
+        readyButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
+        readyButton.isHidden = true
+        readyButton.alpha = 0
+        readyButton.addTarget(self, action: #selector(readyTapped), for: .touchUpInside)
+
+        // Create vertical stack for Stand and Double buttons in bottom right
+        rightButtonStack = UIStackView()
+        rightButtonStack.translatesAutoresizingMaskIntoConstraints = false
+        rightButtonStack.axis = .vertical
+        rightButtonStack.spacing = 8
+        rightButtonStack.alignment = .fill
+        rightButtonStack.distribution = .fillEqually
+
+        // Add Stand and Double to stack
+        rightButtonStack.addArrangedSubview(standButton)
+        rightButtonStack.addArrangedSubview(doubleButton)
+
+        view.addSubview(rightButtonStack)
+        view.addSubview(newHandButton)
+        view.addSubview(readyButton)
+
+        // Set up split button on the right side
+        splitButton.isHidden = true
+        splitButton.alpha = 0
+        view.addSubview(splitButton)
+
         NSLayoutConstraint.activate([
-            playerControlStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            playerControlStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            playerControlStack.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -24),
-            playerControlStack.heightAnchor.constraint(equalToConstant: 45)
+            // Right button stack (Stand/Double) in bottom right corner
+            rightButtonStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            rightButtonStack.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
+            rightButtonStack.topAnchor.constraint(equalTo: bottomStackView.topAnchor),
+            rightButtonStack.widthAnchor.constraint(equalToConstant: 120),
+
+            // Each button gets equal height within the stack
+//            standButton.heightAnchor.constraint(equalToConstant: 35),
+//            doubleButton.heightAnchor.constraint(equalToConstant: 35),
+
+            // New Hand button in bottom RIGHT (same position as Stand/Double stack)
+            newHandButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            newHandButton.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
+            newHandButton.topAnchor.constraint(equalTo: bottomStackView.topAnchor),
+            newHandButton.widthAnchor.constraint(equalToConstant: 120),
+
+            // Ready button in bottom RIGHT (same position as New Hand button)
+            readyButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            readyButton.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
+            readyButton.topAnchor.constraint(equalTo: bottomStackView.topAnchor),
+            readyButton.widthAnchor.constraint(equalToConstant: 120),
+
+            // Split button positioned on right side, aligned with bottom of bottom stack
+            splitButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            splitButton.centerYAnchor.constraint(equalTo: playerHandView.centerYAnchor, constant: 0)
         ])
+
+        // Initially hide the Stand/Double stack
+        rightButtonStack.isHidden = true
+        rightButtonStack.alpha = 0
     }
     
     var balance: Int {
@@ -798,15 +871,22 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func refreshSettings() {
+        // Store previous deck count setting before loading new settings
+        let previousDeckCount = deckCount
+
         loadSettings()
         dealerHandView.setTotalsHidden(!showTotals)
         playerHandView.setTotalsHidden(!showTotals)
         splitHandView?.setTotalsHidden(!showTotals)
         deckView.setCountLabelVisible(showDeckCount)
-        if deckCount != deck.count / 52 {
+        deckView.setCardCountLabelVisible(showCardCount)
+
+        // Only reshuffle if the deck count setting actually changed
+        if deckCount != previousDeckCount {
             createAndShuffleDeck()
             deckView.setCardCount(52 * deckCount, animated: true)
         }
+
         updateNavigationBarMenu()
     }
     
@@ -893,42 +973,37 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     @objc private func newHandTapped() {
-        // This button serves dual purpose: "Ready?" and "New Hand"
-        if gamePhase == .readyToDeal {
-            // Function as "Ready" button
-            readyTapped()
-        } else if gamePhase == .gameOver {
-            // Function as "New Hand" button
-            // Clean up split hand if it exists before resetting
-            if isSplit {
-                cleanupSplitHand()
-            }
+        guard gamePhase == .gameOver else { return }
 
-            // Immediately change phase to prevent re-triggering discard animation
-            gamePhase = .waitingForBet
-            hasPlayerHit = false
-            hasPlayerStood = false
-            hasPlayerDoubled = false
-            playerDoubleDownCardIndex = nil
-            playerBusted = false
-            updateControls()
+        // Clean up split hand if it exists before resetting
+        if isSplit {
+            cleanupSplitHand()
+        }
 
-            // Update last balance before next hand
-            lastBalanceBeforeHand = balance
+        // Immediately change phase to prevent re-triggering discard animation
+        gamePhase = .waitingForBet
+        hasPlayerHit = false
+        hasPlayerStood = false
+        hasPlayerDoubled = false
+        playerDoubleDownCardIndex = nil
+        playerBusted = false
+        updateControls()
 
-            // Discard cards to top left, then check bet status
-            discardHandsToTopLeft { [weak self] in
-                guard let self = self else { return }
+        // Update last balance before next hand
+        lastBalanceBeforeHand = balance
 
-                // Don't reshuffle - continue drawing from existing deck
-                // It will auto-reshuffle when empty
+        // Discard cards to top left, then check bet status
+        discardHandsToTopLeft { [weak self] in
+            guard let self = self else { return }
 
-                // Apply rebet if enabled
-                self.applyRebetIfNeeded()
+            // Don't reshuffle - continue drawing from existing deck
+            // It will auto-reshuffle when empty
 
-                self.updateInstructionMessage()
-                self.checkBetStatus()
-            }
+            // Apply rebet if enabled
+            self.applyRebetIfNeeded()
+
+            self.updateInstructionMessage()
+            self.checkBetStatus()
         }
     }
     
@@ -949,7 +1024,7 @@ final class BlackjackGameplayViewController: UIViewController {
         updateBetShimmer()
     }
     
-    private func readyTapped() {
+    @objc private func readyTapped() {
         guard gamePhase == .readyToDeal else { return }
 
         // Record balance before hand starts
@@ -1204,7 +1279,7 @@ final class BlackjackGameplayViewController: UIViewController {
         }
     }
     
-    private func playerStandTapped() {
+    @objc private func playerStandTapped() {
         guard gamePhase == .playerTurn else { return }
         
         if isSplit {
@@ -1227,7 +1302,7 @@ final class BlackjackGameplayViewController: UIViewController {
         }
     }
     
-    private func playerSplitTapped() {
+    @objc private func playerSplitTapped() {
         guard gamePhase == .playerTurn && !hasPlayerStood && !hasPlayerDoubled else { return }
         guard playerHandView.currentCards.count == 2 && !hasPlayerHit else { return }
         
@@ -1260,7 +1335,26 @@ final class BlackjackGameplayViewController: UIViewController {
         splitHand.translatesAutoresizingMaskIntoConstraints = false
         splitHand.setTotalsHidden(!showTotals)
         splitHandView = splitHand
-        
+
+        // Configure tap action to trigger hit on split hand
+        splitHand.onTap = { [weak self] in
+            guard let self = self else { return }
+            // Only trigger hit during player's turn and when split hand is active
+            if self.gamePhase == .playerTurn && self.isSplit && self.activeHandIndex == 1 {
+                self.playerHitTapped()
+            }
+        }
+
+        // Configure when tapping is allowed on split hand
+        splitHand.canTap = { [weak self] in
+            guard let self = self else { return false }
+            // Allow tapping only during player's turn, when split hand is active, and not busted
+            return self.gamePhase == .playerTurn &&
+                   self.isSplit &&
+                   self.activeHandIndex == 1 &&
+                   !self.splitHandStates[1].busted
+        }
+
         // Configure split hand bet control
         configurePlayerHandBetControl(splitHand.betControl)
         splitHand.betControl.betAmount = betAmount
@@ -1268,62 +1362,145 @@ final class BlackjackGameplayViewController: UIViewController {
         // Move second card to split hand
         let secondCard = cards[1]
         let firstCard = cards[0]
-        
+
         // Add split hand to scroll view and animate it in
         animateSplitHandIn(splitHand: splitHand)
-        
-        // Clear first hand and add first card back (without animation)
-        playerHandView.clearCards()
-        // Use addCard which will animate, but we'll deal the new card after
-        playerHandView.addCard(firstCard)
-        
-        // Deal new card to first hand
-        let deckCenter = view.convert(deckView.deckCenter, from: deckView)
-        let newCard1 = randomHandCard()
-        
-        // Wait for first card to be added, then deal new card
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+
+        // Prepare the split hand with the second card (without animation, hidden initially)
+        splitHand.setCardsWithoutAnimation([secondCard])
+
+        // Animate the second card from original hand to split hand
+        animateCardToSplitHand(card: secondCard, from: playerHandView, to: splitHand, completion: { [weak self] in
             guard let self = self else { return }
-            self.playerHandView.dealCard(newCard1, from: deckCenter, in: self.view)
-            
-            // Set up split hand with second card
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self = self else { return }
-                // Add second card to split hand
-                splitHand.addCard(secondCard)
-                
-                // Deal new card to split hand
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    guard let self = self else { return }
-                    let newCard2 = self.randomHandCard()
-                    splitHand.dealCard(newCard2, from: deckCenter, in: self.view)
-                }
+
+            // After animation completes, update both hands without animation
+            // Update original hand to just have the first card
+            self.playerHandView.setCardsWithoutAnimation([firstCard])
+
+            // Set up split hand with the second card (without animation)
+            splitHand.setCardsWithoutAnimation([secondCard])
+
+            // Reveal the card in the split hand (it was hidden during animation)
+            if let firstCardView = splitHand.cardViewsForAnimation.first {
+                firstCardView.alpha = 1
             }
-        }
+
+            // Update controls - player can now choose to hit either hand
+            self.updateControls()
+        })
     }
     
     private func animateSplitHandIn(splitHand: PlayerHandView) {
         // Add split hand to the content stack view
         handsContentStackView.addArrangedSubview(splitHand)
-        
-        // Add width constraint to match scroll view width
-        splitHand.widthAnchor.constraint(equalTo: handsScrollView.widthAnchor).isActive = true
-        
+
+        // Add width constraint to match first hand (60% of screen, leaving 20% peek on each side)
+        splitHand.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6).isActive = true
+
+        // Update content insets to center hands (20% on each side for peeking)
+        handsScrollView.contentInset = UIEdgeInsets(top: 0, left: getPeekAmount(), bottom: 0, right: getPeekAmount())
+
+        // Enable scrolling now that we have two hands
+        handsScrollView.isScrollEnabled = true
+
         // Start split hand with zero alpha
         splitHand.alpha = 0
-        
+
         // Force layout to update content size
         view.layoutIfNeeded()
-        
+
         // Animate split hand appearing
         UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.5, options: [.curveEaseOut]) {
             splitHand.alpha = 1
         }
-        
+
         // Update controls for split state
         updateControls()
     }
-    
+
+    private func animateCardToSplitHand(card: BlackjackHandView.Card, from sourceHandView: PlayerHandView, to targetHandView: PlayerHandView, completion: @escaping () -> Void) {
+        // Force layout to ensure accurate positions
+        view.layoutIfNeeded()
+
+        // Get the second card view from the source hand (index 1)
+        let sourceCardViews = sourceHandView.cardViewsForAnimation
+        guard sourceCardViews.count >= 2 else {
+            // Fallback: just complete immediately if we can't find the card
+            completion()
+            return
+        }
+
+        let secondCardView = sourceCardViews[1]
+
+        // Get source position (second card in the original hand)
+        guard let sourceFrame = sourceHandView.getCardViewFrame(at: 1, in: view) else {
+            completion()
+            return
+        }
+        let sourceCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+
+        // Get target position from the actual card position in the split hand
+        // The split hand should already have the card added (but hidden)
+        let targetCardViews = targetHandView.cardViewsForAnimation
+        guard targetCardViews.count >= 1 else {
+            completion()
+            return
+        }
+
+        // Hide the target card initially so we can animate to its position
+        targetCardViews[0].alpha = 0
+
+        // Force layout on target hand to get accurate position
+        targetHandView.layoutIfNeeded()
+
+        // Get the actual target frame of the first card in the split hand
+        guard let targetFrame = targetHandView.getCardViewFrame(at: 0, in: view) else {
+            completion()
+            return
+        }
+        let targetCenter = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+
+        // Get the transform of the target card
+        let targetTransform = targetCardViews[0].transform
+
+        // Create temporary card for animation
+        let tempCard = PlayingCardView()
+        tempCard.configure(rank: card.rank, suit: card.suit)
+        tempCard.setFaceDown(false, animated: false)
+
+        // Apply shadow
+        tempCard.layer.masksToBounds = false
+        tempCard.layer.shadowColor = UIColor.black.cgColor
+        tempCard.layer.shadowOpacity = 0.18
+        tempCard.layer.shadowRadius = 6
+        tempCard.layer.shadowOffset = CGSize(width: 0, height: 3)
+
+        // Match the size and transform of the source card
+        tempCard.bounds = CGRect(origin: .zero, size: sourceFrame.size)
+        tempCard.center = sourceCenter
+        tempCard.transform = secondCardView.transform
+
+        view.addSubview(tempCard)
+
+        // Hide the original second card immediately
+        secondCardView.alpha = 0
+
+        // Animate to target position
+        UIView.animate(withDuration: 0.4, delay: 0.1, usingSpringWithDamping: 0.75, initialSpringVelocity: 0.3, options: [.curveEaseInOut]) {
+            tempCard.center = targetCenter
+            tempCard.transform = targetTransform // Match the target card's transform
+        } completion: { _ in
+            // Remove temporary card
+            tempCard.removeFromSuperview()
+
+            // Call completion to update the actual hands
+            completion()
+        }
+
+        // Trigger haptic
+        HapticsHelper.superLightHaptic()
+    }
+
     private func switchFocusToHand(_ handIndex: Int) {
         guard isSplit, handIndex >= 0 && handIndex <= 1 else { return }
         guard activeHandIndex != handIndex else { return }
@@ -1336,7 +1513,7 @@ final class BlackjackGameplayViewController: UIViewController {
         updateControls()
     }
     
-    private func playerDoubleTapped() {
+    @objc private func playerDoubleTapped() {
         guard gamePhase == .playerTurn && !hasPlayerStood else { return }
         
         if isSplit {
@@ -1828,9 +2005,18 @@ final class BlackjackGameplayViewController: UIViewController {
     
     private func cleanupSplitHand() {
         guard isSplit else { return }
-        
-        // Animate split hand out
+
+        // Collect any remaining bet from split hand (for wins/pushes)
         if let splitHand = splitHandView {
+            let splitBetAmount = splitHand.betControl.betAmount
+            if splitBetAmount > 0 {
+                // Return the bet to balance
+                balance += splitBetAmount
+                // Clear the bet display
+                splitHand.betControl.betAmount = 0
+            }
+
+            // Animate split hand out
             UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.5, options: [.curveEaseInOut]) {
                 splitHand.alpha = 0
             } completion: { [weak self] _ in
@@ -1840,16 +2026,19 @@ final class BlackjackGameplayViewController: UIViewController {
                 splitHand.removeFromSuperview()
             }
         }
-        
+
         // Scroll back to first hand
         scrollToHand(0, animated: true)
-        
+
+        // Disable scrolling when back to single hand
+        handsScrollView.isScrollEnabled = false
+
         // Clear split state
         isSplit = false
         activeHandIndex = 0
         splitHandStates = []
         splitHandView = nil
-        
+
         // Force layout update
         view.layoutIfNeeded()
     }
@@ -1919,48 +2108,12 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func updateControls() {
-        if isSplit {
-            // Update controls for split state
-            let currentHand = activeHandIndex == 0 ? playerHandView : splitHandView!
-            let currentState = splitHandStates[activeHandIndex]
-            let cards = currentHand.currentCards
-            let cardCount = cards.count
-            
-            // Can't split again after initial split
-            let canSplit = false
-            
-            let controlState = PlayerControlStack.GameState(
-                gamePhase: gamePhase,
-                cardCount: cardCount,
-                hasHit: currentState.hasHit,
-                canSplit: canSplit,
-                hasBet: currentHand.betControl.betAmount > 0,
-                playerHasStood: currentState.hasStood,
-                hasDoubled: currentState.hasDoubled
-            )
-            
-            playerControlStack.updateControls(for: controlState)
-        } else {
-            // Normal single hand controls
-            let cards = playerHandView.currentCards
-            let cardCount = cards.count
-            
-            // Check if can split (first two cards have same rank)
-            let canSplit = cardCount >= 2 && cards.count >= 2 && cards[0].rank == cards[1].rank
-            
-            let controlState = PlayerControlStack.GameState(
-                gamePhase: gamePhase,
-                cardCount: cardCount,
-                hasHit: hasPlayerHit,
-                canSplit: canSplit,
-                hasBet: playerHandView.betControl.betAmount > 0,
-                playerHasStood: hasPlayerStood,
-                hasDoubled: hasPlayerDoubled
-            )
-            
-            playerControlStack.updateControls(for: controlState)
-        }
-        
+        // Update button states based on game phase
+        updateActionButtonsVisibility()
+        updateStandButtonState()
+        updateDoubleButtonState()
+        updateSplitButtonVisibility()
+
         // Lock bet once hand begins (prevent addition/removal)
         let betLocked = gamePhase != .waitingForBet && gamePhase != .readyToDeal
         playerHandView.betControl.setBetRemovalDisabled(betLocked)
@@ -1977,44 +2130,63 @@ final class BlackjackGameplayViewController: UIViewController {
             control.isEnabled = !betLocked
         }
         
-        // Update New Hand/Ready button visibility and text
-        let shouldShowButton = gamePhase == .readyToDeal || gamePhase == .gameOver
-        let shouldBeEnabled = (gamePhase == .readyToDeal && playerHandView.betControl.betAmount > 0) || gamePhase == .gameOver
-        
-        // Update button text based on phase
-        if gamePhase == .readyToDeal {
-            newHandButton.setTitle("Ready?", for: .normal)
-        } else if gamePhase == .gameOver {
-            newHandButton.setTitle("New Hand", for: .normal)
-        }
-        
-        // Update button enabled state
-        newHandButton.isEnabled = shouldBeEnabled
-        if !shouldBeEnabled && gamePhase == .readyToDeal {
-            // Disabled state styling
-            UIView.animate(withDuration: 0.2) {
-                self.newHandButton.backgroundColor = HardwayColors.surfaceGray.withAlphaComponent(0.5)
-                self.newHandButton.setTitleColor(HardwayColors.label.withAlphaComponent(0.5), for: .normal)
-                self.newHandButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.2).cgColor
+        // Update Ready button visibility
+        let shouldShowReadyButton = gamePhase == .readyToDeal
+        let shouldReadyBeEnabled = playerHandView.betControl.betAmount > 0
+
+        if shouldShowReadyButton && readyButton.isHidden {
+            // Update button styling BEFORE showing
+            readyButton.isEnabled = shouldReadyBeEnabled
+            if !shouldReadyBeEnabled {
+                readyButton.backgroundColor = HardwayColors.surfaceGray.withAlphaComponent(0.5)
+                readyButton.setTitleColor(HardwayColors.label.withAlphaComponent(0.5), for: .normal)
+                readyButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.2).cgColor
+            } else {
+                readyButton.backgroundColor = HardwayColors.surfaceGray
+                readyButton.setTitleColor(.white, for: .normal)
+                readyButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
             }
-        } else {
-            // Enabled state styling
-            UIView.animate(withDuration: 0.2) {
-                self.newHandButton.backgroundColor = HardwayColors.surfaceGray
-                self.newHandButton.setTitleColor(.white, for: .normal)
-                self.newHandButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
+
+            // Show button with animation
+            readyButton.isHidden = false
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4, options: [.curveEaseInOut, .allowUserInteraction]) {
+                self.readyButton.alpha = 1
+                self.readyButton.transform = .identity
+            }
+        } else if !shouldShowReadyButton && !readyButton.isHidden {
+            // Hide button with animation
+            UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+                self.readyButton.alpha = 0
+                self.readyButton.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+            } completion: { _ in
+                self.readyButton.isHidden = true
+                self.readyButton.transform = .identity
+            }
+        } else if shouldShowReadyButton && !readyButton.isHidden {
+            // Button is already visible, just update styling if needed
+            readyButton.isEnabled = shouldReadyBeEnabled
+            if !shouldReadyBeEnabled {
+                readyButton.backgroundColor = HardwayColors.surfaceGray.withAlphaComponent(0.5)
+                readyButton.setTitleColor(HardwayColors.label.withAlphaComponent(0.5), for: .normal)
+                readyButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.2).cgColor
+            } else {
+                readyButton.backgroundColor = HardwayColors.surfaceGray
+                readyButton.setTitleColor(.white, for: .normal)
+                readyButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
             }
         }
-        
-        // Show/hide button with animation
-        if shouldShowButton && newHandButton.isHidden {
+
+        // Update New Hand button visibility
+        let shouldShowNewHandButton = gamePhase == .gameOver
+
+        if shouldShowNewHandButton && newHandButton.isHidden {
             // Show button with animation
             newHandButton.isHidden = false
             UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4, options: [.curveEaseInOut, .allowUserInteraction]) {
                 self.newHandButton.alpha = 1
                 self.newHandButton.transform = .identity
             }
-        } else if !shouldShowButton && !newHandButton.isHidden {
+        } else if !shouldShowNewHandButton && !newHandButton.isHidden {
             // Hide button with animation
             UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
                 self.newHandButton.alpha = 0
@@ -2027,6 +2199,81 @@ final class BlackjackGameplayViewController: UIViewController {
         
         // Update shimmer based on current state
         updateBetShimmer()
+    }
+
+    private func updateActionButtonsVisibility() {
+        // Show Stand/Double stack during player turn, hide it otherwise
+        // Show New Hand button when game is over or ready to deal
+        let shouldShowActionButtons = gamePhase == .playerTurn
+        let shouldShowNewHandButton = gamePhase == .readyToDeal || gamePhase == .gameOver
+
+        // Toggle between action buttons and new hand button
+        if shouldShowActionButtons && rightButtonStack.isHidden {
+            // Show action buttons
+            rightButtonStack.isHidden = false
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4, options: [.curveEaseInOut, .allowUserInteraction]) {
+                self.rightButtonStack.alpha = 1
+            }
+        } else if !shouldShowActionButtons && !rightButtonStack.isHidden {
+            // Hide action buttons quickly
+            UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+                self.rightButtonStack.alpha = 0
+            } completion: { _ in
+                self.rightButtonStack.isHidden = true
+            }
+        }
+    }
+
+    private func updateStandButtonState() {
+        // Stand button should be enabled during player's turn
+        let isEnabled = gamePhase == .playerTurn && !hasPlayerStood
+        standButton.isEnabled = isEnabled
+        standButton.setDisabled(!isEnabled)
+    }
+
+    private func updateDoubleButtonState() {
+        // Double button should be greyed out (disabled) when not available
+        // Always visible during player turn, just disabled when can't double
+        let isEnabled: Bool
+        if isSplit {
+            let currentState = splitHandStates[activeHandIndex]
+            let currentHand = activeHandIndex == 0 ? playerHandView : splitHandView!
+            let cardCount = currentHand.currentCards.count
+            isEnabled = gamePhase == .playerTurn && cardCount == 2 && !currentState.hasHit && !currentState.hasDoubled
+        } else {
+            let cardCount = playerHandView.currentCards.count
+            isEnabled = gamePhase == .playerTurn && cardCount == 2 && !hasPlayerHit && !hasPlayerDoubled
+        }
+
+        doubleButton.isEnabled = isEnabled
+        doubleButton.setDisabled(!isEnabled)
+    }
+
+    private func updateSplitButtonVisibility() {
+        // Split button should only be visible when cards are eligible to split
+        let shouldShow: Bool
+        if isSplit {
+            // Can't split again after initial split
+            shouldShow = false
+        } else {
+            let cards = playerHandView.currentCards
+            let cardCount = cards.count
+            let canSplit = cardCount >= 2 && cards.count >= 2 && cards[0].rank == cards[1].rank
+            shouldShow = gamePhase == .playerTurn && canSplit && cardCount == 2 && !hasPlayerHit
+        }
+
+        if shouldShow && splitButton.isHidden {
+            splitButton.isHidden = false
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4, options: [.curveEaseInOut, .allowUserInteraction]) {
+                self.splitButton.alpha = 1
+            }
+        } else if !shouldShow && !splitButton.isHidden {
+            UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+                self.splitButton.alpha = 0
+            } completion: { _ in
+                self.splitButton.isHidden = true
+            }
+        }
     }
 
     private func configureBonusBetControl(_ control: BonusBetControl) {
@@ -2070,18 +2317,21 @@ final class BlackjackGameplayViewController: UIViewController {
             var isWin = false
             var odds: Double = 0.0
             var winMessage: String? = nil
-            
+            var bonusDescription: String? = nil
+
             // Determine which bonus bet this is based on title
             if control.title == "Perfect Pairs" {
                 // Perfect Pairs: Check for all pair types and pay the highest applicable odds
                 if firstCard.rank == secondCard.rank {
                     isWin = true
-                    
+
                     // Determine pair type and payout (check highest odds first)
                     if firstCard.suit == secondCard.suit {
                         // Perfect Pair: same rank and suit - pays 30:1 (highest)
                         odds = 30.0
                         winMessage = "Perfect Pair! Identical \(firstCard.rank.rawValue)s pay 30:1!"
+                        bonusDescription = "PERFECT PAIR"
+                        blackjackMetrics.perfectPairsWon += 1
                     } else {
                         // Check if same color (colored pair) or different color (mixed pair)
                         // Red suits: hearts, diamonds
@@ -2089,15 +2339,19 @@ final class BlackjackGameplayViewController: UIViewController {
                         let firstIsRed = (firstCard.suit == .hearts || firstCard.suit == .diamonds)
                         let secondIsRed = (secondCard.suit == .hearts || secondCard.suit == .diamonds)
                         let isSameColor = (firstIsRed == secondIsRed)
-                        
+
                         if isSameColor {
                             // Colored Pair: same rank, same color, different suits - pays 10:1
                             odds = 10.0
                             winMessage = "Colored Pair! \(firstCard.rank.rawValue)s pay 10:1!"
+                            bonusDescription = "COLORED PAIR"
+                            blackjackMetrics.coloredPairsWon += 1
                         } else {
                             // Mixed Pair: same rank, different colors - pays 5:1 (lowest)
                             odds = 5.0
                             winMessage = "Mixed Pair! \(firstCard.rank.rawValue)s pay 5:1!"
+                            bonusDescription = "MIXED PAIR"
+                            blackjackMetrics.mixedPairsWon += 1
                         }
                     }
                 }
@@ -2106,20 +2360,24 @@ final class BlackjackGameplayViewController: UIViewController {
                 // Pay the highest applicable odds
                 if firstCard.suit == secondCard.suit {
                     isWin = true
-                    
+
                     // Check if it's a Royal Match (King and Queen of same suit)
                     let isKing = (firstCard.rank == .king || secondCard.rank == .king)
                     let isQueen = (firstCard.rank == .queen || secondCard.rank == .queen)
                     let isRoyalMatch = isKing && isQueen
-                    
+
                     if isRoyalMatch {
                         // Royal Match: K+Q suited - pays 25:1 (highest)
                         odds = 25.0
                         winMessage = "Royal Match! King & Queen suited pay 25:1!"
+                        bonusDescription = "ROYAL MATCH"
+                        blackjackMetrics.royalMatchesWon += 1
                     } else {
                         // Suited Cards: Any two suited cards - pays 3:1
                         odds = 3.0
                         winMessage = "Suited Match! Suited cards pay 3:1!"
+                        bonusDescription = "SUITED MATCH"
+                        blackjackMetrics.suitedMatchesWon += 1
                     }
                 }
             }
@@ -2128,10 +2386,14 @@ final class BlackjackGameplayViewController: UIViewController {
                 let betAmount = control.betAmount
                 let winAmount = Int(Double(betAmount) * odds)
 
-                // Show bet result container with bonus label
+                // Track bonus win metrics
+                blackjackMetrics.bonusesWon += 1
+                blackjackMetrics.totalBonusWinnings += winAmount
+
+                // Show bet result container with bonus description
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     guard let self = self else { return }
-                    self.showBetResult(amount: winAmount, isWin: true, showBonus: true)
+                    self.showBetResult(amount: winAmount, isWin: true, showBonus: true, description: bonusDescription)
                 }
 
                 // Animate winnings from house to bonus bet control (offset), then both to balance
@@ -2307,7 +2569,7 @@ final class BlackjackGameplayViewController: UIViewController {
     
     private func createAndShuffleDeck() {
         deck.removeAll()
-        
+
         // Create multiple decks based on deckCount
         for _ in 0..<deckCount {
             // Create a standard 52-card deck
@@ -2317,20 +2579,46 @@ final class BlackjackGameplayViewController: UIViewController {
                 }
             }
         }
-        
+
         // Shuffle the deck
         deck.shuffle()
+
+        // Reset card count when deck is shuffled
+        runningCount = 0
+        deckView.updateCardCountLabel(0) // True count is also 0 when shuffled
     }
     
+    private func getCardCountValue(for card: BlackjackHandView.Card) -> Int {
+        switch card.rank {
+        case .two, .three, .four, .five, .six:
+            return 1  // Low cards: +1
+        case .seven, .eight, .nine:
+            return 0  // Neutral cards: 0
+        case .ten, .jack, .queen, .king, .ace:
+            return -1 // High cards: -1
+        }
+    }
+
+    private func calculateTrueCount() -> Int {
+        // True count = running count / number of decks remaining
+        let decksRemaining = max(1.0, Double(deck.count) / 52.0)
+        let trueCount = Double(runningCount) / decksRemaining
+        return Int(round(trueCount))
+    }
+
     private func drawCard() -> BlackjackHandView.Card {
         // Check if we need to reshuffle before drawing
         if deck.isEmpty || deck.count < 6 {
             createAndShuffleDeck()
             deckView.setCardCount(52 * deckCount, animated: true)
             instructionLabel.showMessage("Deck reshuffled!", shouldFade: true)
+
+            // Reset card count when deck is reshuffled
+            runningCount = 0
+            deckView.updateCardCountLabel(0) // True count is also 0 when shuffled
         }
-        
-        // Draw and remove the top card (but don't update visual count yet)
+
+        // Draw and remove the top card (but don't update count yet - will update when card animation completes)
         let card = deck.removeFirst()
         return card
     }
@@ -2390,6 +2678,13 @@ final class BlackjackGameplayViewController: UIViewController {
     func onCardDealt() {
         // Update deck count when a card animation starts
         deckView.drawCard()
+    }
+
+    func onCardAnimationComplete(card: BlackjackHandView.Card) {
+        // Update card count when card animation completes (true count)
+        runningCount += getCardCountValue(for: card)
+        let trueCount = calculateTrueCount()
+        deckView.updateCardCountLabel(trueCount)
     }
     
     // MARK: - Chip Animations
@@ -2686,29 +2981,79 @@ extension BlackjackGameplayViewController: ChipSelectorDelegate {
 }
 
 extension BlackjackGameplayViewController: UIScrollViewDelegate {
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard scrollView === handsScrollView, isSplit else { return }
-        
-        let pageWidth = scrollView.bounds.width + handsContentStackView.spacing
-        let currentPage = Int(round(scrollView.contentOffset.x / pageWidth))
-        
-        // Update active hand index if changed
-        if currentPage != activeHandIndex {
-            activeHandIndex = currentPage
+
+        // Calculate the width of each hand plus spacing
+        let handWidth = scrollView.bounds.width - getTotalPeekAmount()
+        let spacing = handsContentStackView.spacing
+        let pageWidth = handWidth + spacing
+
+        // Account for content inset when calculating target page
+        let adjustedOffset = targetContentOffset.pointee.x + scrollView.contentInset.left
+
+        // Determine which page to snap to
+        let targetPage: Int
+        if velocity.x > 0.5 {
+            // Swiping right with momentum - go to next page
+            targetPage = min(1, activeHandIndex + 1)
+        } else if velocity.x < -0.5 {
+            // Swiping left with momentum - go to previous page
+            targetPage = max(0, activeHandIndex - 1)
+        } else {
+            // Low velocity - snap to nearest page
+            targetPage = Int(round(adjustedOffset / pageWidth))
+        }
+
+        // Calculate the target offset
+        let targetOffset = pageWidth * CGFloat(targetPage) - scrollView.contentInset.left
+        targetContentOffset.pointee.x = targetOffset
+
+        // Update active hand index
+        if targetPage != activeHandIndex {
+            activeHandIndex = targetPage
             updateControls()
+            print("DEBUG: Snapping to hand \(targetPage)")
         }
     }
-    
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         guard scrollView === handsScrollView, isSplit else { return }
-        
-        let pageWidth = scrollView.bounds.width + handsContentStackView.spacing
-        let currentPage = Int(round(scrollView.contentOffset.x / pageWidth))
-        
+
+        // Calculate the width of each hand plus spacing
+        let handWidth = scrollView.bounds.width - getTotalPeekAmount()
+        let spacing = handsContentStackView.spacing
+        let pageWidth = handWidth + spacing
+
+        // Account for content inset when calculating current page
+        let adjustedOffset = scrollView.contentOffset.x + scrollView.contentInset.left
+        let currentPage = Int(round(adjustedOffset / pageWidth))
+
         // Update active hand index if changed
         if currentPage != activeHandIndex {
             activeHandIndex = currentPage
             updateControls()
+            print("DEBUG: Scrolled to hand \(currentPage)")
+        }
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        guard scrollView === handsScrollView, isSplit else { return }
+
+        // Calculate the width of each hand plus spacing
+        let handWidth = scrollView.bounds.width - getTotalPeekAmount()
+        let spacing = handsContentStackView.spacing
+        let pageWidth = handWidth + spacing
+
+        // Account for content inset when calculating current page
+        let adjustedOffset = scrollView.contentOffset.x + scrollView.contentInset.left
+        let currentPage = Int(round(adjustedOffset / pageWidth))
+
+        // Update active hand index if changed
+        if currentPage != activeHandIndex {
+            activeHandIndex = currentPage
+            updateControls()
+            print("DEBUG: Scrolled to hand \(currentPage)")
         }
     }
 }

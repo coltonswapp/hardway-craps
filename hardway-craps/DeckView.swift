@@ -17,6 +17,7 @@ class DeckView: UIView {
     private var cardViews: [PlayingCardView] = []
     private var cardCount: Int = 52
     private let countLabel = UILabel()
+    private let cardCountLabel = UILabel()
     
     var deckCenter: CGPoint {
         return CGPoint(x: bounds.midX, y: bounds.midY)
@@ -55,7 +56,27 @@ class DeckView: UIView {
             countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 30),
             countLabel.heightAnchor.constraint(equalToConstant: 20)
         ])
-        
+
+        // Setup card count label (for card counting)
+        cardCountLabel.translatesAutoresizingMaskIntoConstraints = false
+        cardCountLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        cardCountLabel.textColor = .white
+        cardCountLabel.textAlignment = .center
+        cardCountLabel.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        cardCountLabel.layer.cornerRadius = 4
+        cardCountLabel.layer.masksToBounds = true
+        cardCountLabel.isHidden = true
+        cardCountLabel.isUserInteractionEnabled = false
+        cardCountLabel.text = "0"
+        addSubview(cardCountLabel)
+
+        NSLayoutConstraint.activate([
+            cardCountLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 8),
+            cardCountLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            cardCountLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 30),
+            cardCountLabel.heightAnchor.constraint(equalToConstant: 20)
+        ])
+
         // Create a visual representation of the deck
         updateDeckVisual()
     }
@@ -84,7 +105,16 @@ class DeckView: UIView {
     func setCountLabelVisible(_ visible: Bool) {
         countLabel.isHidden = !visible
     }
-    
+
+    func setCardCountLabelVisible(_ visible: Bool) {
+        cardCountLabel.isHidden = !visible
+    }
+
+    func updateCardCountLabel(_ count: Int) {
+        let prefix = count > 0 ? "+" : ""
+        cardCountLabel.text = "\(prefix)\(count)"
+    }
+
     private func updateCountLabel() {
         countLabel.text = "\(cardCount)"
     }

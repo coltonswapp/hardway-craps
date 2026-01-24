@@ -19,6 +19,17 @@ class BetResultContainer: UIVisualEffectView {
         label.alpha = 0
         return label
     }()
+    
+    private let descriptionLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.textAlignment = .center
+        label.font = .systemFont(ofSize: 14, weight: .heavy)
+        label.textColor = HardwayColors.yellow
+        label.text = "BONUS"
+        label.alpha = 0
+        return label
+    }()
 
     private let label: UILabel = {
         let label = UILabel()
@@ -71,6 +82,7 @@ class BetResultContainer: UIVisualEffectView {
         setupLiquidGlassEffect()
 
         contentView.addSubview(bonusLabel)
+        contentView.addSubview(descriptionLabel)
         contentView.addSubview(label)
 
         NSLayoutConstraint.activate([
@@ -79,6 +91,9 @@ class BetResultContainer: UIVisualEffectView {
 
             label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            
+            descriptionLabel.centerYAnchor.constraint(equalTo: contentView.bottomAnchor, constant: 0),
+            descriptionLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
 
             widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
             heightAnchor.constraint(equalToConstant: 80)
@@ -88,7 +103,6 @@ class BetResultContainer: UIVisualEffectView {
     private func setupLiquidGlassEffect() {
         // Capsule shape
         layer.cornerRadius = 40
-//        clipsToBounds = true
         
         // Add background styling for non-glass versions
         if #available(iOS 26.0, *) {
@@ -114,7 +128,7 @@ class BetResultContainer: UIVisualEffectView {
         layer.masksToBounds = false
     }
     
-    func animateToAmount(_ amount: Int, isWin: Bool = true, showBonus: Bool = false) {
+    func animateToAmount(_ amount: Int, isWin: Bool = true, showBonus: Bool = false, description: String? = nil) {
         self.isWin = isWin
         startValue = 0
         targetValue = amount
@@ -124,9 +138,12 @@ class BetResultContainer: UIVisualEffectView {
         // Set text color based on win/loss
         label.textColor = isWin ? HardwayColors.yellow : .systemRed
         bonusLabel.textColor = isWin ? HardwayColors.yellow : .systemRed
+        descriptionLabel.textColor = isWin ? HardwayColors.yellow : .systemRed
 
         // Show/hide bonus label
         bonusLabel.alpha = showBonus ? 1 : 0
+        descriptionLabel.alpha = showBonus ? 1 : 0
+        descriptionLabel.text = description
 
         // Reset label
         label.text = "$0"
