@@ -60,6 +60,7 @@ final class BlackjackGameplayViewController: UIViewController {
 
     private var deck: [BlackjackHandView.Card] { deckManager.deck }
     private var runningCount: Int { deckManager.runningCount }
+    private var shouldShuffleAfterHand: Bool { deckManager.shouldShuffleAfterHand }
 
     // MARK: - Session Computed Properties (for backward compatibility)
 
@@ -85,18 +86,26 @@ final class BlackjackGameplayViewController: UIViewController {
     }
 
     private var isSplit: Bool { gameStateManager.isSplit }
-    private var activeHandIndex: Int { gameStateManager.activeHandIndex }
+    private var activeHandIndex: Int {
+        get { gameStateManager.activeHandIndex }
+        set { gameStateManager.setActiveHandIndex(newValue) }
+    }
     private var splitHandStates: [BlackjackGameStateManager.SplitHandState] { gameStateManager.splitHandStates }
 
     // MARK: - Bet Computed Properties (for backward compatibility)
 
-    private var rebetEnabled: Bool { betManager.rebetEnabled }
-    private var rebetAmount: Int { betManager.rebetAmount }
+    private var rebetEnabled: Bool {
+        get { betManager.rebetEnabled }
+        set { betManager.setRebetEnabled(newValue) }
+    }
+    private var rebetAmount: Int {
+        get { betManager.rebetAmount }
+        set { betManager.setRebetAmount(newValue) }
+    }
 
     private var deckCount: Int = 1 // Number of decks (1, 2, 4, or 6)
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, etc.)
     private var cutCardPosition: Int? = nil // Position in deck where cut card is placed (nil if no cut card)
-    private var shouldShuffleAfterHand: Bool = false // Flag to shuffle after current hand completes
 
     // Tip tracking
     private var hasShownPlaceBetTip: Bool = false
@@ -785,29 +794,6 @@ final class BlackjackGameplayViewController: UIViewController {
 
     private func recordBalanceSnapshot() {
         sessionManager.recordBalanceSnapshot()
-    }
-    
-    private func finalizeBalanceHistory() {
-        if handCount == 0 {
-            balanceHistory = [balance]
-            betSizeHistory = [0]
-            return
-        }
-        if balanceHistory.isEmpty {
-            balanceHistory = [startingBalance, balance]
-        }
-        if balanceHistory.last != balance {
-            balanceHistory.append(balance)
-        }
-
-        if betSizeHistory.isEmpty {
-            betSizeHistory = Array(repeating: 0, count: balanceHistory.count)
-        } else if betSizeHistory.count < balanceHistory.count {
-            let lastBetSize = betSizeHistory.last ?? 0
-            betSizeHistory.append(contentsOf: Array(repeating: lastBetSize, count: balanceHistory.count - betSizeHistory.count))
-        } else if betSizeHistory.count > balanceHistory.count {
-            betSizeHistory = Array(betSizeHistory.prefix(balanceHistory.count))
-        }
     }
     
     private func trackBet(amount: Int, isMainBet: Bool) {
