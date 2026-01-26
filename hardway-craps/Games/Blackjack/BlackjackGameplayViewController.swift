@@ -12,19 +12,8 @@ final class BlackjackGameplayViewController: UIViewController {
     // Use SideBetType from BlackjackSettingsViewController
     typealias SideBetType = BlackjackSettingsViewController.SideBetType
     
-    // Session tracking
-    private var sessionId: String?
-    private var sessionStartTime: Date?
-    private var accumulatedPlayTime: TimeInterval = 0 // Total active play time
-    private var currentPeriodStartTime: Date? // When the current active period started
-    private var handCount: Int = 0
-    private var balanceHistory: [Int] = []
-    private var betSizeHistory: [Int] = []
-    private var pendingBetSizeSnapshot: Int = 0
+    // Session tracking (managed by SessionManager)
     private let startingBalance: Int = 200
-    private var blackjackMetrics = BlackjackGameplayMetrics()
-    private var hasBeenSaved: Bool = false // Track if session was already saved (e.g., on background)
-    private var lastBalanceBeforeHand: Int = 200
     private var initialBalance: Int = 200 // Store the initial balance to set after UI is ready
 
     private let dealerHandView = DealerHandView()
@@ -68,6 +57,7 @@ final class BlackjackGameplayViewController: UIViewController {
 
     private var settingsManager: BlackjackSettingsManager!
     private var deckManager: BlackjackDeckManager!
+    private var sessionManager: BlackjackSessionManager!
 
     // MARK: - Settings Computed Properties (for backward compatibility)
 
@@ -80,6 +70,12 @@ final class BlackjackGameplayViewController: UIViewController {
 
     private var deck: [BlackjackHandView.Card] { deckManager.deck }
     private var runningCount: Int { deckManager.runningCount }
+
+    // MARK: - Session Computed Properties (for backward compatibility)
+
+    private var sessionId: String? { sessionManager.sessionId }
+    private var handCount: Int { sessionManager.handCount }
+    private var blackjackMetrics: BlackjackGameplayMetrics { sessionManager.blackjackMetrics }
     private var playerBusted: Bool = false
     private var deckCount: Int = 1 // Number of decks (1, 2, 4, or 6)
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, etc.)
@@ -273,21 +269,11 @@ final class BlackjackGameplayViewController: UIViewController {
     }
 
     private func pauseSessionTimer() {
-        guard let periodStart = currentPeriodStartTime else { return }
-
-        // Add the current active period to accumulated time
-        let currentPeriodDuration = Date().timeIntervalSince(periodStart)
-        accumulatedPlayTime += currentPeriodDuration
-
-        // Clear the current period start
-        currentPeriodStartTime = nil
+        sessionManager.pauseSessionTimer()
     }
 
     private func resumeSessionTimer() {
-        guard hasActiveSession() else { return }
-
-        // Start a new active period
-        currentPeriodStartTime = Date()
+        sessionManager.resumeSessionTimer()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -334,6 +320,16 @@ final class BlackjackGameplayViewController: UIViewController {
             fixedHandType: settingsManager.currentSettings.fixedHandType
         )
         deckManager.delegate = self
+
+        // Initialize session manager (with resuming session if available)
+        sessionManager = BlackjackSessionManager(
+            startingBalance: startingBalance,
+            resumingSession: resumingSession
+        )
+        sessionManager.delegate = self
+
+        // Set initial balance from session manager
+        initialBalance = sessionManager.currentBalance
 
         // Apply loaded settings to deck count (moved from loadSettings)
         deckCount = settingsManager.currentSettings.deckCount
@@ -750,54 +746,24 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     var balance: Int {
-        get { balanceView?.balance ?? startingBalance }
+        get { sessionManager?.currentBalance ?? (balanceView?.balance ?? startingBalance) }
         set {
+            sessionManager?.currentBalance = newValue
             balanceView?.balance = newValue
             chipSelector?.updateAvailableChips(balance: newValue)
         }
     }
     
     private func startSession() {
-        if let resuming = resumingSession {
-            // Resume existing session
-            sessionId = resuming.id
-            sessionStartTime = resuming.date
-            accumulatedPlayTime = resuming.duration
-            currentPeriodStartTime = Date() // Start tracking active time from now
-            handCount = resuming.handCount ?? 0
-            blackjackMetrics = resuming.blackjackMetrics ?? BlackjackGameplayMetrics()
-            blackjackMetrics.lastBalanceBeforeHand = resuming.endingBalance
-            balanceHistory = resuming.balanceHistory ?? [resuming.endingBalance]
-            betSizeHistory = resuming.betSizeHistory ?? []
-            pendingBetSizeSnapshot = 0
-            lastBalanceBeforeHand = resuming.endingBalance
-            hasBeenSaved = false
-
-            // Store the balance to set after UI is ready
-            initialBalance = resuming.endingBalance
-        } else {
-            // Start new session
-            sessionId = UUID().uuidString
-            sessionStartTime = Date()
-            accumulatedPlayTime = 0
-            currentPeriodStartTime = Date() // Start tracking active time
-            handCount = 0
-            blackjackMetrics = BlackjackGameplayMetrics()
-            blackjackMetrics.lastBalanceBeforeHand = startingBalance
-            balanceHistory = [startingBalance]
-            betSizeHistory = []
-            pendingBetSizeSnapshot = 0
-            lastBalanceBeforeHand = startingBalance
-            hasBeenSaved = false
-
-            // Store the balance to set after UI is ready
-            initialBalance = startingBalance
+        // Session is already initialized in setupManagers
+        // Just start it if it's a new session
+        if resumingSession == nil {
+            sessionManager.startSession()
         }
     }
-    
+
     private func recordBalanceSnapshot() {
-        balanceHistory.append(balance)
-        betSizeHistory.append(pendingBetSizeSnapshot)
+        sessionManager.recordBalanceSnapshot()
     }
     
     private func finalizeBalanceHistory() {
@@ -824,28 +790,7 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func trackBet(amount: Int, isMainBet: Bool) {
-        let betPercent = Double(amount) / Double(max(balance + amount, 1))
-        
-        // Check for loss chasing: if placing bet after a loss
-        if balance < lastBalanceBeforeHand {
-            blackjackMetrics.betsAfterLossCount += 1
-        }
-        
-        if isMainBet {
-            blackjackMetrics.mainBetCount += 1
-            blackjackMetrics.totalMainBetAmount += amount
-        } else {
-            blackjackMetrics.bonusBetCount += 1
-            blackjackMetrics.totalBonusBetAmount += amount
-        }
-        
-        // Track largest bet
-        if amount > blackjackMetrics.largestBetAmount {
-            blackjackMetrics.largestBetAmount = amount
-            blackjackMetrics.largestBetPercent = betPercent
-        }
-        
-        // Track concurrent bets
+        sessionManager.trackBet(amount: amount, isMainBet: isMainBet)
         updateConcurrentBets()
     }
     
@@ -855,99 +800,20 @@ final class BlackjackGameplayViewController: UIViewController {
         for control in bonusBetControls {
             if control.betAmount > 0 { concurrentCount += 1 }
         }
-        
-        if concurrentCount > blackjackMetrics.maxConcurrentBets {
-            blackjackMetrics.maxConcurrentBets = concurrentCount
-        }
+
+        sessionManager.updateConcurrentBets(count: concurrentCount)
     }
     
     private func saveCurrentSession() -> GameSession? {
-        guard let sessionId = sessionId,
-              let startTime = sessionStartTime else { return nil }
-
-        // If already saved (e.g., on background), don't save again unless explicitly ending
-        // This prevents duplicate sessions if user returns from background
-        if hasBeenSaved {
-            return nil
-        }
-
-        // Only save session if there was actual gameplay (bets placed or hands played)
-        guard handCount > 0 || blackjackMetrics.totalBetAmount > 0 else {
-            return nil
-        }
-
-        // Calculate total duration: accumulated time + current active period (if any)
-        var duration = accumulatedPlayTime
-        if let periodStart = currentPeriodStartTime {
-            duration += Date().timeIntervalSince(periodStart)
-        }
-
-        let endingBalance = balance
-        finalizeBalanceHistory()
-        
-        let session = GameSession(
-            id: sessionId,
-            date: startTime,
-            duration: duration,
-            startingBalance: startingBalance,
-            endingBalance: endingBalance,
-            rollCount: nil,
-            gameplayMetrics: nil,
-            sevensRolled: nil,
-            pointsHit: nil,
-            balanceHistory: balanceHistory,
-            betSizeHistory: betSizeHistory,
-            handCount: handCount,
-            blackjackMetrics: blackjackMetrics
-        )
-        
-        SessionPersistenceManager.shared.saveSession(session)
-        hasBeenSaved = true
-        return session
+        return sessionManager.saveCurrentSession()
     }
-    
+
     private func saveCurrentSessionForced() -> GameSession? {
-        // Force save even if already saved (for explicit end session)
-        guard let sessionId = sessionId,
-              let startTime = sessionStartTime else { return nil }
-
-        // Only save session if there was actual gameplay (bets placed or hands played)
-        guard handCount > 0 || blackjackMetrics.totalBetAmount > 0 else {
-            return nil
-        }
-
-        // Calculate total duration: accumulated time + current active period (if any)
-        var duration = accumulatedPlayTime
-        if let periodStart = currentPeriodStartTime {
-            duration += Date().timeIntervalSince(periodStart)
-        }
-
-        let endingBalance = balance
-        finalizeBalanceHistory()
-        
-        let session = GameSession(
-            id: sessionId,
-            date: startTime,
-            duration: duration,
-            startingBalance: startingBalance,
-            endingBalance: endingBalance,
-            rollCount: nil,
-            gameplayMetrics: nil,
-            sevensRolled: nil,
-            pointsHit: nil,
-            balanceHistory: balanceHistory,
-            betSizeHistory: betSizeHistory,
-            handCount: handCount,
-            blackjackMetrics: blackjackMetrics
-        )
-        
-        SessionPersistenceManager.shared.saveSession(session)
-        hasBeenSaved = true
-        return session
+        return sessionManager.saveCurrentSessionForced()
     }
-    
+
     private func hasActiveSession() -> Bool {
-        return sessionId != nil && sessionStartTime != nil
+        return sessionManager.hasActiveSession()
     }
     
     @objc private func shuffleTapped() {
@@ -1129,48 +995,7 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func currentSessionSnapshot() -> GameSession? {
-        guard let sessionId = sessionId, let startTime = sessionStartTime else { return nil }
-        let duration = Date().timeIntervalSince(startTime)
-        let endingBalance = balance
-        
-        var balanceSnapshot = balanceHistory
-        var betSnapshot = betSizeHistory
-        
-        if handCount == 0 {
-            balanceSnapshot = [endingBalance]
-            betSnapshot = [0]
-        } else {
-            if balanceSnapshot.isEmpty {
-                balanceSnapshot = [startingBalance, endingBalance]
-            } else if balanceSnapshot.last != endingBalance {
-                balanceSnapshot.append(endingBalance)
-            }
-            
-            if betSnapshot.isEmpty {
-                betSnapshot = Array(repeating: 0, count: balanceSnapshot.count)
-            } else if betSnapshot.count < balanceSnapshot.count {
-                let lastBet = betSnapshot.last ?? 0
-                betSnapshot.append(contentsOf: Array(repeating: lastBet, count: balanceSnapshot.count - betSnapshot.count))
-            } else if betSnapshot.count > balanceSnapshot.count {
-                betSnapshot = Array(betSnapshot.prefix(balanceSnapshot.count))
-            }
-        }
-        
-        return GameSession(
-            id: sessionId,
-            date: startTime,
-            duration: duration,
-            startingBalance: startingBalance,
-            endingBalance: endingBalance,
-            rollCount: nil,
-            gameplayMetrics: nil,
-            sevensRolled: nil,
-            pointsHit: nil,
-            balanceHistory: balanceSnapshot,
-            betSizeHistory: betSnapshot,
-            handCount: handCount,
-            blackjackMetrics: blackjackMetrics
-        )
+        return sessionManager.currentSessionSnapshot()
     }
     
     private func resetGame() {
@@ -1230,7 +1055,7 @@ final class BlackjackGameplayViewController: UIViewController {
         updateControls()
 
         // Update last balance before next hand
-        lastBalanceBeforeHand = balance
+        sessionManager.updateLastBalanceBeforeHand(balance)
 
         // Discard cards to top left, then check bet status
         discardHandsToTopLeft { [weak self] in
@@ -1277,7 +1102,7 @@ final class BlackjackGameplayViewController: UIViewController {
         guard playerHandView.betControl.betAmount > 0 else { return }
 
         // Record balance before hand starts
-        lastBalanceBeforeHand = balance
+        sessionManager.updateLastBalanceBeforeHand(balance)
 
         // Snapshot bet size before dealing
         let mainBet = playerHandView.betControl.betAmount
@@ -1285,7 +1110,8 @@ final class BlackjackGameplayViewController: UIViewController {
         for control in bonusBetControls {
             totalBonusBet += control.betAmount
         }
-        pendingBetSizeSnapshot = mainBet + totalBonusBet
+        let totalBetSize = mainBet + totalBonusBet
+        sessionManager.snapshotBetSize(totalBetSize)
 
         // Track bet for rebet functionality
         trackBetForRebet(amount: mainBet)
@@ -1825,7 +1651,7 @@ final class BlackjackGameplayViewController: UIViewController {
             // Double the bet
             currentState.hasDoubled = true
             splitHandStates[activeHandIndex] = currentState
-            blackjackMetrics.doublesDown += 1
+            sessionManager.recordDoubleDown()
             balance -= betAmount
             currentHand.betControl.betAmount = betAmount * 2
             
@@ -1868,7 +1694,7 @@ final class BlackjackGameplayViewController: UIViewController {
         
         // Double the bet
         hasPlayerDoubled = true
-        blackjackMetrics.doublesDown += 1
+        sessionManager.recordDoubleDown()
         balance -= betAmount // Deduct the additional bet
         playerHandView.betControl.betAmount = betAmount * 2
         
@@ -1877,7 +1703,8 @@ final class BlackjackGameplayViewController: UIViewController {
         for control in bonusBetControls {
             totalBonusBet += control.betAmount
         }
-        pendingBetSizeSnapshot = playerHandView.betControl.betAmount + totalBonusBet
+        let totalBetSize = playerHandView.betControl.betAmount + totalBonusBet
+        sessionManager.snapshotBetSize(totalBetSize)
         
         // Track the additional bet
         trackBet(amount: betAmount, isMainBet: true)
@@ -2042,18 +1869,15 @@ final class BlackjackGameplayViewController: UIViewController {
         let isDealerBlackjack = isBlackjack(cards: dealerCards)
         
         // Track hand outcome
-        handCount += 1
-        
+        sessionManager.incrementHandCount()
+
         // Update metrics based on result
         if result.isWin {
-            blackjackMetrics.wins += 1
-            if isPlayerBlackjack {
-                blackjackMetrics.blackjacksHit += 1
-            }
+            sessionManager.recordWin(isBlackjack: isPlayerBlackjack)
         } else if result.isPush {
-            blackjackMetrics.pushes += 1
+            sessionManager.recordPush()
         } else {
-            blackjackMetrics.losses += 1
+            sessionManager.recordLoss()
             if playerTotal > 21 {
                 playerBusted = true
             }
@@ -2248,19 +2072,16 @@ final class BlackjackGameplayViewController: UIViewController {
         // Track metrics
         for item in results {
             if item.result.isWin {
-                if item.result.isBlackjack {
-                    blackjackMetrics.blackjacksHit += 1
-                }
-                blackjackMetrics.wins += 1
+                sessionManager.recordWin(isBlackjack: item.result.isBlackjack)
             } else if item.result.isPush {
-                blackjackMetrics.pushes += 1
+                sessionManager.recordPush()
             } else {
-                blackjackMetrics.losses += 1
+                sessionManager.recordLoss()
             }
         }
-        
+
         // Track hand outcome (split hands count as one hand)
-        handCount += 1
+        sessionManager.incrementHandCount()
         
         // Note: Split hand cleanup happens when "New Hand" is tapped
         
@@ -2806,11 +2627,13 @@ final class BlackjackGameplayViewController: UIViewController {
             
             // Update metrics if provided
             if let metricsUpdate = result.metricsUpdate {
-                blackjackMetrics.perfectPairsWon += metricsUpdate.perfectPairsWon
-                blackjackMetrics.coloredPairsWon += metricsUpdate.coloredPairsWon
-                blackjackMetrics.mixedPairsWon += metricsUpdate.mixedPairsWon
-                blackjackMetrics.royalMatchesWon += metricsUpdate.royalMatchesWon
-                blackjackMetrics.suitedMatchesWon += metricsUpdate.suitedMatchesWon
+                sessionManager.updateBonusMetrics(
+                    perfectPairs: metricsUpdate.perfectPairsWon,
+                    coloredPairs: metricsUpdate.coloredPairsWon,
+                    mixedPairs: metricsUpdate.mixedPairsWon,
+                    royalMatches: metricsUpdate.royalMatchesWon,
+                    suitedMatches: metricsUpdate.suitedMatchesWon
+                )
             }
             
             if result.isWin {
@@ -2818,8 +2641,7 @@ final class BlackjackGameplayViewController: UIViewController {
                 let winAmount = Int(Double(betAmount) * result.odds)
 
                 // Track bonus win metrics
-                blackjackMetrics.bonusesWon += 1
-                blackjackMetrics.totalBonusWinnings += winAmount
+                sessionManager.recordBonusWin(amount: winAmount, type: control.title ?? "Unknown")
 
                 // Show bet result container with bonus description
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -2864,8 +2686,7 @@ final class BlackjackGameplayViewController: UIViewController {
                 let winAmount = Int(Double(betAmount) * result.odds)
 
                 // Track bonus win metrics
-                blackjackMetrics.bonusesWon += 1
-                blackjackMetrics.totalBonusWinnings += winAmount
+                sessionManager.recordBonusWin(amount: winAmount, type: control.title ?? "Unknown")
 
                 // Show bet result container with bonus description
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -2904,8 +2725,7 @@ final class BlackjackGameplayViewController: UIViewController {
                 let winAmount = Int(Double(betAmount) * result.odds)
 
                 // Track bonus win metrics
-                blackjackMetrics.bonusesWon += 1
-                blackjackMetrics.totalBonusWinnings += winAmount
+                sessionManager.recordBonusWin(amount: winAmount, type: control.title ?? "Unknown")
 
                 // Show bet result container with bonus description
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -3715,5 +3535,30 @@ extension BlackjackGameplayViewController: BlackjackDeckManagerDelegate {
     func deckCountDidChange(remaining: Int) {
         // Update deck view when a card is drawn
         deckView.drawCard()
+    }
+}
+
+// MARK: - BlackjackSessionManagerDelegate
+
+extension BlackjackGameplayViewController: BlackjackSessionManagerDelegate {
+    func sessionDidStart(id: String) {
+        // Session started - no UI update needed
+    }
+
+    func sessionWasSaved(session: GameSession) {
+        // Session saved - could show a notification if desired
+    }
+
+    func metricsDidUpdate(metrics: BlackjackGameplayMetrics) {
+        // Metrics updated - could refresh any metrics UI if needed
+    }
+
+    func balanceDidChange(from oldBalance: Int, to newBalance: Int) {
+        // Balance change is already handled through the balance property setter
+        // This callback is available for any additional balance change reactions
+    }
+
+    func handCountDidChange(count: Int) {
+        // Hand count updated - could update UI if displaying hand count
     }
 }
