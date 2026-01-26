@@ -47,6 +47,7 @@ final class BlackjackGameplayViewController: UIViewController {
     private var deckManager: BlackjackDeckManager!
     private var sessionManager: BlackjackSessionManager!
     private var gameStateManager: BlackjackGameStateManager!
+    private var betManager: BlackjackBetManager!
 
     // MARK: - Settings Computed Properties (for backward compatibility)
 
@@ -86,16 +87,16 @@ final class BlackjackGameplayViewController: UIViewController {
     private var isSplit: Bool { gameStateManager.isSplit }
     private var activeHandIndex: Int { gameStateManager.activeHandIndex }
     private var splitHandStates: [BlackjackGameStateManager.SplitHandState] { gameStateManager.splitHandStates }
+
+    // MARK: - Bet Computed Properties (for backward compatibility)
+
+    private var rebetEnabled: Bool { betManager.rebetEnabled }
+    private var rebetAmount: Int { betManager.rebetAmount }
+
     private var deckCount: Int = 1 // Number of decks (1, 2, 4, or 6)
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, etc.)
     private var cutCardPosition: Int? = nil // Position in deck where cut card is placed (nil if no cut card)
     private var shouldShuffleAfterHand: Bool = false // Flag to shuffle after current hand completes
-
-    // Rebet tracking
-    private var rebetEnabled: Bool = false
-    private var rebetAmount: Int = 10 // Default rebet amount
-    private var consecutiveBetCount: Int = 0
-    private var lastBetAmount: Int = 0
 
     // Tip tracking
     private var hasShownPlaceBetTip: Bool = false
@@ -340,6 +341,13 @@ final class BlackjackGameplayViewController: UIViewController {
         // Initialize game state manager
         gameStateManager = BlackjackGameStateManager()
         gameStateManager.delegate = self
+
+        // Initialize bet manager with settings
+        betManager = BlackjackBetManager(
+            rebetEnabled: settingsManager.currentSettings.rebetEnabled,
+            rebetAmount: settingsManager.currentSettings.rebetAmount
+        )
+        betManager.delegate = self
 
         // Set initial balance from session manager
         initialBalance = sessionManager.currentBalance
@@ -2385,11 +2393,14 @@ final class BlackjackGameplayViewController: UIViewController {
         }
         control.onBetPlaced = { [weak self, weak control] amount in
             guard let self = self, let control = control else { return }
-            if self.gamePhase != .waitingForBet && self.gamePhase != .readyToDeal {
+
+            // Check if bonus bet can be placed in current game phase
+            if !self.betManager.canPlaceBonusBet(gamePhase: self.gamePhase) {
                 control.betAmount -= amount
                 HapticsHelper.lightHaptic()
                 return
             }
+
             self.balance -= amount
             self.trackBet(amount: amount, isMainBet: false)
 
@@ -3272,45 +3283,18 @@ final class BlackjackGameplayViewController: UIViewController {
     // MARK: - Rebet Functionality
 
     private func trackBetForRebet(amount: Int) {
-        guard amount > 0 else { return }
-
-        // Check if this bet matches the last bet
-        if amount == lastBetAmount {
-            consecutiveBetCount += 1
-        } else {
-            // Different bet amount, reset counter
-            consecutiveBetCount = 1
-            lastBetAmount = amount
-        }
-
-        // If player has bet the same amount 3 times in a row, update rebet amount
-        if consecutiveBetCount >= 3 {
-            rebetAmount = amount
-            UserDefaults.standard.set(rebetAmount, forKey: BlackjackSettingsKeys.rebetAmount)
-        }
+        betManager.trackBetForRebet(amount: amount)
     }
 
     private func applyRebetIfNeeded() {
-        guard rebetEnabled else { return }
-
-        // Check if player already has a bet placed
         let currentBet = playerHandView.betControl.betAmount
-        if currentBet > 0 {
-            // Player already has a bet (from winning the last hand)
-            // The bet stayed on the control and was NEVER returned to balance
-            // So we don't need to deduct anything - it's already accounted for
-            // Just leave it there for the next hand
-            return
+
+        // Calculate rebet amount to apply
+        if let rebetAmount = betManager.calculateRebetAmount(currentBetAmount: currentBet, balance: balance) {
+            // Deduct from balance and set bet on control
+            balance -= rebetAmount
+            playerHandView.betControl.setDirectBet(rebetAmount)
         }
-
-        // No bet on control (player lost last hand)
-        // When player loses, the bet was already deducted and never returned
-        // We need to place a new bet and deduct from balance
-        guard rebetAmount <= balance else { return }
-
-        // Deduct from balance and set bet on control
-        balance -= rebetAmount
-        playerHandView.betControl.setDirectBet(rebetAmount)
     }
 }
 
@@ -3424,13 +3408,14 @@ extension BlackjackGameplayViewController: BlackjackSettingsManagerDelegate {
         // Update local properties from settings
         deckCount = settings.deckCount
         deckPenetration = settings.deckPenetration
-        rebetEnabled = settings.rebetEnabled
-        rebetAmount = settings.rebetAmount
 
         // Update deck manager with new settings
         deckManager.deckCount = settings.deckCount
         deckManager.deckPenetration = settings.deckPenetration
         deckManager.setFixedHandType(settings.fixedHandType)
+
+        // Update bet manager with new settings
+        betManager.updateRebetSettings(enabled: settings.rebetEnabled, amount: settings.rebetAmount)
 
         // Update UI based on changed settings
         dealerHandView.setTotalsHidden(!settings.showTotals)
@@ -3516,5 +3501,24 @@ extension BlackjackGameplayViewController: BlackjackGameStateManagerDelegate {
 
     func splitStateDidChange(isSplit: Bool, activeHandIndex: Int) {
         // Split state changed - could update UI to highlight active hand
+    }
+}
+
+// MARK: - BlackjackBetManagerDelegate
+
+extension BlackjackGameplayViewController: BlackjackBetManagerDelegate {
+    func rebetAmountDidUpdate(amount: Int) {
+        // Save updated rebet amount to UserDefaults
+        UserDefaults.standard.set(amount, forKey: BlackjackSettingsKeys.rebetAmount)
+    }
+
+    func betWasPlaced(amount: Int, isMainBet: Bool) {
+        // Bet placement is handled in individual controls
+        // This callback is available for any additional bet tracking
+    }
+
+    func betWasRemoved(amount: Int) {
+        // Bet removal is handled in individual controls
+        // This callback is available for any additional tracking
     }
 }
