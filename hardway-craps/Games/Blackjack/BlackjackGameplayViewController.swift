@@ -37,27 +37,16 @@ final class BlackjackGameplayViewController: UIViewController {
     private let deckView = DeckView()
     private var cutCardView: PlayingCardView? // Visible cut card when dealt
 
-    // Split state tracking
-    private var isSplit: Bool = false
-    private var activeHandIndex: Int = 0 // 0 = first hand, 1 = split hand
-    private var splitHandStates: [(hasHit: Bool, hasStood: Bool, hasDoubled: Bool, busted: Bool)] = []
-    
     // Hands scroll view for split support
     private var handsScrollView: UIScrollView!
     private var handsContentStackView: UIStackView!
-    
-    private var hasPlayerHit = false
-    private var hasPlayerStood = false
-    private var hasPlayerDoubled = false
-    private var hasInsuranceBeenChecked = false // Track if insurance has been checked/declined
-    private var playerDoubleDownCardIndex: Int? = nil // Track which card is face-down from double down
-    private var gamePhase: PlayerControlStack.GamePhase = .waitingForBet
 
     // MARK: - Managers
 
     private var settingsManager: BlackjackSettingsManager!
     private var deckManager: BlackjackDeckManager!
     private var sessionManager: BlackjackSessionManager!
+    private var gameStateManager: BlackjackGameStateManager!
 
     // MARK: - Settings Computed Properties (for backward compatibility)
 
@@ -76,7 +65,27 @@ final class BlackjackGameplayViewController: UIViewController {
     private var sessionId: String? { sessionManager.sessionId }
     private var handCount: Int { sessionManager.handCount }
     private var blackjackMetrics: BlackjackGameplayMetrics { sessionManager.blackjackMetrics }
-    private var playerBusted: Bool = false
+
+    // MARK: - Game State Computed Properties (for backward compatibility)
+
+    private var gamePhase: PlayerControlStack.GamePhase {
+        get { gameStateManager.gamePhase }
+        set { gameStateManager.setGamePhase(newValue) }
+    }
+
+    private var hasPlayerHit: Bool { gameStateManager.hasPlayerHit }
+    private var hasPlayerStood: Bool { gameStateManager.hasPlayerStood }
+    private var hasPlayerDoubled: Bool { gameStateManager.hasPlayerDoubled }
+    private var hasInsuranceBeenChecked: Bool { gameStateManager.hasInsuranceBeenChecked }
+    private var playerDoubleDownCardIndex: Int? { gameStateManager.playerDoubleDownCardIndex }
+    private var playerBusted: Bool {
+        get { gameStateManager.playerBusted }
+        set { gameStateManager.setPlayerBusted(newValue) }
+    }
+
+    private var isSplit: Bool { gameStateManager.isSplit }
+    private var activeHandIndex: Int { gameStateManager.activeHandIndex }
+    private var splitHandStates: [BlackjackGameStateManager.SplitHandState] { gameStateManager.splitHandStates }
     private var deckCount: Int = 1 // Number of decks (1, 2, 4, or 6)
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, etc.)
     private var cutCardPosition: Int? = nil // Position in deck where cut card is placed (nil if no cut card)
@@ -327,6 +336,10 @@ final class BlackjackGameplayViewController: UIViewController {
             resumingSession: resumingSession
         )
         sessionManager.delegate = self
+
+        // Initialize game state manager
+        gameStateManager = BlackjackGameStateManager()
+        gameStateManager.delegate = self
 
         // Set initial balance from session manager
         initialBalance = sessionManager.currentBalance
@@ -999,18 +1012,8 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func resetGame() {
-        gamePhase = .waitingForBet
-        hasPlayerHit = false
-        hasPlayerStood = false
-        hasPlayerDoubled = false
-        hasInsuranceBeenChecked = false
-        playerDoubleDownCardIndex = nil
-        playerBusted = false
-        
-        // Clear split state
-        isSplit = false
-        activeHandIndex = 0
-        splitHandStates = []
+        // Reset all game state through manager
+        gameStateManager.resetToWaitingForBet()
         
         // Remove split hand from scroll view if present
         if let splitHand = splitHandView {
@@ -1045,13 +1048,7 @@ final class BlackjackGameplayViewController: UIViewController {
         }
 
         // Immediately change phase to prevent re-triggering discard animation
-        gamePhase = .waitingForBet
-        hasPlayerHit = false
-        hasPlayerStood = false
-        hasPlayerDoubled = false
-        hasInsuranceBeenChecked = false
-        playerDoubleDownCardIndex = nil
-        playerBusted = false
+        gameStateManager.resetToWaitingForBet()
         updateControls()
 
         // Update last balance before next hand
@@ -1227,7 +1224,7 @@ final class BlackjackGameplayViewController: UIViewController {
                             let playerTotal = self.calculateHandTotal(cards: self.playerHandView.currentCards)
                             if playerTotal == 21 {
                                 // Auto-stand on 21
-                                self.hasPlayerStood = true
+                                self.gameStateManager.setPlayerStood()
                                 self.gamePhase = .dealerTurn
                                 self.updateControls()
                                 self.updateInstructionMessage()
@@ -1266,12 +1263,11 @@ final class BlackjackGameplayViewController: UIViewController {
         if isSplit {
             // Handle split hand hit
             let currentHand = activeHandIndex == 0 ? playerHandView : splitHandView!
-            var currentState = splitHandStates[activeHandIndex]
+            guard let currentState = gameStateManager.getSplitHandState(index: activeHandIndex) else { return }
 
             guard !currentState.hasStood else { return }
 
-            currentState.hasHit = true
-            splitHandStates[activeHandIndex] = currentState
+            gameStateManager.updateSplitHandState(index: activeHandIndex, hasHit: true)
 
             let deckCenter = view.convert(deckView.deckCenter, from: deckView)
             currentHand.dealCard(randomHandCard(), from: deckCenter, in: view)
@@ -1283,17 +1279,13 @@ final class BlackjackGameplayViewController: UIViewController {
                 
                 if handTotal > 21 {
                     // Hand busted
-                    var state = self.splitHandStates[self.activeHandIndex]
-                    state.busted = true
-                    self.splitHandStates[self.activeHandIndex] = state
-                    
+                    self.gameStateManager.updateSplitHandState(index: self.activeHandIndex, busted: true)
+
                     // Check if both hands are done
                     self.checkSplitHandsCompletion()
                 } else if handTotal == 21 {
                     // Auto-stand on 21
-                    var state = self.splitHandStates[self.activeHandIndex]
-                    state.hasStood = true
-                    self.splitHandStates[self.activeHandIndex] = state
+                    self.gameStateManager.updateSplitHandState(index: self.activeHandIndex, hasStood: true)
                     self.checkSplitHandsCompletion()
                 } else {
                     self.updateControls()
@@ -1303,7 +1295,7 @@ final class BlackjackGameplayViewController: UIViewController {
         } else {
             // Normal single hand hit
             guard !hasPlayerStood else { return }
-            hasPlayerHit = true
+            gameStateManager.setPlayerHit()
             let deckCenter = view.convert(deckView.deckCenter, from: deckView)
             playerHandView.dealCard(randomHandCard(), from: deckCenter, in: view)
             
@@ -1331,7 +1323,7 @@ final class BlackjackGameplayViewController: UIViewController {
                     }
                 } else if playerTotal == 21 {
                     // Auto-stand on 21
-                    self.hasPlayerStood = true
+                    self.gameStateManager.setPlayerStood()
                     self.gamePhase = .dealerTurn
                     self.updateControls()
                     self.updateInstructionMessage()
@@ -1390,17 +1382,16 @@ final class BlackjackGameplayViewController: UIViewController {
     private func executePlayerStand() {
         if isSplit {
             // Handle split hand stand
-            var currentState = splitHandStates[activeHandIndex]
+            guard let currentState = gameStateManager.getSplitHandState(index: activeHandIndex) else { return }
             guard !currentState.hasStood else { return }
-            
-            currentState.hasStood = true
-            splitHandStates[activeHandIndex] = currentState
-            
+
+            gameStateManager.updateSplitHandState(index: activeHandIndex, hasStood: true)
+
             checkSplitHandsCompletion()
         } else {
             // Normal single hand stand
             guard !hasPlayerStood else { return }
-            hasPlayerStood = true
+            gameStateManager.setPlayerStood()
             gamePhase = .dealerTurn
             updateControls()
             updateInstructionMessage()
@@ -1429,12 +1420,7 @@ final class BlackjackGameplayViewController: UIViewController {
         trackBet(amount: betAmount, isMainBet: true)
         
         // Initialize split state
-        isSplit = true
-        activeHandIndex = 0
-        splitHandStates = [
-            (hasHit: false, hasStood: false, hasDoubled: false, busted: false),
-            (hasHit: false, hasStood: false, hasDoubled: false, busted: false)
-        ]
+        gameStateManager.initializeSplitState()
         
         // Create split hand view
         let splitHand = PlayerHandView()
@@ -1649,23 +1635,21 @@ final class BlackjackGameplayViewController: UIViewController {
             }
             
             // Double the bet
-            currentState.hasDoubled = true
-            splitHandStates[activeHandIndex] = currentState
+            gameStateManager.updateSplitHandState(index: activeHandIndex, hasDoubled: true)
             sessionManager.recordDoubleDown()
             balance -= betAmount
             currentHand.betControl.betAmount = betAmount * 2
-            
+
             // Track the additional bet
             trackBet(amount: betAmount, isMainBet: true)
-            
+
             // Deal a face-down card
             let deckCenter = view.convert(deckView.deckCenter, from: deckView)
             let doubleDownCard = randomHandCard()
             currentHand.dealCardFaceDown(doubleDownCard, from: deckCenter, in: view)
-            
+
             // Auto-stand after double down
-            currentState.hasStood = true
-            splitHandStates[activeHandIndex] = currentState
+            gameStateManager.updateSplitHandState(index: activeHandIndex, hasStood: true)
             
             // Check if both hands are done
             checkSplitHandsCompletion()
@@ -1693,11 +1677,12 @@ final class BlackjackGameplayViewController: UIViewController {
         }
         
         // Double the bet
-        hasPlayerDoubled = true
+        let cardIndex = playerHandView.currentCards.count
+        gameStateManager.setPlayerDoubled(cardIndex: cardIndex)
         sessionManager.recordDoubleDown()
         balance -= betAmount // Deduct the additional bet
         playerHandView.betControl.betAmount = betAmount * 2
-        
+
         // Update pending bet size snapshot
         var totalBonusBet = 0
         for control in bonusBetControls {
@@ -1705,22 +1690,19 @@ final class BlackjackGameplayViewController: UIViewController {
         }
         let totalBetSize = playerHandView.betControl.betAmount + totalBonusBet
         sessionManager.snapshotBetSize(totalBetSize)
-        
+
         // Track the additional bet
         trackBet(amount: betAmount, isMainBet: true)
-        
+
         // Deal a face-down card to the player
         let deckCenter = view.convert(deckView.deckCenter, from: deckView)
         let doubleDownCard = randomHandCard()
-        
+
         // Deal card face-down
         playerHandView.dealCardFaceDown(doubleDownCard, from: deckCenter, in: view)
-        
-        // Track which card index is the face-down double down card
-        playerDoubleDownCardIndex = playerHandView.currentCards.count - 1
-        
+
         // Auto-stand after double down
-        hasPlayerStood = true
+        gameStateManager.setPlayerStood()
         gamePhase = .dealerTurn
         updateControls()
         updateInstructionMessage()
@@ -2127,9 +2109,7 @@ final class BlackjackGameplayViewController: UIViewController {
         handsScrollView.isScrollEnabled = false
 
         // Clear split state
-        isSplit = false
-        activeHandIndex = 0
-        splitHandStates = []
+        gameStateManager.resetSplitState()
         splitHandView = nil
 
         // Force layout update
@@ -2464,7 +2444,7 @@ final class BlackjackGameplayViewController: UIViewController {
     private func handleDealerBlackjackWithInsurance() {
         // Dealer has blackjack
         // Mark insurance as checked
-        hasInsuranceBeenChecked = true
+        gameStateManager.setInsuranceChecked()
         
         // Pay insurance (2:1) if player took insurance
         let insuranceBetAmount = insuranceControl.betAmount
@@ -2514,8 +2494,8 @@ final class BlackjackGameplayViewController: UIViewController {
         revealNoDealerBlackjack()
         
         // Mark insurance as checked so Continue button disappears
-        hasInsuranceBeenChecked = true
-        
+        gameStateManager.setInsuranceChecked()
+
         // Immediately update controls to show Hit/Stand/Double buttons
         // (insurance is no longer available, so action buttons should appear)
         updateControls()
@@ -2852,42 +2832,7 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func calculateHandTotal(cards: [BlackjackHandView.Card]) -> Int {
-        var total = 0
-        var aceCount = 0
-        
-        for card in cards {
-            switch card.rank {
-            case .ace:
-                aceCount += 1
-                total += 11
-            case .king, .queen, .jack, .ten:
-                total += 10
-            case .nine:
-                total += 9
-            case .eight:
-                total += 8
-            case .seven:
-                total += 7
-            case .six:
-                total += 6
-            case .five:
-                total += 5
-            case .four:
-                total += 4
-            case .three:
-                total += 3
-            case .two:
-                total += 2
-            }
-        }
-        
-        // Adjust for aces
-        while total > 21 && aceCount > 0 {
-            total -= 10
-            aceCount -= 1
-        }
-        
-        return total
+        return gameStateManager.calculateHandTotal(cards: cards)
     }
     
     private func getDealerVisibleTotal() -> Int {
@@ -2912,15 +2857,7 @@ final class BlackjackGameplayViewController: UIViewController {
     
     /// Checks if a hand is a blackjack (21 with exactly 2 cards: one Ace and one 10-value card)
     private func isBlackjack(cards: [BlackjackHandView.Card]) -> Bool {
-        guard cards.count == 2 else { return false }
-        
-        let total = calculateHandTotal(cards: cards)
-        guard total == 21 else { return false }
-        
-        let hasAce = cards[0].rank == .ace || cards[1].rank == .ace
-        let hasTenValue = isTenValueRank(cards[0].rank) || isTenValueRank(cards[1].rank)
-        
-        return hasAce && hasTenValue
+        return gameStateManager.isBlackjack(cards: cards)
     }
     
     /// Computed property that checks if insurance is currently available
@@ -3560,5 +3497,24 @@ extension BlackjackGameplayViewController: BlackjackSessionManagerDelegate {
 
     func handCountDidChange(count: Int) {
         // Hand count updated - could update UI if displaying hand count
+    }
+}
+
+// MARK: - BlackjackGameStateManagerDelegate
+
+extension BlackjackGameplayViewController: BlackjackGameStateManagerDelegate {
+    func gamePhaseDidChange(from oldPhase: PlayerControlStack.GamePhase, to newPhase: PlayerControlStack.GamePhase) {
+        // Game phase changed - update controls and instruction message
+        updateControls()
+        updateInstructionMessage()
+    }
+
+    func playerActionStateDidChange() {
+        // Player action state changed - update controls
+        updateControls()
+    }
+
+    func splitStateDidChange(isSplit: Bool, activeHandIndex: Int) {
+        // Split state changed - could update UI to highlight active hand
     }
 }
