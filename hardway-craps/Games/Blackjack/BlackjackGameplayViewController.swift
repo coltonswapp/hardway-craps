@@ -49,6 +49,10 @@ final class BlackjackGameplayViewController: UIViewController {
     private var gameStateManager: BlackjackGameStateManager!
     private var betManager: BlackjackBetManager!
 
+    // MARK: - Helpers
+
+    private var chipAnimator: ChipAnimationHelper!
+
     // MARK: - Settings Computed Properties (for backward compatibility)
 
     private var showTotals: Bool { settingsManager.currentSettings.showTotals }
@@ -234,6 +238,9 @@ final class BlackjackGameplayViewController: UIViewController {
         setupBalanceView()
         setupChipSelector()
         setupBottomStackView()
+
+        // Initialize chip animation helper after balanceView is created
+        chipAnimator = ChipAnimationHelper(containerView: view, balanceView: balanceView)
 
         // Set the initial balance now that balanceView is created
         balance = initialBalance
@@ -3027,155 +3034,25 @@ final class BlackjackGameplayViewController: UIViewController {
     // MARK: - Chip Animations
     
     private func animateBonusBetWinnings(for control: PlainControl, betAmount: Int, winAmount: Int, odds: Double) {
-        // Animate winnings to offset position next to betView, then both chips together to balance
-        let betPosition = control.getBetViewPosition(in: view)
-        
-        // Calculate offset position for winnings (to the left of the original bet)
-        let offsetX: CGFloat = -35 // Offset to show chips side by side
-        let winningsPosition = CGPoint(x: betPosition.x + offsetX, y: betPosition.y)
-        
-        // Create chip view representing the winnings payout
-        let winningsChipView = SmallBetChip()
-        winningsChipView.amount = winAmount
-        winningsChipView.translatesAutoresizingMaskIntoConstraints = true
-        winningsChipView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
-        winningsChipView.isHidden = false
-        view.addSubview(winningsChipView)
-        
-        // Start winnings chip from center of screen (representing house)
-        winningsChipView.center = CGPoint(x: self.view.bounds.midX, y: 0)
-        winningsChipView.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-        
-        // Step 1: Animate winnings chip from house to offset position next to betView
-        let animator1 = UIViewPropertyAnimator(
-            duration: 0.6,
-            controlPoint1: CGPoint(x: 0.85, y: 0),
-            controlPoint2: CGPoint(x: 0.15, y: 1)
-        ) {
-            winningsChipView.transform = CGAffineTransform(scaleX: 1.0, y: 1.0)
-            winningsChipView.center = winningsPosition
+        chipAnimator.animateBonusBetWinnings(
+            for: control,
+            betAmount: betAmount,
+            winAmount: winAmount
+        ) { [weak self] amount in
+            self?.balance += amount
         }
-        
-        animator1.addCompletion { [weak self] _ in
-            guard let self = self else { return }
-            
-            // Brief pause to show both chips side by side
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self = self else { return }
-                
-                // Create chip view for the original bet (matching the betView)
-                let betChipView = SmallBetChip()
-                betChipView.amount = betAmount
-                betChipView.translatesAutoresizingMaskIntoConstraints = true
-                betChipView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
-                betChipView.isHidden = false
-                self.view.addSubview(betChipView)
-                
-                // Position bet chip at the betView position
-                betChipView.center = betPosition
-                betChipView.transform = CGAffineTransform(scaleX: 1.0, y: 1.0)
-                
-                // Hide the original betView since we're animating a chip representation
-                control.betView.alpha = 0
-                
-                // Step 2: Animate both chips together to balance view
-                let balancePosition = self.balanceView.convert(self.balanceView.bounds, to: self.view)
-                let balanceCenter = CGPoint(x: balancePosition.maxX - 30, y: balancePosition.midY)
-                
-                // Animate winnings chip
-                let animator2a = UIViewPropertyAnimator(
-                    duration: 0.5,
-                    controlPoint1: CGPoint(x: 0.85, y: 0),
-                    controlPoint2: CGPoint(x: 0.15, y: 1)
-                ) {
-                    winningsChipView.center = balanceCenter
-                    winningsChipView.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
-                }
-                
-                // Animate bet chip (slightly offset horizontally and delayed)
-                let animator2b = UIViewPropertyAnimator(
-                    duration: 0.5,
-                    controlPoint1: CGPoint(x: 0.85, y: 0),
-                    controlPoint2: CGPoint(x: 0.15, y: 1)
-                ) {
-                    betChipView.center = CGPoint(x: balanceCenter.x - 10, y: balanceCenter.y)
-                    betChipView.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
-                }
-                
-                animator2a.addCompletion { [weak self] _ in
-                    guard let self = self else { return }
-                    // Update balance with winnings
-                    self.balance += winAmount
-                    winningsChipView.removeFromSuperview()
-                }
-                
-                animator2b.addCompletion { [weak self] _ in
-                    guard let self = self else { return }
-                    // Update balance with original bet
-                    self.balance += betAmount
-                    betChipView.removeFromSuperview()
-                    
-                    // Clear the bet from the control
-                    control.betAmount = 0
-                    control.betView.alpha = 1 // Restore betView visibility
-                }
-                
-                // Start both animations together
-                animator2a.startAnimation()
-                animator2b.startAnimation(afterDelay: 0.1)
-            }
-        }
-        
-        animator1.startAnimation()
     }
     
     private func animateWinnings(for control: PlainControl, odds: Double) {
         guard control.betAmount > 0 else { return }
-
         let winAmount = Int(Double(control.betAmount) * odds)
 
-        // Create a temporary chip view to animate
-        let chipView = SmallBetChip()
-        chipView.amount = winAmount
-        chipView.translatesAutoresizingMaskIntoConstraints = true  // Enable frame-based layout
-        chipView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)  // Set explicit frame size
-        chipView.isHidden = false  // Ensure visibility
-        view.addSubview(chipView)
-
-        // Start from center of screen (representing house)
-        chipView.center = CGPoint(x: self.view.bounds.midX, y: 0)
-
-        // Step 1: Animate from center to the control's bet position
-        var betPosition = control.getBetViewPosition(in: view)
-        betPosition.x += 30
-        let animator1 = UIViewPropertyAnimator(duration: 0.75, controlPoint1: CGPoint(x: 0.85, y: 0), controlPoint2: CGPoint(x: 0.15, y: 1), animations: { [weak self] in
-            guard self != nil else { return }
-            chipView.transform = CGAffineTransform(scaleX: 1.5, y: 1.5)
-            chipView.center = betPosition
-        })
-
-        animator1.addCompletion { [weak self] _ in
-            guard let self = self else { return }
-            // Step 2: Animate from control to balance view
-            let balancePosition = self.balanceView.convert(self.balanceView.bounds, to: self.view)
-            let balanceCenter = CGPoint(x: balancePosition.maxX - 30, y: balancePosition.midY)
-
-            let animator2 = UIViewPropertyAnimator(duration: 0.5, controlPoint1: CGPoint(x: 0.85, y: 0), controlPoint2: CGPoint(x: 0.15, y: 1), animations: {
-                chipView.center = balanceCenter
-                chipView.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
-            })
-
-            animator2.addCompletion { [weak self] _ in
-                guard let self = self else { return }
-                // Update balance incrementally as each chip reaches balance
-                self.balance += winAmount
-                chipView.removeFromSuperview()
-            }
-
-            animator2.startAnimation(afterDelay: 0.2)
+        chipAnimator.animateWinnings(
+            for: control,
+            winAmount: winAmount
+        ) { [weak self] amount in
+            self?.balance += amount
         }
-
-        animator1.startAnimation()
     }
     
     private func animateBetCollection(for control: PlainControl) {
@@ -3184,86 +3061,16 @@ final class BlackjackGameplayViewController: UIViewController {
         // If rebet is enabled, leave the bet on the control and don't animate collection
         if rebetEnabled {
             // Don't add to balance - the bet stays on the control for the next hand
-            // The balance was already updated with the winnings, and the bet will be
-            // deducted again when the next hand starts in applyRebetIfNeeded
             return
         }
 
-        // Create a temporary chip view to animate
-        let chipView = SmallBetChip()
-        chipView.amount = control.betAmount
-        chipView.translatesAutoresizingMaskIntoConstraints = true  // Enable frame-based layout
-        chipView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)  // Set explicit frame size
-        chipView.isHidden = false  // Ensure visibility
-        view.addSubview(chipView)
-
-        // Start from the control's bet position
-        let betPosition = control.getBetViewPosition(in: view)
-        chipView.center = betPosition
-
-        // Animate directly to balance view
-        let balancePosition = balanceView.convert(balanceView.bounds, to: view)
-        let balanceCenter = CGPoint(x: balancePosition.maxX - 30, y: balancePosition.midY)
-
-        let betAmount = control.betAmount
-
-        let animator = UIViewPropertyAnimator(duration: 0.5, controlPoint1: CGPoint(x: 0.85, y: 0), controlPoint2: CGPoint(x: 0.15, y: 1), animations: {
-            chipView.center = balanceCenter
-        })
-
-        animator.addCompletion { [weak self] _ in
-            guard let self = self else { return }
-            // Update balance when chip reaches destination
-            self.balance += betAmount
-            chipView.removeFromSuperview()
+        chipAnimator.animateBetCollection(for: control) { [weak self] amount in
+            self?.balance += amount
         }
-
-        animator.startAnimation()
-
-        // Clear the bet from the control
-        control.betAmount = 0
     }
     
     private func animateChipsAway(from control: PlainControl) {
-        guard control.betAmount > 0 else { return }
-        
-        // Store bet amount and position before any changes
-        let betAmount = control.betAmount
-        let betPosition = control.getBetViewPosition(in: view)
-        
-        // Hide the betView immediately by setting alpha to 0
-        control.betView.alpha = 0
-        
-        // Create the animation chip immediately (before clearing bet amount)
-        // This ensures seamless transition - chip appears exactly where betView was
-        let chipView = SmallBetChip()
-        chipView.amount = betAmount
-        chipView.translatesAutoresizingMaskIntoConstraints = true
-        chipView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
-        chipView.isHidden = false
-        view.addSubview(chipView)
-        chipView.center = betPosition
-        
-        // Now clear the bet amount (chip is already visible at the same position)
-        // Use a tiny delay to ensure chip is rendered before clearing
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
-            guard let self = self else { return }
-            control.betAmount = 0
-        }
-        
-        // Animate chip away to top of screen
-        let randomDelay = Double.random(in: 0...0.15)
-        
-        UIView.animate(withDuration: 0.5, delay: randomDelay, options: .curveEaseIn, animations: {
-            chipView.center = CGPoint(x: self.view.bounds.width / 2, y: 0)
-            chipView.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
-        }, completion: { _ in
-            UIView.animate(withDuration: 0.2) {
-                chipView.alpha = 0
-            } completion: { _ in
-                chipView.removeFromSuperview()
-            }
-        })
+        chipAnimator.animateChipsAway(from: control)
     }
 
     // MARK: - Rebet Functionality
