@@ -21,7 +21,16 @@ class SessionPersistenceManager {
     
     func saveSession(_ session: GameSession) {
         var sessions = loadAllSessions()
-        sessions.append(session)
+
+        // Check if a session with this ID already exists
+        if let existingIndex = sessions.firstIndex(where: { $0.id == session.id }) {
+            // Update the existing session
+            sessions[existingIndex] = session
+        } else {
+            // Add as new session
+            sessions.append(session)
+        }
+
         // Sort by date, most recent first
         sessions.sort { $0.date > $1.date }
         saveSessions(sessions)
@@ -53,6 +62,17 @@ class SessionPersistenceManager {
             try data.write(to: fileURL)
         } catch {
             print("Error saving sessions: \(error)")
+        }
+    }
+
+    func clearAllSessions() {
+        do {
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+                print("All sessions cleared successfully")
+            }
+        } catch {
+            print("Error clearing sessions: \(error)")
         }
     }
 }

@@ -27,18 +27,19 @@ class MainViewController: UIViewController {
     }
     
     private func setupNavigationBar() {
-        let infoButton = UIBarButtonItem(
-            image: UIImage(systemName: "info.circle"),
+        let settingsButton = UIBarButtonItem(
+            image: UIImage(systemName: "gearshape"),
             style: .plain,
             target: self,
-            action: #selector(showPlayerTypes)
+            action: #selector(showSettings)
         )
-        navigationItem.rightBarButtonItem = infoButton
+        navigationItem.rightBarButtonItem = settingsButton
     }
-    
-    @objc private func showPlayerTypes() {
-        let playerTypesVC = PlayerTypesViewController()
-        navigationController?.pushViewController(playerTypesVC, animated: true)
+
+    @objc private func showSettings() {
+        let settingsVC = AppSettingsViewController()
+        let navController = UINavigationController(rootViewController: settingsVC)
+        present(navController, animated: true)
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -139,7 +140,21 @@ extension MainViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let session = sessions[indexPath.row]
-        let detailViewController = GameDetailViewController(session: session)
+        let detailViewController = GameDetailViewController(session: session, canContinueSession: true)
+
+        // Set up callback for continuing session
+        detailViewController.onContinueSession = { [weak self, weak detailViewController] in
+            guard let self = self,
+                  let navController = self.navigationController else { return }
+
+            // Create new BlackjackGameplayViewController with the resumed session
+            let gameplayVC = BlackjackGameplayViewController(resumingSession: session)
+
+            // Pop the detail view controller and push the gameplay view controller
+            navController.popViewController(animated: false)
+            navController.pushViewController(gameplayVC, animated: true)
+        }
+
         navigationController?.pushViewController(detailViewController, animated: true)
     }
 }
