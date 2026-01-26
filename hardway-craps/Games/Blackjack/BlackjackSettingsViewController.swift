@@ -8,19 +8,7 @@
 import UIKit
 
 final class BlackjackSettingsViewController: BaseSettingsViewController {
-    
-    // UserDefaults keys for settings persistence
-    private enum SettingsKeys {
-        static let showTotals = "BlackjackShowTotals"
-        static let showDeckCount = "BlackjackShowDeckCount"
-        static let showCardCount = "BlackjackShowCardCount"
-        static let deckCount = "BlackjackDeckCount"
-        static let rebetEnabled = "BlackjackRebetEnabled"
-        static let fixedHandType = "BlackjackFixedHandType"
-        static let deckPenetration = "BlackjackDeckPenetration"
-        static let selectedSideBets = "BlackjackSelectedSideBets"
-    }
-    
+
     // Settings state
     private var showTotals: Bool = true
     private var showDeckCount: Bool = false
@@ -28,20 +16,6 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
     private var deckCount: Int = 1
     private var rebetEnabled: Bool = false
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, 0.75 = 75%, etc.)
-
-    // Fixed hand type for testing
-    enum FixedHandType: String {
-        case perfectPair = "Perfect Pair (30:1)"
-        case coloredPair = "Colored Pair (10:1)"
-        case mixedPair = "Mixed Pair (5:1)"
-        case royalMatch = "Royal Match (25:1)"
-        case suitedCards = "Suited Cards (3:1)"
-        case regular = "Regular Hand"
-        case aceUp = "Ace Up"
-        case dealerBlackjack = "Dealer BlackJack"
-        case random = "Random"
-    }
-
     private var fixedHandType: FixedHandType?
     
     // Side bet types
@@ -122,43 +96,43 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
     
     private func loadSettings() {
         // Load showTotals (default: true)
-        if UserDefaults.standard.object(forKey: SettingsKeys.showTotals) != nil {
-            showTotals = UserDefaults.standard.bool(forKey: SettingsKeys.showTotals)
+        if UserDefaults.standard.object(forKey: BlackjackSettingsKeys.showTotals) != nil {
+            showTotals = UserDefaults.standard.bool(forKey: BlackjackSettingsKeys.showTotals)
         }
 
         // Load showDeckCount (default: false)
-        if UserDefaults.standard.object(forKey: SettingsKeys.showDeckCount) != nil {
-            showDeckCount = UserDefaults.standard.bool(forKey: SettingsKeys.showDeckCount)
+        if UserDefaults.standard.object(forKey: BlackjackSettingsKeys.showDeckCount) != nil {
+            showDeckCount = UserDefaults.standard.bool(forKey: BlackjackSettingsKeys.showDeckCount)
         }
 
         // Load showCardCount (default: false)
-        if UserDefaults.standard.object(forKey: SettingsKeys.showCardCount) != nil {
-            showCardCount = UserDefaults.standard.bool(forKey: SettingsKeys.showCardCount)
+        if UserDefaults.standard.object(forKey: BlackjackSettingsKeys.showCardCount) != nil {
+            showCardCount = UserDefaults.standard.bool(forKey: BlackjackSettingsKeys.showCardCount)
         }
 
         // Load deckCount (default: 1)
-        if UserDefaults.standard.object(forKey: SettingsKeys.deckCount) != nil {
-            let savedDeckCount = UserDefaults.standard.integer(forKey: SettingsKeys.deckCount)
+        if UserDefaults.standard.object(forKey: BlackjackSettingsKeys.deckCount) != nil {
+            let savedDeckCount = UserDefaults.standard.integer(forKey: BlackjackSettingsKeys.deckCount)
             if [1, 2, 4, 6].contains(savedDeckCount) {
                 deckCount = savedDeckCount
             }
         }
 
         // Load rebetEnabled (default: false)
-        if UserDefaults.standard.object(forKey: SettingsKeys.rebetEnabled) != nil {
-            rebetEnabled = UserDefaults.standard.bool(forKey: SettingsKeys.rebetEnabled)
+        if UserDefaults.standard.object(forKey: BlackjackSettingsKeys.rebetEnabled) != nil {
+            rebetEnabled = UserDefaults.standard.bool(forKey: BlackjackSettingsKeys.rebetEnabled)
         }
 
         // Load fixedHandType (default: nil/random)
-        if let savedHandType = UserDefaults.standard.string(forKey: SettingsKeys.fixedHandType),
+        if let savedHandType = UserDefaults.standard.string(forKey: BlackjackSettingsKeys.fixedHandType),
            let handType = FixedHandType(rawValue: savedHandType) {
             fixedHandType = handType
         }
 
         // Load deckPenetration (default: nil = full deck)
         // -1.0 = random, 0.0 = full deck, > 0 && <= 1.0 = specific percentage
-        if UserDefaults.standard.object(forKey: SettingsKeys.deckPenetration) != nil {
-            let savedPenetration = UserDefaults.standard.double(forKey: SettingsKeys.deckPenetration)
+        if UserDefaults.standard.object(forKey: BlackjackSettingsKeys.deckPenetration) != nil {
+            let savedPenetration = UserDefaults.standard.double(forKey: BlackjackSettingsKeys.deckPenetration)
             if savedPenetration == -1.0 {
                 deckPenetration = -1.0 // Random
             } else if savedPenetration > 0 && savedPenetration <= 1.0 {
@@ -167,15 +141,15 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
                 deckPenetration = nil // 0 means full deck
             }
         }
-        
+
         // Load selectedSideBets (default: Royal Match and Perfect Pairs)
-        if let savedSideBets = UserDefaults.standard.array(forKey: SettingsKeys.selectedSideBets) as? [String] {
+        if let savedSideBets = UserDefaults.standard.array(forKey: BlackjackSettingsKeys.selectedSideBets) as? [String] {
             selectedSideBets = savedSideBets.compactMap { SideBetType(rawValue: $0) }
         } else {
             // Default to Royal Match and Perfect Pairs
             selectedSideBets = [.royalMatch, .perfectPairs]
         }
-        
+
         // Ensure max 2 side bets
         if selectedSideBets.count > 2 {
             selectedSideBets = Array(selectedSideBets.prefix(2))
@@ -183,29 +157,29 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
     }
     
     private func saveSettings() {
-        UserDefaults.standard.set(showTotals, forKey: SettingsKeys.showTotals)
-        UserDefaults.standard.set(showDeckCount, forKey: SettingsKeys.showDeckCount)
-        UserDefaults.standard.set(showCardCount, forKey: SettingsKeys.showCardCount)
-        UserDefaults.standard.set(deckCount, forKey: SettingsKeys.deckCount)
-        UserDefaults.standard.set(rebetEnabled, forKey: SettingsKeys.rebetEnabled)
+        UserDefaults.standard.set(showTotals, forKey: BlackjackSettingsKeys.showTotals)
+        UserDefaults.standard.set(showDeckCount, forKey: BlackjackSettingsKeys.showDeckCount)
+        UserDefaults.standard.set(showCardCount, forKey: BlackjackSettingsKeys.showCardCount)
+        UserDefaults.standard.set(deckCount, forKey: BlackjackSettingsKeys.deckCount)
+        UserDefaults.standard.set(rebetEnabled, forKey: BlackjackSettingsKeys.rebetEnabled)
 
         // Save fixedHandType (nil means random)
         if let handType = fixedHandType {
-            UserDefaults.standard.set(handType.rawValue, forKey: SettingsKeys.fixedHandType)
+            UserDefaults.standard.set(handType.rawValue, forKey: BlackjackSettingsKeys.fixedHandType)
         } else {
-            UserDefaults.standard.removeObject(forKey: SettingsKeys.fixedHandType)
+            UserDefaults.standard.removeObject(forKey: BlackjackSettingsKeys.fixedHandType)
         }
 
         // Save deckPenetration (nil = full deck stored as 0, -1.0 = random, otherwise percentage)
         if let penetration = deckPenetration {
-            UserDefaults.standard.set(penetration, forKey: SettingsKeys.deckPenetration)
+            UserDefaults.standard.set(penetration, forKey: BlackjackSettingsKeys.deckPenetration)
         } else {
-            UserDefaults.standard.set(0.0, forKey: SettingsKeys.deckPenetration) // 0 = full deck
+            UserDefaults.standard.set(0.0, forKey: BlackjackSettingsKeys.deckPenetration) // 0 = full deck
         }
-        
+
         // Save selectedSideBets
         let sideBetStrings = selectedSideBets.map { $0.rawValue }
-        UserDefaults.standard.set(sideBetStrings, forKey: SettingsKeys.selectedSideBets)
+        UserDefaults.standard.set(sideBetStrings, forKey: BlackjackSettingsKeys.selectedSideBets)
 
         onSettingsChanged?()
     }

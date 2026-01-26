@@ -8,20 +8,7 @@
 import UIKit
 
 final class BlackjackGameplayViewController: UIViewController {
-    
-    // UserDefaults keys for settings persistence
-    private enum SettingsKeys {
-        static let showTotals = "BlackjackShowTotals"
-        static let showDeckCount = "BlackjackShowDeckCount"
-        static let showCardCount = "BlackjackShowCardCount"
-        static let deckCount = "BlackjackDeckCount"
-        static let rebetEnabled = "BlackjackRebetEnabled"
-        static let rebetAmount = "BlackjackRebetAmount"
-        static let fixedHandType = "BlackjackFixedHandType"
-        static let deckPenetration = "BlackjackDeckPenetration"
-        static let selectedSideBets = "BlackjackSelectedSideBets"
-    }
-    
+
     // Use SideBetType from BlackjackSettingsViewController
     typealias SideBetType = BlackjackSettingsViewController.SideBetType
     
@@ -76,12 +63,19 @@ final class BlackjackGameplayViewController: UIViewController {
     private var hasInsuranceBeenChecked = false // Track if insurance has been checked/declined
     private var playerDoubleDownCardIndex: Int? = nil // Track which card is face-down from double down
     private var gamePhase: PlayerControlStack.GamePhase = .waitingForBet
-    private var showTotals: Bool = true
-    private var showDeckCount: Bool = false
-    private var showCardCount: Bool = false
     private var runningCount: Int = 0 // Card counting running count
     private var deck: [BlackjackHandView.Card] = []
-    private var fixedHandType: FixedHandType? = nil
+
+    // MARK: - Managers
+
+    private var settingsManager: BlackjackSettingsManager!
+
+    // MARK: - Settings Computed Properties (for backward compatibility)
+
+    private var showTotals: Bool { settingsManager.currentSettings.showTotals }
+    private var showDeckCount: Bool { settingsManager.currentSettings.showDeckCount }
+    private var showCardCount: Bool { settingsManager.currentSettings.showCardCount }
+    private var fixedHandType: FixedHandType? { settingsManager.currentSettings.fixedHandType }
     private var playerBusted: Bool = false
     private var deckCount: Int = 1 // Number of decks (1, 2, 4, or 6)
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, etc.)
@@ -115,17 +109,6 @@ final class BlackjackGameplayViewController: UIViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    enum FixedHandType {
-        case perfectPair        // Same rank and suit (e.g., 7♠, 7♠)
-        case coloredPair        // Same rank, same color, different suits (e.g., 7♥, 7♦)
-        case mixedPair          // Same rank, different colors (e.g., 7♥, 7♣)
-        case royalMatch         // Suited pair (e.g., K♥, Q♥)
-        case suitedCards        // Any two suited cards (e.g., 7♥, K♥)
-        case regular            // Regular hand (no bonus)
-        case aceUp              // Dealer's up-card is Ace
-        case dealerBlackjack    // Dealer gets a blackjack
-    }
-    
     struct HandResult {
         let isWin: Bool
         let isPush: Bool
@@ -179,16 +162,19 @@ final class BlackjackGameplayViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .black
         title = "Blackjack"
-        
+
         // Disable interactive pop gesture to prevent accidental dismissal when dragging bets
         navigationController?.interactivePopGestureRecognizer?.isEnabled = false
         if #available(iOS 26.0, *) {
            navigationController?.interactiveContentPopGestureRecognizer?.isEnabled = false
         }
-        
+
+        // Initialize managers
+        setupManagers()
+
         // Start session tracking
         startSession()
-        
+
         // Register for app lifecycle notifications
         NotificationCenter.default.addObserver(
             self,
@@ -196,7 +182,7 @@ final class BlackjackGameplayViewController: UIViewController {
             name: UIApplication.willResignActiveNotification,
             object: nil
         )
-        
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAppDidEnterBackground),
@@ -217,9 +203,6 @@ final class BlackjackGameplayViewController: UIViewController {
             name: UIApplication.willTerminateNotification,
             object: nil
         )
-        
-        // Load settings from UserDefaults
-        loadSettings()
         
         // Create and shuffle the deck first
         createAndShuffleDeck()
@@ -333,112 +316,33 @@ final class BlackjackGameplayViewController: UIViewController {
         showSettingsViewController()
     }
     
-    private func loadSettings() {
-        // Load showTotals (default: true)
-        if UserDefaults.standard.object(forKey: SettingsKeys.showTotals) != nil {
-            showTotals = UserDefaults.standard.bool(forKey: SettingsKeys.showTotals)
-        }
+    // MARK: - Manager Setup
 
-        // Load showDeckCount (default: false)
-        if UserDefaults.standard.object(forKey: SettingsKeys.showDeckCount) != nil {
-            showDeckCount = UserDefaults.standard.bool(forKey: SettingsKeys.showDeckCount)
-        }
+    private func setupManagers() {
+        // Initialize settings manager
+        settingsManager = BlackjackSettingsManager()
+        settingsManager.delegate = self
 
-        // Load showCardCount (default: false)
-        if UserDefaults.standard.object(forKey: SettingsKeys.showCardCount) != nil {
-            showCardCount = UserDefaults.standard.bool(forKey: SettingsKeys.showCardCount)
-        }
-
-        // Load deckCount (default: 1)
-        if UserDefaults.standard.object(forKey: SettingsKeys.deckCount) != nil {
-            let savedDeckCount = UserDefaults.standard.integer(forKey: SettingsKeys.deckCount)
-            if [1, 2, 4, 6].contains(savedDeckCount) {
-                deckCount = savedDeckCount
-            }
-        }
-
-        // Load rebetEnabled (default: false)
-        if UserDefaults.standard.object(forKey: SettingsKeys.rebetEnabled) != nil {
-            rebetEnabled = UserDefaults.standard.bool(forKey: SettingsKeys.rebetEnabled)
-        }
-
-        // Load rebetAmount (default: 10)
-        if UserDefaults.standard.object(forKey: SettingsKeys.rebetAmount) != nil {
-            rebetAmount = UserDefaults.standard.integer(forKey: SettingsKeys.rebetAmount)
-        }
-
-        // Load deckPenetration (default: nil = full deck)
-        // -1.0 = random, 0.0 = full deck, > 0 && <= 1.0 = specific percentage
-        if UserDefaults.standard.object(forKey: SettingsKeys.deckPenetration) != nil {
-            let savedPenetration = UserDefaults.standard.double(forKey: SettingsKeys.deckPenetration)
-            if savedPenetration == -1.0 {
-                deckPenetration = -1.0 // Random
-            } else if savedPenetration > 0 && savedPenetration <= 1.0 {
-                deckPenetration = savedPenetration
-            } else if savedPenetration == 0 {
-                deckPenetration = nil // 0 means full deck
-            }
-        }
-
-        // Load fixedHandType (default: nil/random)
-        if let savedHandType = UserDefaults.standard.string(forKey: SettingsKeys.fixedHandType) {
-            // Map from settings string to gameplay enum
-            switch savedHandType {
-            case "Perfect Pair (30:1)":
-                fixedHandType = .perfectPair
-            case "Colored Pair (10:1)":
-                fixedHandType = .coloredPair
-            case "Mixed Pair (5:1)":
-                fixedHandType = .mixedPair
-            case "Royal Match (25:1)":
-                fixedHandType = .royalMatch
-            case "Suited Cards (3:1)":
-                fixedHandType = .suitedCards
-            case "Regular Hand":
-                fixedHandType = .regular
-            case "Ace Up":
-                fixedHandType = .aceUp
-            case "Dealer BlackJack":
-                fixedHandType = .dealerBlackjack
-            default:
-                fixedHandType = nil
-            }
-        } else {
-            fixedHandType = nil
-        }
-    }
-    
-    private func saveSettings() {
-        UserDefaults.standard.set(showTotals, forKey: SettingsKeys.showTotals)
-        UserDefaults.standard.set(showDeckCount, forKey: SettingsKeys.showDeckCount)
-        UserDefaults.standard.set(showCardCount, forKey: SettingsKeys.showCardCount)
-        UserDefaults.standard.set(deckCount, forKey: SettingsKeys.deckCount)
+        // Apply loaded settings to deck count (moved from loadSettings)
+        deckCount = settingsManager.currentSettings.deckCount
+        deckPenetration = settingsManager.currentSettings.deckPenetration
+        rebetEnabled = settingsManager.currentSettings.rebetEnabled
+        rebetAmount = settingsManager.currentSettings.rebetAmount
     }
     
     private func toggleTotals() {
-        showTotals.toggle()
-        dealerHandView.setTotalsHidden(!showTotals)
-        playerHandView.setTotalsHidden(!showTotals)
-        splitHandView?.setTotalsHidden(!showTotals)
-        saveSettings()
-        updateNavigationBarMenu()
+        settingsManager.toggleTotals()
+        // UI updates handled in settingsDidChange delegate method
     }
-    
+
     private func toggleDeckCount() {
-        showDeckCount.toggle()
-        deckView.setCountLabelVisible(showDeckCount)
-        saveSettings()
-        updateNavigationBarMenu()
+        settingsManager.toggleDeckCount()
+        // UI updates handled in settingsDidChange delegate method
     }
-    
+
     private func setDeckCount(_ count: Int) {
-        guard [1, 2, 4, 6].contains(count) else { return }
-        deckCount = count
-        // Reshuffle with new deck count
-        createAndShuffleDeck()
-        deckView.setCardCount(52 * deckCount, animated: true)
-        saveSettings()
-        updateNavigationBarMenu()
+        settingsManager.setDeckCount(count)
+        // UI updates handled in settingsDidChange delegate method
         instructionLabel.showMessage("Deck count set to \(count)", shouldFade: true)
     }
     
@@ -1078,7 +982,16 @@ final class BlackjackGameplayViewController: UIViewController {
         // Store previous deck count setting before loading new settings
         let previousDeckCount = deckCount
 
-        loadSettings()
+        // Reload settings from manager
+        settingsManager.loadSettings()
+
+        // Apply settings to local properties
+        deckCount = settingsManager.currentSettings.deckCount
+        deckPenetration = settingsManager.currentSettings.deckPenetration
+        rebetEnabled = settingsManager.currentSettings.rebetEnabled
+        rebetAmount = settingsManager.currentSettings.rebetAmount
+
+        // Update UI based on settings
         dealerHandView.setTotalsHidden(!showTotals)
         playerHandView.setTotalsHidden(!showTotals)
         splitHandView?.setTotalsHidden(!showTotals)
@@ -1090,7 +1003,7 @@ final class BlackjackGameplayViewController: UIViewController {
             createAndShuffleDeck()
             deckView.setCardCount(52 * deckCount, animated: true)
         }
-        
+
         // Reload bonus bet controls if we're in a safe state (waiting for bet or ready to deal)
         // This allows side bet selection changes to take effect
         if gamePhase == .waitingForBet || gamePhase == .readyToDeal {
@@ -1415,6 +1328,7 @@ final class BlackjackGameplayViewController: UIViewController {
         case .regular: return "Regular Hand"
         case .aceUp: return "Ace Up"
         case .dealerBlackjack: return "Dealer BlackJack"
+        case .random: return "Random"
         }
     }
     
@@ -2627,21 +2541,15 @@ final class BlackjackGameplayViewController: UIViewController {
         // Clear existing controls
         bonusBetControls.forEach { $0.removeFromSuperview() }
         bonusBetControls.removeAll()
-        
-        // Load selected side bets from UserDefaults
-        var selectedSideBetTypes: [SideBetType] = []
-        if let savedSideBets = UserDefaults.standard.array(forKey: SettingsKeys.selectedSideBets) as? [String] {
-            selectedSideBetTypes = savedSideBets.compactMap { SideBetType(rawValue: $0) }
-        } else {
-            // Default to Royal Match and Perfect Pairs
-            selectedSideBetTypes = [.royalMatch, .perfectPairs]
-        }
-        
+
+        // Load selected side bets from settings manager
+        var selectedSideBetTypes = settingsManager.currentSettings.selectedSideBets
+
         // Ensure max 2 side bets
         if selectedSideBetTypes.count > 2 {
             selectedSideBetTypes = Array(selectedSideBetTypes.prefix(2))
         }
-        
+
         // Create bonus bet controls based on selected side bets
         for sideBetType in selectedSideBetTypes {
             let control = BonusBetControl(
@@ -3358,7 +3266,7 @@ final class BlackjackGameplayViewController: UIViewController {
             // Set flag to shuffle after hand completes
             if !shouldShuffleAfterHand {
                 shouldShuffleAfterHand = true
-                instructionLabel.showMessage("Cut card reached - will shuffle after hand", shouldFade: true)
+                instructionLabel.showMessage("Cut card reached.", shouldFade: true)
             }
 
             // Draw the next card (which should be a real card)
@@ -3481,6 +3389,14 @@ final class BlackjackGameplayViewController: UIViewController {
             let dealerBJDealerCard2 = BlackjackHandView.Card(rank: .king, suit: .hearts)
             let dealerBJDealerCard1 = BlackjackHandView.Card(rank: .ace, suit: .spades)
             return (dealerBJPlayerCard1, dealerBJPlayerCard2, dealerBJDealerCard1, dealerBJDealerCard2)
+
+        case .random:
+            // Random: All cards are random (drawn from deck)
+            let randomPlayerCard1 = drawCard()
+            let randomPlayerCard2 = drawCard()
+            let randomDealerCard1 = drawCard()
+            let randomDealerCard2 = drawCard()
+            return (randomPlayerCard1, randomPlayerCard2, randomDealerCard1, randomDealerCard2)
         }
 
         // Dealer cards are always random (drawn from deck to maintain deck count)
@@ -3766,7 +3682,7 @@ final class BlackjackGameplayViewController: UIViewController {
         // If player has bet the same amount 3 times in a row, update rebet amount
         if consecutiveBetCount >= 3 {
             rebetAmount = amount
-            UserDefaults.standard.set(rebetAmount, forKey: SettingsKeys.rebetAmount)
+            UserDefaults.standard.set(rebetAmount, forKey: BlackjackSettingsKeys.rebetAmount)
         }
     }
 
@@ -3791,50 +3707,6 @@ final class BlackjackGameplayViewController: UIViewController {
         // Deduct from balance and set bet on control
         balance -= rebetAmount
         playerHandView.betControl.setDirectBet(rebetAmount)
-    }
-}
-
-// MARK: - UIView Animation Extensions
-
-extension UIView {
-    /// Fades in the view with optional spring animation
-    func fadeIn(duration: TimeInterval = 0.3, 
-                springDamping: CGFloat = 0.85, 
-                velocity: CGFloat = 0.4, 
-                completion: ((Bool) -> Void)? = nil) {
-        self.isHidden = false
-        UIView.animate(
-            withDuration: duration, 
-            delay: 0, 
-            usingSpringWithDamping: springDamping, 
-            initialSpringVelocity: velocity, 
-            options: [.curveEaseInOut, .allowUserInteraction],
-            animations: {
-                self.alpha = 1
-                self.transform = .identity
-            },
-            completion: completion
-        )
-    }
-    
-    /// Fades out the view and optionally hides it
-    func fadeOut(duration: TimeInterval = 0.3, 
-                 hideOnComplete: Bool = true,
-                 completion: ((Bool) -> Void)? = nil) {
-        UIView.animate(
-            withDuration: duration, 
-            delay: 0, 
-            options: [.curveEaseInOut, .allowUserInteraction]
-        ) {
-            self.alpha = 0
-            self.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
-        } completion: { finished in
-            if hideOnComplete {
-                self.isHidden = true
-                self.transform = .identity
-            }
-            completion?(finished)
-        }
     }
 }
 
@@ -3938,5 +3810,32 @@ extension BlackjackGameplayViewController: UIScrollViewDelegate {
             updateControls()
             print("DEBUG: Scrolled to hand \(currentPage)")
         }
+    }
+}
+
+// MARK: - BlackjackSettingsManagerDelegate
+
+extension BlackjackGameplayViewController: BlackjackSettingsManagerDelegate {
+    func settingsDidChange(_ settings: BlackjackSettings) {
+        // Update local properties from settings
+        deckCount = settings.deckCount
+        deckPenetration = settings.deckPenetration
+        rebetEnabled = settings.rebetEnabled
+        rebetAmount = settings.rebetAmount
+
+        // Update UI based on changed settings
+        dealerHandView.setTotalsHidden(!settings.showTotals)
+        playerHandView.setTotalsHidden(!settings.showTotals)
+        splitHandView?.setTotalsHidden(!settings.showTotals)
+        deckView.setCountLabelVisible(settings.showDeckCount)
+        deckView.setCardCountLabelVisible(settings.showCardCount)
+
+        // Reshuffle deck if deck count changed
+        if deckCount != settings.deckCount {
+            createAndShuffleDeck()
+            deckView.setCardCount(52 * deckCount, animated: true)
+        }
+
+        updateNavigationBarMenu()
     }
 }
