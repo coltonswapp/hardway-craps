@@ -63,12 +63,11 @@ final class BlackjackGameplayViewController: UIViewController {
     private var hasInsuranceBeenChecked = false // Track if insurance has been checked/declined
     private var playerDoubleDownCardIndex: Int? = nil // Track which card is face-down from double down
     private var gamePhase: PlayerControlStack.GamePhase = .waitingForBet
-    private var runningCount: Int = 0 // Card counting running count
-    private var deck: [BlackjackHandView.Card] = []
 
     // MARK: - Managers
 
     private var settingsManager: BlackjackSettingsManager!
+    private var deckManager: BlackjackDeckManager!
 
     // MARK: - Settings Computed Properties (for backward compatibility)
 
@@ -76,6 +75,11 @@ final class BlackjackGameplayViewController: UIViewController {
     private var showDeckCount: Bool { settingsManager.currentSettings.showDeckCount }
     private var showCardCount: Bool { settingsManager.currentSettings.showCardCount }
     private var fixedHandType: FixedHandType? { settingsManager.currentSettings.fixedHandType }
+
+    // MARK: - Deck Computed Properties (for backward compatibility)
+
+    private var deck: [BlackjackHandView.Card] { deckManager.deck }
+    private var runningCount: Int { deckManager.runningCount }
     private var playerBusted: Bool = false
     private var deckCount: Int = 1 // Number of decks (1, 2, 4, or 6)
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, etc.)
@@ -322,6 +326,14 @@ final class BlackjackGameplayViewController: UIViewController {
         // Initialize settings manager
         settingsManager = BlackjackSettingsManager()
         settingsManager.delegate = self
+
+        // Initialize deck manager with settings
+        deckManager = BlackjackDeckManager(
+            deckCount: settingsManager.currentSettings.deckCount,
+            deckPenetration: settingsManager.currentSettings.deckPenetration,
+            fixedHandType: settingsManager.currentSettings.fixedHandType
+        )
+        deckManager.delegate = self
 
         // Apply loaded settings to deck count (moved from loadSettings)
         deckCount = settingsManager.currentSettings.deckCount
@@ -1313,7 +1325,7 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func setFixedHand(_ handType: FixedHandType?) {
-        fixedHandType = handType
+        deckManager.setFixedHandType(handType)
         let message = handType == nil ? "Fixed hand disabled" : "Fixed hand: \(handTypeDescription(handType!))"
         instructionLabel.showMessage(message, shouldFade: true)
     }
@@ -3163,8 +3175,7 @@ final class BlackjackGameplayViewController: UIViewController {
     // MARK: - Deck Management
     
     private func createAndShuffleDeck() {
-        deck.removeAll()
-        
+        // Animate cut card away
         UIView.animate(withDuration: 0.2) {
             self.cutCardView?.transform = CGAffineTransform(translationX: -200, y: 0).scaledBy(x: 0.5, y: 0.5)
         } completion: { _ in
@@ -3173,107 +3184,14 @@ final class BlackjackGameplayViewController: UIViewController {
             self.cutCardView = nil
         }
 
-        // Create multiple decks based on deckCount
-        for _ in 0..<deckCount {
-            // Create a standard 52-card deck
-            for suit in PlayingCardView.Suit.allCases {
-                for rank in PlayingCardView.Rank.allCases {
-                    deck.append(BlackjackHandView.Card(rank: rank, suit: suit))
-                }
-            }
-        }
-
-        // Shuffle the deck
-        deck.shuffle()
-
-        // Insert cut card based on deck penetration
-        if let penetration = deckPenetration {
-            // If random, select a random penetration from available options
-            let actualPenetration: Double
-            if penetration == -1.0 {
-                // Random: choose from 50%, 60%, 70%, 75%
-                let options: [Double] = [0.5, 0.6, 0.7, 0.75]
-                actualPenetration = options.randomElement() ?? 0.75
-            } else {
-                actualPenetration = penetration
-            }
-
-            // Cut card is placed at penetration % through the deck
-            // For example, 75% penetration means we can use 75% of the deck, so cut card is at position 75%
-            let totalCards = deck.count
-            let cardsToUse = Int(Double(totalCards) * actualPenetration)
-            let cutPosition = cardsToUse
-
-            // Insert the cut card at the calculated position
-            if cutPosition >= 0 && cutPosition <= deck.count {
-                deck.insert(BlackjackHandView.Card.cutCard(), at: cutPosition)
-                cutCardPosition = cutPosition
-            } else {
-                cutCardPosition = nil
-            }
-        } else {
-            // No cut card - use full deck
-            cutCardPosition = nil
-        }
-
-        // Reset shuffle flag
-        shouldShuffleAfterHand = false
-
-        // Reset card count when deck is shuffled
-        runningCount = 0
-        deckView.updateCardCountLabel(runningCount: 0, trueCount: 0) // Both counts are 0 when shuffled
-    }
-    
-    private func getCardCountValue(for card: BlackjackHandView.Card) -> Int {
-        switch card.rank {
-        case .two, .three, .four, .five, .six:
-            return 1  // Low cards: +1
-        case .seven, .eight, .nine:
-            return 0  // Neutral cards: 0
-        case .ten, .jack, .queen, .king, .ace:
-            return -1 // High cards: -1
-        }
-    }
-
-    private func calculateTrueCount() -> Int {
-        // True count = running count / number of decks remaining
-        let decksRemaining = max(1.0, Double(deck.count) / 52.0)
-        let trueCount = Double(runningCount) / decksRemaining
-        return Int(round(trueCount))
+        // Delegate to deck manager
+        deckManager.createAndShuffleDeck()
+        // UI updates handled in deckWasShuffled delegate method
     }
 
     private func drawCard() -> BlackjackHandView.Card {
-        // Check if we need to reshuffle before drawing
-        if deck.isEmpty || deck.count < 6 {
-            // Out of cards or too few cards - shuffle immediately
-            createAndShuffleDeck()
-            deckView.setCardCount(52 * deckCount, animated: true)
-            instructionLabel.showMessage("Deck reshuffled!", shouldFade: true)
-
-            // Reset card count when deck is reshuffled
-            runningCount = 0
-            deckView.updateCardCountLabel(runningCount: 0, trueCount: 0) // Both counts are 0 when shuffled
-        }
-
-        // Draw and remove the top card
-        let card = deck.removeFirst()
-
-        // Check if we drew the cut card
-        if card.isCutCard {
-            // Animate the cut card off-screen
-            animateCutCardOffScreen()
-
-            // Set flag to shuffle after hand completes
-            if !shouldShuffleAfterHand {
-                shouldShuffleAfterHand = true
-                instructionLabel.showMessage("Cut card reached.", shouldFade: true)
-            }
-
-            // Draw the next card (which should be a real card)
-            return drawCard()
-        }
-
-        return card
+        return deckManager.drawCard()
+        // Delegate callbacks will handle UI updates
     }
 
     private func animateCutCardOffScreen() {
@@ -3332,80 +3250,10 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func dealFixedHand(type: FixedHandType) -> (BlackjackHandView.Card, BlackjackHandView.Card, BlackjackHandView.Card, BlackjackHandView.Card) {
-        // Create specific card combinations for testing bonus bets
-        // Note: Player cards are created directly (not drawn from deck) for testing purposes
-        // Dealer cards are still drawn from deck to maintain deck count accuracy
-        
-        let playerCard1: BlackjackHandView.Card
-        let playerCard2: BlackjackHandView.Card
-        
-        switch type {
-        case .perfectPair:
-            // Perfect Pair: Same rank and suit (e.g., 7♠, 7♠) - pays 30:1
-            playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .spades)
-            playerCard2 = BlackjackHandView.Card(rank: .seven, suit: .spades)
-            
-        case .coloredPair:
-            // Colored Pair: Same rank, same color, different suits (e.g., 7♥, 7♦) - pays 10:1
-            playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .hearts)
-            playerCard2 = BlackjackHandView.Card(rank: .seven, suit: .diamonds)
-            
-        case .mixedPair:
-            // Mixed Pair: Same rank, different colors (e.g., 7♥, 7♣) - pays 5:1
-            playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .hearts)
-            playerCard2 = BlackjackHandView.Card(rank: .seven, suit: .clubs)
-            
-        case .royalMatch:
-            // Royal Match: Suited pair (e.g., K♥, Q♥) - pays 25:1
-            playerCard1 = BlackjackHandView.Card(rank: .king, suit: .hearts)
-            playerCard2 = BlackjackHandView.Card(rank: .queen, suit: .hearts)
-            
-        case .suitedCards:
-            // Suited Cards: Any two suited cards (e.g., 7♥, K♥) - pays 3:1
-            playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .hearts)
-            playerCard2 = BlackjackHandView.Card(rank: .king, suit: .hearts)
-            
-        case .regular:
-            // Regular hand: No bonus (e.g., 7♥, 9♣)
-            playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .hearts)
-            playerCard2 = BlackjackHandView.Card(rank: .nine, suit: .clubs)
-            
-        case .aceUp:
-            // Ace Up: Dealer's up-card is Ace, first card is random
-            // Player cards are random
-            let aceUpPlayerCard1 = randomHandCard()
-            let aceUpPlayerCard2 = randomHandCard()
-            let aceUpDealerCard1 = drawCard()
-            // Dealer's second card (up-card) is Ace
-            let aceUpDealerCard2 = BlackjackHandView.Card(rank: .ace, suit: .spades)
-            return (aceUpPlayerCard1, aceUpPlayerCard2, aceUpDealerCard1, aceUpDealerCard2)
-
-        case .dealerBlackjack:
-            // Dealer BlackJack: Dealer gets Ace + King for blackjack
-            // Player cards are random
-            let dealerBJPlayerCard1 = randomHandCard()
-            let dealerBJPlayerCard2 = randomHandCard()
-            // Dealer gets blackjack (Ace as hole card, King as up-card)
-            let dealerBJDealerCard2 = BlackjackHandView.Card(rank: .king, suit: .hearts)
-            let dealerBJDealerCard1 = BlackjackHandView.Card(rank: .ace, suit: .spades)
-            return (dealerBJPlayerCard1, dealerBJPlayerCard2, dealerBJDealerCard1, dealerBJDealerCard2)
-
-        case .random:
-            // Random: All cards are random (drawn from deck)
-            let randomPlayerCard1 = drawCard()
-            let randomPlayerCard2 = drawCard()
-            let randomDealerCard1 = drawCard()
-            let randomDealerCard2 = drawCard()
-            return (randomPlayerCard1, randomPlayerCard2, randomDealerCard1, randomDealerCard2)
-        }
-
-        // Dealer cards are always random (drawn from deck to maintain deck count)
-        let dealerCard1 = drawCard()
-        let dealerCard2 = drawCard()
-
-        return (playerCard1, playerCard2, dealerCard1, dealerCard2)
+        // Delegate to deck manager
+        return deckManager.dealFixedHand(type: type)
     }
-    
+
     private func randomHandCard() -> BlackjackHandView.Card {
         // Use the actual deck instead of random generation
         return drawCard()
@@ -3418,9 +3266,8 @@ final class BlackjackGameplayViewController: UIViewController {
 
     func onCardAnimationComplete(card: BlackjackHandView.Card) {
         // Update card count when card animation completes
-        runningCount += getCardCountValue(for: card)
-        let trueCount = calculateTrueCount()
-        deckView.updateCardCountLabel(runningCount: runningCount, trueCount: trueCount)
+        deckManager.updateCardCount(for: card)
+        // UI updates handled in cardCountDidUpdate delegate method
     }
     
     // MARK: - Chip Animations
@@ -3823,6 +3670,11 @@ extension BlackjackGameplayViewController: BlackjackSettingsManagerDelegate {
         rebetEnabled = settings.rebetEnabled
         rebetAmount = settings.rebetAmount
 
+        // Update deck manager with new settings
+        deckManager.deckCount = settings.deckCount
+        deckManager.deckPenetration = settings.deckPenetration
+        deckManager.setFixedHandType(settings.fixedHandType)
+
         // Update UI based on changed settings
         dealerHandView.setTotalsHidden(!settings.showTotals)
         playerHandView.setTotalsHidden(!settings.showTotals)
@@ -3833,9 +3685,35 @@ extension BlackjackGameplayViewController: BlackjackSettingsManagerDelegate {
         // Reshuffle deck if deck count changed
         if deckCount != settings.deckCount {
             createAndShuffleDeck()
-            deckView.setCardCount(52 * deckCount, animated: true)
         }
 
         updateNavigationBarMenu()
+    }
+}
+
+// MARK: - BlackjackDeckManagerDelegate
+
+extension BlackjackGameplayViewController: BlackjackDeckManagerDelegate {
+    func deckWasShuffled(cardCount: Int) {
+        // Update deck view with new card count
+        deckView.setCardCount(cardCount, animated: true)
+        deckView.updateCardCountLabel(runningCount: 0, trueCount: 0)
+        instructionLabel.showMessage("Deck reshuffled!", shouldFade: true)
+    }
+
+    func cutCardWasReached() {
+        // Animate cut card off-screen
+        animateCutCardOffScreen()
+        instructionLabel.showMessage("Cut card reached.", shouldFade: true)
+    }
+
+    func cardCountDidUpdate(running: Int, trueCount: Int) {
+        // Update the deck view with new card count
+        deckView.updateCardCountLabel(runningCount: running, trueCount: trueCount)
+    }
+
+    func deckCountDidChange(remaining: Int) {
+        // Update deck view when a card is drawn
+        deckView.drawCard()
     }
 }
