@@ -97,7 +97,6 @@ final class BlackjackDeckManager {
 
         // Draw and remove the top card
         let card = deck.removeFirst()
-        delegate?.deckCountDidChange(remaining: deck.count)
 
         // Check if we drew the cut card
         if card.isCutCard {
@@ -107,10 +106,13 @@ final class BlackjackDeckManager {
                 delegate?.cutCardWasReached()
             }
 
-            // Draw the next card (which should be a real card)
+            // Draw the next card recursively (which should be a real card)
+            // Don't update deck count here - let the recursive call handle it
             return drawCard()
         }
 
+        // Only update deck count when returning a real card
+        delegate?.deckCountDidChange(remaining: deck.count)
         return card
     }
 

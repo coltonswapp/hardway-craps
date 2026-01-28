@@ -41,7 +41,7 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
             case .perfectPairs: return "Simply Pairs"
             case .royalMatch: return "Suited Pair"
             case .luckyLadies: return "Two-card 20"
-            case .lucky7: return "Number of 7s in player hand"
+            case .lucky7: return "Get some 7's"
             case .buster: return "Dealer busts"
             }
         }
@@ -144,15 +144,16 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
 
         // Load selectedSideBets (default: Royal Match and Perfect Pairs)
         if let savedSideBets = UserDefaults.standard.array(forKey: BlackjackSettingsKeys.selectedSideBets) as? [String] {
-            selectedSideBets = savedSideBets.compactMap { SideBetType(rawValue: $0) }
+            let loadedBets = savedSideBets.compactMap { SideBetType(rawValue: $0) }
+            // Ensure we have at least some side bets after filtering invalid values
+            if loadedBets.isEmpty {
+                selectedSideBets = [.royalMatch, .perfectPairs]
+            } else {
+                selectedSideBets = Array(loadedBets.prefix(2)) // Max 2 side bets
+            }
         } else {
             // Default to Royal Match and Perfect Pairs
             selectedSideBets = [.royalMatch, .perfectPairs]
-        }
-
-        // Ensure max 2 side bets
-        if selectedSideBets.count > 2 {
-            selectedSideBets = Array(selectedSideBets.prefix(2))
         }
     }
     
@@ -439,8 +440,17 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
                 combinationsStack.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -16)
             ])
         } else {
-            // No combinations (Buster), just add bottom constraint to titleLabel
-            constraints.append(titleLabel.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12))
+            // No combinations (Buster) - add description with payout odds
+            let descriptionLabel = createSecondaryLabel(text: "Dealer Bust. Payout depends on how many cards dealer busts with.\n\n3 cards: 2:1 • 4 cards: 2:1 • 5 cards: 4:1\n6 cards: 12:1 • 7 cards: 50:1 • 8+ cards: 250:1")
+            descriptionLabel.numberOfLines = 0
+            cell.contentView.addSubview(descriptionLabel)
+
+            constraints.append(contentsOf: [
+                descriptionLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+                descriptionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+                descriptionLabel.trailingAnchor.constraint(lessThanOrEqualTo: checkmarkView.leadingAnchor, constant: -16),
+                descriptionLabel.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -16)
+            ])
         }
 
         NSLayoutConstraint.activate(constraints)

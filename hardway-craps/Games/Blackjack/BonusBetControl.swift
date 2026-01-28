@@ -77,7 +77,7 @@ final class BonusBetControl: PlainControl {
 
         betNameLabel.translatesAutoresizingMaskIntoConstraints = false
         betNameLabel.text = title
-        betNameLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        betNameLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         betNameLabel.textColor = HardwayColors.label
         betNameLabel.textAlignment = .left
         betNameLabel.isUserInteractionEnabled = false  // Allow taps to pass through

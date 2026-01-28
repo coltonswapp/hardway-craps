@@ -40,6 +40,7 @@ final class BlackjackGameplayViewController: UIViewController {
     // Hands scroll view for split support
     private var handsScrollView: UIScrollView!
     private var handsContentStackView: UIStackView!
+    private var handsPageControl: UIPageControl!
 
     // MARK: - Managers
 
@@ -174,7 +175,7 @@ final class BlackjackGameplayViewController: UIViewController {
 
     // Peek amount for split hands - relative to screen width (20% on each side)
     private func getPeekAmount() -> CGFloat {
-        return view.bounds.width * 0.20
+        return view.bounds.width * 0.2
     }
 
     private func getTotalPeekAmount() -> CGFloat {
@@ -226,10 +227,7 @@ final class BlackjackGameplayViewController: UIViewController {
             name: UIApplication.willTerminateNotification,
             object: nil
         )
-        
-        // Create and shuffle the deck first
-        createAndShuffleDeck()
-        
+
         setupNavigationBarMenu()
         setupInstructionLabel()
         setupDeckView()
@@ -247,12 +245,18 @@ final class BlackjackGameplayViewController: UIViewController {
 
         setupPlayerHandView()
         setupActionButtons()
-        
+
         // Apply loaded settings to UI
         dealerHandView.setTotalsHidden(!showTotals)
         playerHandView.setTotalsHidden(!showTotals)
         deckView.setCountLabelVisible(showDeckCount)
         deckView.setCardCountLabelVisible(showCardCount)
+
+        // Initialize deck visual with correct card count (deckCount is now properly set from settings)
+        deckView.setCardCount(52 * deckCount, animated: false)
+
+        // Create and shuffle the deck after all UI is set up
+        createAndShuffleDeck()
 
         resetGame()
         // Ensure controls are updated after initial setup
@@ -410,7 +414,7 @@ final class BlackjackGameplayViewController: UIViewController {
     
     private func setupDeckView() {
         view.addSubview(deckView)
-        
+
         NSLayoutConstraint.activate([
             deckView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
             deckView.topAnchor.constraint(equalTo: instructionLabel.topAnchor),
@@ -419,13 +423,13 @@ final class BlackjackGameplayViewController: UIViewController {
             // Prevent instruction label from overlapping deck
             instructionLabel.trailingAnchor.constraint(lessThanOrEqualTo: deckView.leadingAnchor, constant: -12)
         ])
-        
-        deckView.setCardCount(52 * deckCount, animated: true)
+
+        // Note: setCardCount will be called after managers are set up and deckCount is initialized
     }
     
     private func setupDealerHandView() {
         dealerHandView.translatesAutoresizingMaskIntoConstraints = false
-        dealerHandView.isUserInteractionEnabled = false // Disable tapping on dealer hand
+        dealerHandView.isUserInteractionEnabled = true // Enable for pan gesture
         view.addSubview(dealerHandView)
 
         NSLayoutConstraint.activate([
@@ -583,12 +587,24 @@ final class BlackjackGameplayViewController: UIViewController {
 
         // Configure the bet control with closures
         configurePlayerHandBetControl(playerHandView.betControl)
-        
+
         // Set lower compression resistance on playerHandView so it compresses before balanceView
         playerHandView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        
+
         // Set a minimum height for normal size (approximately 200pt for cards + bet control)
         let minimumHeight: CGFloat = 200
+
+        // Create and configure page control
+        handsPageControl = UIPageControl()
+        handsPageControl.translatesAutoresizingMaskIntoConstraints = false
+        handsPageControl.numberOfPages = 2
+        handsPageControl.currentPage = 0
+        handsPageControl.isHidden = true // Hidden initially, shown when split
+        handsPageControl.isUserInteractionEnabled = true
+        handsPageControl.pageIndicatorTintColor = .white.withAlphaComponent(0.3)
+        handsPageControl.currentPageIndicatorTintColor = .white
+        handsPageControl.addTarget(self, action: #selector(pageControlValueChanged(_:)), for: .valueChanged)
+        view.addSubview(handsPageControl)
 
         NSLayoutConstraint.activate([
             // Scroll view constraints - edge to edge for better split hand visibility
@@ -606,7 +622,11 @@ final class BlackjackGameplayViewController: UIViewController {
 
             // Each hand should be slightly less than scroll view width to show peeking
             // Using multiplier 0.6 (each hand is 60% of screen, leaving 20% peek on each side)
-            playerHandView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6)
+            playerHandView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
+
+            // Page control constraints - positioned at bottom of scroll view
+            handsPageControl.centerXAnchor.constraint(equalTo: handsScrollView.centerXAnchor),
+            handsPageControl.bottomAnchor.constraint(equalTo: handsScrollView.bottomAnchor, constant: -8)
         ])
     }
     
@@ -1022,7 +1042,11 @@ final class BlackjackGameplayViewController: UIViewController {
             splitHand.removeFromSuperview()
             splitHandView = nil
         }
-        
+
+        // Hide page control and disable scrolling
+        handsPageControl.isHidden = true
+        handsScrollView.isScrollEnabled = false
+
         // Reset scroll view position
         scrollToHand(0, animated: false)
         
@@ -1142,9 +1166,6 @@ final class BlackjackGameplayViewController: UIViewController {
         playerHandView.clearCards()
         // Clear insurance bet
         insuranceControl.betAmount = 0
-        // Show placeholders before dealing
-        dealerHandView.showPlaceholders()
-        playerHandView.showPlaceholders()
         dealCards()
     }
     
@@ -1169,14 +1190,12 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func dealCards() {
-        let deckCenter = view.convert(deckView.deckCenter, from: deckView)
-        
         // Generate cards for this hand
         let playerCard1: BlackjackHandView.Card
         let playerCard2: BlackjackHandView.Card
         let dealerCard1: BlackjackHandView.Card
         let dealerCard2: BlackjackHandView.Card
-        
+
         if let fixedType = fixedHandType {
             // Deal fixed cards based on hand type
             (playerCard1, playerCard2, dealerCard1, dealerCard2) = dealFixedHand(type: fixedType)
@@ -1188,27 +1207,31 @@ final class BlackjackGameplayViewController: UIViewController {
             playerCard2 = randomHandCard()
             dealerCard2 = randomHandCard()
         }
-        
+
         // Show single dealing message that stays throughout the sequence
         instructionLabel.showMessage("Dealing cards...", shouldFade: false)
-        
-        // Deal player's first card
-        playerHandView.dealCard(playerCard1, from: deckCenter, in: view)
-        
+
+        // Deal player's first card (recalculate deck center for each card to ensure accurate position)
+        let deckCenter1 = view.convert(deckView.deckCenter, from: deckView)
+        playerHandView.dealCard(playerCard1, from: deckCenter1, in: view)
+
         // Deal dealer's first card (face down) after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self = self else { return }
-            self.dealerHandView.dealCard(dealerCard1, from: deckCenter, in: self.view)
-            
+            let deckCenter2 = self.view.convert(self.deckView.deckCenter, from: self.deckView)
+            self.dealerHandView.dealCard(dealerCard1, from: deckCenter2, in: self.view)
+
             // Deal player's second card
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self = self else { return }
-                self.playerHandView.dealCard(playerCard2, from: deckCenter, in: self.view)
-                
+                let deckCenter3 = self.view.convert(self.deckView.deckCenter, from: self.deckView)
+                self.playerHandView.dealCard(playerCard2, from: deckCenter3, in: self.view)
+
                     // Deal dealer's second card (face up)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                         guard let self = self else { return }
-                        self.dealerHandView.dealCard(dealerCard2, from: deckCenter, in: self.view)
+                        let deckCenter4 = self.view.convert(self.deckView.deckCenter, from: self.deckView)
+                        self.dealerHandView.dealCard(dealerCard2, from: deckCenter4, in: self.view)
                         
                         // Evaluate bonus bets immediately after initial 4 cards are dealt
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -1242,6 +1265,11 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     
+    @objc private func pageControlValueChanged(_ sender: UIPageControl) {
+        guard isSplit else { return }
+        scrollToHand(sender.currentPage, animated: true)
+    }
+
     @objc private func playerHitTapped() {
         guard gamePhase == .playerTurn else { return }
         
@@ -1495,6 +1523,10 @@ final class BlackjackGameplayViewController: UIViewController {
 
         // Enable scrolling now that we have two hands
         handsScrollView.isScrollEnabled = true
+
+        // Show page control
+        handsPageControl.isHidden = false
+        handsPageControl.currentPage = 0
 
         // Start split hand with zero alpha
         splitHand.alpha = 0
@@ -1879,7 +1911,7 @@ final class BlackjackGameplayViewController: UIViewController {
             // Show bet result container
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self = self else { return }
-                self.showBetResult(amount: winAmount, isWin: true)
+                self.showBetResult(amount: winAmount, isWin: true, showBonus: isPlayerBlackjack, description: isPlayerBlackjack ? "BLACKJACK" : nil)
             }
             
             // Animate winnings from house to bet to balance
@@ -2108,6 +2140,9 @@ final class BlackjackGameplayViewController: UIViewController {
 
         // Disable scrolling when back to single hand
         handsScrollView.isScrollEnabled = false
+
+        // Hide page control
+        handsPageControl.isHidden = true
 
         // Clear split state
         gameStateManager.resetSplitState()
@@ -2858,7 +2893,6 @@ final class BlackjackGameplayViewController: UIViewController {
         return rank == .ten || rank == .king || rank == .queen || rank == .jack
     }
     
-    
     /// Checks if a hand is a blackjack (21 with exactly 2 cards: one Ace and one 10-value card)
     private func isBlackjack(cards: [BlackjackHandView.Card]) -> Bool {
         return gameStateManager.isBlackjack(cards: cards)
@@ -3000,9 +3034,6 @@ final class BlackjackGameplayViewController: UIViewController {
         newCutCardView.transform = CGAffineTransform(translationX: -offsetX, y: -offsetY).scaledBy(x: 0.5, y: 0.5)
         newCutCardView.alpha = 0
 
-        // Update deck count
-        deckView.drawCard()
-
         // Animate to final position (constraints will handle positioning, we just animate the transform away)
         UIView.animate(withDuration: 0.4, delay: 0.1, options: .curveEaseOut, animations: {
             newCutCardView.transform = .identity
@@ -3021,8 +3052,8 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     func onCardDealt() {
-        // Update deck count when a card animation starts
-        deckView.drawCard()
+        // Deck count is now updated via deckCountDidChange delegate method
+        // No need to manually decrement here
     }
 
     func onCardAnimationComplete(card: BlackjackHandView.Card) {
@@ -3112,7 +3143,6 @@ extension UIButton {
 
 extension BlackjackGameplayViewController: ChipSelectorDelegate {
     func chipSelector(_ selector: ChipSelector, didSelectChipWithValue value: Int) {
-        print("Selected chip value: \(value)")
     }
 }
 
@@ -3148,8 +3178,8 @@ extension BlackjackGameplayViewController: UIScrollViewDelegate {
         // Update active hand index
         if targetPage != activeHandIndex {
             activeHandIndex = targetPage
+            handsPageControl.currentPage = targetPage
             updateControls()
-            print("DEBUG: Snapping to hand \(targetPage)")
         }
     }
 
@@ -3168,8 +3198,8 @@ extension BlackjackGameplayViewController: UIScrollViewDelegate {
         // Update active hand index if changed
         if currentPage != activeHandIndex {
             activeHandIndex = currentPage
+            handsPageControl.currentPage = currentPage
             updateControls()
-            print("DEBUG: Scrolled to hand \(currentPage)")
         }
     }
 
@@ -3188,8 +3218,8 @@ extension BlackjackGameplayViewController: UIScrollViewDelegate {
         // Update active hand index if changed
         if currentPage != activeHandIndex {
             activeHandIndex = currentPage
+            handsPageControl.currentPage = currentPage
             updateControls()
-            print("DEBUG: Scrolled to hand \(currentPage)")
         }
     }
 }
@@ -3248,8 +3278,8 @@ extension BlackjackGameplayViewController: BlackjackDeckManagerDelegate {
     }
 
     func deckCountDidChange(remaining: Int) {
-        // Update deck view when a card is drawn
-        deckView.drawCard()
+        // Update deck view with the actual remaining count from deck manager
+        deckView.setCardCount(remaining, animated: false)
     }
 }
 

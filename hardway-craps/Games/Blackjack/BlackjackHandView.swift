@@ -42,8 +42,6 @@ class BlackjackHandView: UIControl {
     private let alternativeTotalLabel = UILabel()
     private let contentStackView = UIStackView()
     private let labelStackView = UIStackView()
-    private let placeholderView1 = UIView()
-    private let placeholderView2 = UIView()
 
     private let cardHeight: CGFloat = 120
     private let cardAspectRatio: CGFloat = 60.0 / 88.0
@@ -113,7 +111,6 @@ class BlackjackHandView: UIControl {
         }
 
         updateCards(animated: false)
-        updatePlaceholderVisibility()
     }
     
     func clearCards() {
@@ -121,9 +118,6 @@ class BlackjackHandView: UIControl {
         faceDownCardIndices.removeAll()
         cardRotations.removeAll()
         updateCards(animated: false)
-        // Keep placeholders hidden when clearing - they'll show when cards are dealt
-        placeholderView1.isHidden = true
-        placeholderView2.isHidden = true
     }
     
     func discardCards(to endPoint: CGPoint, in containerView: UIView, completion: @escaping () -> Void) {
@@ -198,14 +192,11 @@ class BlackjackHandView: UIControl {
                     tempCard.removeFromSuperview()
                     completedAnimations += 1
                     
-                    // When all cards are done, clear the hand without showing placeholders
+                    // When all cards are done, clear the hand
                     if completedAnimations >= totalCards {
                         self.cards = []
                         self.cardRotations.removeAll()
                         self.updateCards(animated: false)
-                        // Keep placeholders hidden during discard - they'll show when a new hand starts
-                        self.placeholderView1.isHidden = true
-                        self.placeholderView2.isHidden = true
                         completion()
                     }
                 })
@@ -226,21 +217,24 @@ class BlackjackHandView: UIControl {
         if cards.isEmpty && hidesFirstCard {
             isFirstCardHidden = true
         }
+
+        // Calculate start point BEFORE updating layout, so coordinate conversion uses current cardContainer size
+        let startPointInContainer = containerView.convert(startPoint, to: cardContainer)
+
         var updatedCards = cards
         updatedCards.append(card)
         setCards(updatedCards, animated: true)
-        
+
         // Force layout to get the final position (this happens before the animation starts)
         layoutIfNeeded()
-        
+
         guard let newCardView = cardViews.last else { return }
         newCardView.alpha = 0
-        
+
         // Read the actual center from the card view's frame after layout
         // Convert from cardContainer's coordinate space
         let cardFrame = newCardView.superview?.convert(newCardView.frame, to: cardContainer) ?? .zero
         let targetCenter = CGPoint(x: cardFrame.midX, y: cardFrame.midY)
-        let startPointInContainer = containerView.convert(startPoint, to: cardContainer)
         let tempCard = PlayingCardView()
         tempCard.padding = newCardView.padding
         if card.isCutCard {
@@ -261,7 +255,6 @@ class BlackjackHandView: UIControl {
         cardContainer.addSubview(tempCard)
 
         let calculatedCenter = cardCenter(at: updatedCards.count - 1, total: updatedCards.count)
-        print("[BlackjackHandView] deal target (actual):", targetCenter, "calculated:", calculatedCenter, "diff:", targetCenter.x - calculatedCenter.x, "cards:", updatedCards.count)
 
         let animator = UIViewPropertyAnimator(
             duration: 0.25,
@@ -564,9 +557,6 @@ class BlackjackHandView: UIControl {
         cardContainer.translatesAutoresizingMaskIntoConstraints = false
         cardContainer.isUserInteractionEnabled = false // Allow touches to pass through
 
-        // Setup placeholder views for first 2 cards
-        setupPlaceholderViews()
-        
         labelStackView.axis = .vertical
         labelStackView.alignment = .leading
         labelStackView.spacing = 2
@@ -599,61 +589,8 @@ class BlackjackHandView: UIControl {
             containerHeightConstraint,
             containerWidthConstraint
         ])
-        
+
         updateCards(animated: false)
-        updatePlaceholderVisibility()
-    }
-    
-    private func setupPlaceholderViews() {
-        // Configure placeholder views
-        [placeholderView1, placeholderView2].forEach { placeholder in
-            placeholder.translatesAutoresizingMaskIntoConstraints = false
-            placeholder.backgroundColor = HardwayColors.surfaceGray.withAlphaComponent(0.5)
-            placeholder.layer.borderWidth = 1.0
-            placeholder.layer.borderColor = HardwayColors.label.withAlphaComponent(0.3).cgColor
-            placeholder.layer.cornerRadius = 8
-            cardContainer.addSubview(placeholder)
-        }
-        
-        // Position placeholder views for first 2 cards
-        let cardWidth = cardHeight * cardAspectRatio * scale
-        let cardHeightScaled = cardHeight * scale
-        
-        // First card placeholder
-        let placeholder1Leading = placeholderView1.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor)
-        let placeholder1Height = placeholderView1.heightAnchor.constraint(equalToConstant: cardHeightScaled)
-        let placeholder1Width = placeholderView1.widthAnchor.constraint(equalToConstant: cardWidth)
-        
-        // Second card placeholder - positioned with horizontal offset
-        let stepScale = pow(horizontalStepScale, Double(1)) // For second card (index 1, total 2)
-        let secondCardOffset = (horizontalOffset * scale) * CGFloat(stepScale)
-        let placeholder2Leading = placeholderView2.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: secondCardOffset)
-        let placeholder2Height = placeholderView2.heightAnchor.constraint(equalToConstant: cardHeightScaled)
-        let placeholder2Width = placeholderView2.widthAnchor.constraint(equalToConstant: cardWidth)
-        
-        // Vertical positioning based on stack direction
-        let placeholder1Vertical: NSLayoutConstraint
-        let placeholder2Vertical: NSLayoutConstraint
-        
-        switch stackDirection {
-        case .down:
-            placeholder1Vertical = placeholderView1.bottomAnchor.constraint(equalTo: cardContainer.bottomAnchor)
-            placeholder2Vertical = placeholderView2.bottomAnchor.constraint(equalTo: cardContainer.bottomAnchor, constant: -(verticalOffset * scale))
-        case .up:
-            placeholder1Vertical = placeholderView1.topAnchor.constraint(equalTo: cardContainer.topAnchor)
-            placeholder2Vertical = placeholderView2.topAnchor.constraint(equalTo: cardContainer.topAnchor, constant: (verticalOffset * scale))
-        }
-        
-        NSLayoutConstraint.activate([
-            placeholder1Leading,
-            placeholder1Vertical,
-            placeholder1Height,
-            placeholder1Width,
-            placeholder2Leading,
-            placeholder2Vertical,
-            placeholder2Height,
-            placeholder2Width
-        ])
     }
     
     private func applyCardShadow(to cardView: PlayingCardView) {
@@ -683,27 +620,9 @@ class BlackjackHandView: UIControl {
         }
 
         updateCards(animated: animated)
-        updatePlaceholderVisibility()
     }
-    
-    private func updatePlaceholderVisibility() {
-        // Hide placeholders when cards are present
-        // Only show placeholders when explicitly requested (not during discard/clear)
-        let shouldHide = !cards.isEmpty
-        if shouldHide {
-            placeholderView1.isHidden = true
-            placeholderView2.isHidden = true
-        }
-        // Note: We don't show placeholders here - they're shown explicitly via showPlaceholders()
-    }
-    
-    func showPlaceholders() {
-        // Explicitly show placeholders when ready for a new hand
-        guard cards.isEmpty else { return }
-        placeholderView1.isHidden = false
-        placeholderView2.isHidden = false
-    }
-    
+
+
     private func updateCards(animated: Bool) {
         if animated {
             layoutIfNeeded()
@@ -983,10 +902,18 @@ class BlackjackHandView: UIControl {
 
     // MARK: - Touch Handling
 
+    private var panGestureRecognizer: UIPanGestureRecognizer!
+    private var initialCardTransforms: [CGAffineTransform] = []
+
     private func setupGestures() {
         addTarget(self, action: #selector(touchDown), for: [.touchDown, .touchDragEnter])
         addTarget(self, action: #selector(touchUp), for: [.touchUpInside, .touchDragExit, .touchCancel])
         addTarget(self, action: #selector(handleTap), for: .touchUpInside)
+
+        // Add pan gesture for card spreading
+        panGestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        panGestureRecognizer.delegate = self
+        addGestureRecognizer(panGestureRecognizer)
     }
 
     @objc private func touchDown() {
@@ -1013,6 +940,75 @@ class BlackjackHandView: UIControl {
         onTap?()
     }
 
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard cards.count > 1 else { return } // Need at least 2 cards to spread
+
+        switch gesture.state {
+        case .began:
+            // Store initial transforms
+            initialCardTransforms = cardViews.map { $0.transform }
+
+            // Trigger light haptic feedback
+            HapticsHelper.superLightHaptic()
+
+        case .changed:
+            let translation = gesture.translation(in: self)
+
+            // Calculate spread amount based on horizontal translation with rubber-banding effect
+            // Normalize by view width to make it feel consistent across different screen sizes
+            let normalizedTranslation = translation.x / bounds.width
+            let absTranslation = abs(normalizedTranslation)
+
+            // Apply logarithmic dampening to create resistance as you swipe further
+            // This creates a smooth clamping effect where initial movement is responsive
+            // but additional movement has diminishing returns
+            let dampening: CGFloat = 0.5 // Controls how quickly resistance increases
+            let spreadFactor = (1.0 - exp(-absTranslation / dampening)) * dampening
+
+            // Maximum extra spacing when fully spread
+            let maxExtraSpacing: CGFloat = 60 * scale
+            let currentExtraSpacing = maxExtraSpacing * spreadFactor
+
+            // Apply spreading transform to each card
+            for (index, cardView) in cardViews.enumerated() {
+                let baseScale = scaleForCard(at: index, total: cards.count)
+                let rotation = index < cardRotations.count ? cardRotations[index] : 0
+
+                // Create base transform (scale + rotation)
+                let baseTransform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(by: rotation)
+
+                // Add translation to spread cards apart (in the direction of the pan)
+                let direction: CGFloat = translation.x >= 0 ? 1 : -1
+                let translationAmount = CGFloat(index) * currentExtraSpacing * direction
+                let spreadTransform = CGAffineTransform(translationX: translationAmount, y: 0).concatenating(baseTransform)
+
+                cardView.transform = spreadTransform
+            }
+
+        case .ended, .cancelled, .failed:
+            // Snap back to original positions with spring animation
+            UIView.animate(
+                withDuration: 0.4,
+                delay: 0,
+                usingSpringWithDamping: 0.6,
+                initialSpringVelocity: 0.5,
+                options: [.curveEaseInOut, .allowUserInteraction]
+            ) {
+                for (index, cardView) in self.cardViews.enumerated() {
+                    let baseScale = self.scaleForCard(at: index, total: self.cards.count)
+                    let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
+                    cardView.transform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(by: rotation)
+                }
+            }
+
+            // Trigger light haptic when snapping back
+            HapticsHelper.superLightHaptic()
+
+        default:
+            break
+        }
+    }
+
     // Only accept touches that are within the card container bounds
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         let pointInContainer = cardContainer.convert(point, from: self)
@@ -1021,10 +1017,38 @@ class BlackjackHandView: UIControl {
 
     // Allow pan gestures from the scroll view to work even when touching this control
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        // If it's a pan gesture (for scrolling), allow it
+        // If it's our pan gesture, check if we have multiple cards
+        if gestureRecognizer == panGestureRecognizer {
+            return cards.count > 1
+        }
+
+        // If it's a pan gesture from the scroll view, allow it
         if gestureRecognizer is UIPanGestureRecognizer {
             return true
         }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+}
+
+// MARK: - UIGestureRecognizerDelegate
+extension BlackjackHandView: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        // Allow our pan gesture to work with scroll view pan gestures
+        // The scroll view will take over if the gesture is primarily vertical
+        return true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        // Don't require any gesture to fail first
+        return false
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        // If this is our pan gesture and the other is a scroll view pan,
+        // let the scroll view take priority for vertical scrolling
+        if gestureRecognizer == panGestureRecognizer && otherGestureRecognizer is UIPanGestureRecognizer {
+            return false
+        }
+        return false
     }
 }

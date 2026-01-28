@@ -13,7 +13,7 @@ final class BetResultManager {
     private var resultWindow: PassthroughWindow?
     private var activeContainers: [BetResultContainer] = []
     private let containerHeight: CGFloat = 80
-    private let containerSpacing: CGFloat = 8
+    private let containerSpacing: CGFloat = 20
     
     private init() {}
     

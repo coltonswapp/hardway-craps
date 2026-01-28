@@ -85,8 +85,8 @@ class DeckView: UIView {
         cardCount = max(0, count)
         // Update count label immediately so it shows the correct count right away
         updateCountLabel()
-        if animated && count == 52 {
-            // Shuffle animation when resetting to full deck
+        if animated && count > 0 && count % 52 == 0 {
+            // Shuffle animation when resetting to full deck (works for 1, 2, 4, or 6 decks)
             // Ensure deck visual is updated first (in case it was at 0)
             updateDeckVisual()
             animateShuffle()
@@ -96,8 +96,7 @@ class DeckView: UIView {
     }
     
     func drawCard() {
-        guard cardCount > 0 else { return }
-        cardCount -= 1
+        cardCount = max(0, cardCount - 1)
         updateDeckVisual()
         updateCountLabel()
     }

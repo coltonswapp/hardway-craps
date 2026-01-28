@@ -38,7 +38,7 @@ final class CardCombinationView: UIView {
 
         // Setup outer stack (vertical)
         outerStack.axis = .vertical
-        outerStack.spacing = 3
+        outerStack.spacing = 6
         outerStack.alignment = .center
         outerStack.distribution = .fill
         outerStack.translatesAutoresizingMaskIntoConstraints = false
@@ -60,15 +60,16 @@ final class CardCombinationView: UIView {
         // Clear existing cards
         cardsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        // Add new cards
-        for (rank, suit) in cards {
+        // Add new cards with alternating fixed rotations
+        for (index, (rank, suit)) in cards.enumerated() {
             let cardView = SmallPlayingCardView()
             cardView.configure(rank: rank, suit: suit)
             cardView.translatesAutoresizingMaskIntoConstraints = false
 
-            let randomDegrees = CGFloat.random(in: -5...5)
-            let randomRadians = randomDegrees * .pi / 180
-            cardView.transform = CGAffineTransform(rotationAngle: randomRadians)
+            // Alternate between -4 and 4 degrees
+            let degrees: CGFloat = index % 2 == 0 ? -4 : 4
+            let radians = degrees * .pi / 180
+            cardView.transform = CGAffineTransform(rotationAngle: radians)
 
             NSLayoutConstraint.activate([
                 cardView.widthAnchor.constraint(equalToConstant: 28),

@@ -88,8 +88,11 @@ final class PlayingCardView: UIView {
     }
     
     func configure(rank: Rank, suit: Suit) {
-        valueLabel.text = rank.rawValue
-        valueLabel.textColor = suit.color
+        let attributes: [NSAttributedString.Key: Any] = [
+            .kern: -1.5,
+            .foregroundColor: suit.color
+        ]
+        valueLabel.attributedText = NSAttributedString(string: rank.rawValue, attributes: attributes)
         suitImageView.image = UIImage(named: suit.imageName)?.withRenderingMode(.alwaysTemplate)
         suitImageView.tintColor = suit.color
     }
@@ -138,6 +141,7 @@ final class PlayingCardView: UIView {
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
         valueLabel.font = .systemFont(ofSize: 30, weight: .semibold)
         valueLabel.textAlignment = .right
+        valueLabel.clipsToBounds = false
         
         suitImageView.translatesAutoresizingMaskIntoConstraints = false
         suitImageView.contentMode = .scaleAspectFit
@@ -159,7 +163,7 @@ final class PlayingCardView: UIView {
             
             labelTopConstraint,
             labelLeadingConstraint,
-            valueLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            valueLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -padding),
             
             imageLeadingConstraint,
             imageBottomConstraint,

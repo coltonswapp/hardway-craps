@@ -8,15 +8,17 @@
 import UIKit
 
 final class DealerHandView: BlackjackHandView {
-    
+
     convenience init() {
         self.init(frame: .zero)
-//        backgroundColor = .red.withAlphaComponent(0.2)
     }
-    
+
     override init(frame: CGRect) {
         super.init(stackDirection: .up, hidesFirstCard: true, scale: 0.8)
         self.frame = frame
+
+        // Disable tap actions for dealer hand (but keep pan gesture enabled)
+        self.canTap = { false }
     }
     
     required init?(coder: NSCoder) {
