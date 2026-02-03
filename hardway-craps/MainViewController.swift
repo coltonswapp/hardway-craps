@@ -8,12 +8,14 @@
 import UIKit
 
 class MainViewController: UIViewController {
-    
+
     private var tableView: UITableView!
     private var sessions: [GameSession] = []
-    private let startGameButton = UIButton(type: .system)
-    private let blackjackButton = UIButton(type: .system)
+    private let startGameButton = NNPrimaryLabeledButton(title: "Craps")
+    private let blackjackButton = NNPrimaryLabeledButton(title: "Black Jack")
+    private let ctaContainer = UIView()
     private let ctaStackView = UIStackView()
+    private var visualEffectView: UIVisualEffectView?
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -55,13 +57,9 @@ class MainViewController: UIViewController {
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(SessionTableViewCell.self, forCellReuseIdentifier: "SessionCell")
-        
-        // Add bottom content inset to prevent content from going under the CTA buttons
-        // Button height (55 * 2) + spacing (12) + bottom margin (16) = 138pt
-        tableView.contentInset.bottom = 150
-        
+
         view.addSubview(tableView)
-        
+
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -71,20 +69,25 @@ class MainViewController: UIViewController {
     }
     
     private func setupStartGameButtons() {
-        startGameButton.setTitle("Craps", for: .normal)
+        // Configure buttons
         startGameButton.addTarget(self, action: #selector(startGameTapped), for: .touchUpInside)
-        
-        blackjackButton.setTitle("Black Jack", for: .normal)
         blackjackButton.addTarget(self, action: #selector(blackjackTapped), for: .touchUpInside)
-        
-        [startGameButton, blackjackButton].forEach { button in
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
-            button.backgroundColor = HardwayColors.surfaceGray
-            button.setTitleColor(HardwayColors.label, for: .normal)
-            button.layer.cornerRadius = 12
-        }
-        
+
+        // Setup variable blur effect view
+        visualEffectView = UIVisualEffectView()
+        guard let visualEffectView = visualEffectView,
+              let maskImage = UIImage(named: "testBG3") else { return }
+
+        visualEffectView.effect = UIBlurEffect.variableBlurEffect(radius: 16, maskImage: maskImage)
+        visualEffectView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(visualEffectView)
+
+        // Setup container
+        ctaContainer.translatesAutoresizingMaskIntoConstraints = false
+        ctaContainer.backgroundColor = .clear
+        view.addSubview(ctaContainer)
+
+        // Setup stack view
         ctaStackView.translatesAutoresizingMaskIntoConstraints = false
         ctaStackView.axis = .vertical
         ctaStackView.alignment = .fill
@@ -92,16 +95,38 @@ class MainViewController: UIViewController {
         ctaStackView.spacing = 12
         ctaStackView.addArrangedSubview(startGameButton)
         ctaStackView.addArrangedSubview(blackjackButton)
-        
-        view.addSubview(ctaStackView)
-        
+
+        ctaContainer.addSubview(ctaStackView)
+
         NSLayoutConstraint.activate([
-            ctaStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            ctaStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            // Blur view extends from bottom of container to bottom of screen
+            visualEffectView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            visualEffectView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            visualEffectView.topAnchor.constraint(equalTo: ctaContainer.topAnchor),
+            visualEffectView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            // Container stretches to bottom
+            ctaContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            ctaContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ctaContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            // Stack view positioned within container with more top padding for taller blur
+            ctaStackView.leadingAnchor.constraint(equalTo: ctaContainer.leadingAnchor, constant: 16),
+            ctaStackView.trailingAnchor.constraint(equalTo: ctaContainer.trailingAnchor, constant: -16),
             ctaStackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            ctaStackView.topAnchor.constraint(equalTo: ctaContainer.topAnchor, constant: 40),
+
+            // Button heights
             startGameButton.heightAnchor.constraint(equalToConstant: 55),
             blackjackButton.heightAnchor.constraint(equalToConstant: 55)
         ])
+
+        // Add bottom content inset to table view to prevent content from going under the CTA container
+        // Calculate the height dynamically after layout
+        view.layoutIfNeeded()
+        let containerHeight = ctaStackView.frame.height + 56 // 40pt top + 16pt bottom padding
+        tableView.contentInset.bottom = containerHeight + 20 // Add extra 20pt buffer
+        tableView.scrollIndicatorInsets.bottom = containerHeight - 20// Match scroll indicator to content inset
     }
     
     @objc private func startGameTapped() {
@@ -147,8 +172,13 @@ extension MainViewController: UITableViewDelegate {
             guard let self = self,
                   let navController = self.navigationController else { return }
 
-            // Create new BlackjackGameplayViewController with the resumed session
-            let gameplayVC = BlackjackGameplayViewController(resumingSession: session)
+            // Create appropriate gameplay view controller with the resumed session
+            let gameplayVC: UIViewController
+            if session.isBlackjackSession {
+                gameplayVC = BlackjackGameplayViewController(resumingSession: session)
+            } else {
+                gameplayVC = CrapsGameplayViewController(resumingSession: session)
+            }
 
             // Pop the detail view controller and push the gameplay view controller
             navController.popViewController(animated: false)

@@ -44,6 +44,11 @@ class PointControl: PlainControl {
     }
 
     var isOn: Bool = false
+    
+    /// Override to animate winnings slightly above the bet (instead of to the right)
+    override var winningsAnimationOffset: CGPoint {
+        return CGPoint(x: 0, y: -30)  // Offset 30 points above the bet
+    }
 
     init(pointNumber: Int) {
         self.pointNumber = pointNumber

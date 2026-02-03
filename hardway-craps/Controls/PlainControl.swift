@@ -7,10 +7,20 @@
 
 import UIKit
 
+/// Direction for winnings chip animation
+enum WinningsAnimationDirection {
+    case leading  // Animate 30 points from the leading edge of betView
+    case trailing // Animate 30 points from the trailing edge of betView
+}
+
 class PlainControl: UIControl, BetDropTarget {
 
     let background: UIColor = HardwayColors.surfaceGray
     let labelColor: UIColor = HardwayColors.label
+
+    /// Store the original border properties to restore after drag interaction
+    private var originalBorderWidth: CGFloat = 0
+    private var originalBorderColor: CGColor?
 
     private let titleLabel: UILabel = {
         let label = UILabel()
@@ -41,11 +51,30 @@ class PlainControl: UIControl, BetDropTarget {
     var addedBetCompletionHandler: (() -> Void)?
     /// Closure that returns whether the bet can be removed. Defaults to true if not set.
     var canRemoveBet: (() -> Bool)?
-    
+
     private var previousBetAmount: Int = 0
 
     /// Determines if this bet stays active after a roll (perpetual) or is cleared (one-time)
     var isPerpetualBet: Bool = true
+
+    /// Direction for winnings chip animation. Default is .trailing (30 points from the trailing edge)
+    var winningsAnimationDirection: WinningsAnimationDirection = .trailing
+
+    /// Offset for winnings chip animation relative to bet position
+    /// Calculates position based on betView's leading or trailing edge
+    var winningsAnimationOffset: CGPoint {
+        let betViewWidth = betView.bounds.width
+        let offsetDistance: CGFloat = 30
+
+        switch winningsAnimationDirection {
+        case .leading:
+            // Position 30 points to the left of betView's leading edge
+            return CGPoint(x: -(betViewWidth / 2 + offsetDistance), y: 0)
+        case .trailing:
+            // Position 30 points to the right of betView's trailing edge
+            return CGPoint(x: betViewWidth / 2 + offsetDistance, y: 0)
+        }
+    }
     
     /// Shimmer the title label to draw attention
     func shimmerTitleLabel() {
@@ -322,6 +351,12 @@ class PlainControl: UIControl, BetDropTarget {
         }
     }
 
+    /// Remove bet without triggering onBetRemoved callback
+    /// Used when moving bets between controls (balance shouldn't change)
+    func removeBetSilently(_ amount: Int) {
+        betView.addToBet(-amount)
+    }
+
     /// Set the bet amount directly without triggering onBetPlaced callback
     /// Used for rebetting functionality where balance is managed externally
     func setDirectBet(_ amount: Int) {
@@ -333,9 +368,16 @@ class PlainControl: UIControl, BetDropTarget {
 
         // Ensure betView stays on top
         bringSubviewToFront(betView)
+
+        // Notify that bet was added (for completion handlers like stopping shimmer)
+        addedBetCompletionHandler?()
     }
 
     func highlightAsDropTarget() {
+        // Save original border properties before changing them
+        originalBorderWidth = layer.borderWidth
+        originalBorderColor = layer.borderColor
+
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
 //            self.transform = CGAffineTransform(scaleX: 1.05, y: 1.05)
 //            self.backgroundColor = HardwayColors.surfaceDropZone
@@ -343,7 +385,7 @@ class PlainControl: UIControl, BetDropTarget {
 //            self.layer.borderColor = HardwayColors.surfaceDropZone.cgColor
             self.layer.borderWidth = 2
         }
-        
+
         HapticsHelper.superLightHaptic()
     }
 
@@ -351,7 +393,9 @@ class PlainControl: UIControl, BetDropTarget {
         UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState]) {
             self.transform = .identity
 //            self.backgroundColor = self.background
-            self.layer.borderWidth = 0
+            // Restore original border properties instead of removing border completely
+            self.layer.borderWidth = self.originalBorderWidth
+            self.layer.borderColor = self.originalBorderColor
         }
     }
 }

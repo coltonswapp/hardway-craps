@@ -14,17 +14,20 @@ struct GameDetailChartView: View {
     @State private var selectedRoll: Int?
     private let isBlackjack: Bool
 
-    init(balanceHistory: [Int], betSizeHistory: [Int], isBlackjack: Bool = false) {
+    init(balanceHistory: [Int], betSizeHistory: [Int], atmVisitIndices: [Int] = [], isBlackjack: Bool = false) {
         self.isBlackjack = isBlackjack
         let count = min(balanceHistory.count, betSizeHistory.count)
+        let atmIndicesSet = Set(atmVisitIndices)
+
         if count == 0 {
-            points = [ChartPoint(rollIndex: 0, balance: 0, betSize: 0)]
+            points = [ChartPoint(rollIndex: 0, balance: 0, betSize: 0, isATMVisit: false)]
         } else {
             points = (0..<count).map { index in
                 ChartPoint(
                     rollIndex: index + 1,
                     balance: balanceHistory[index],
-                    betSize: betSizeHistory[index]
+                    betSize: betSizeHistory[index],
+                    isATMVisit: atmIndicesSet.contains(index)
                 )
             }
         }
@@ -48,6 +51,16 @@ struct GameDetailChartView: View {
                 .foregroundStyle(by: .value("Series", "Bet Size"))
                 .interpolationMethod(.catmullRom)
             }
+            // Add green dots for ATM visits at the top of the chart
+            ForEach(points.filter { $0.isATMVisit }) { point in
+                PointMark(
+                    x: .value(isBlackjack ? "Hand" : "Roll", point.rollIndex),
+                    y: .value("Amount", yDomain.upperBound)
+                )
+                .foregroundStyle(by: .value("Series", "Cash Infusion"))
+                .symbol(.circle)
+                .symbolSize(50)
+            }
             if let selectedPoint = selectedPoint {
                 RuleMark(x: .value(isBlackjack ? "Hand" : "Roll", selectedPoint.rollIndex))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
@@ -68,7 +81,8 @@ struct GameDetailChartView: View {
         }
         .chartForegroundStyleScale([
             "Balance": Color(HardwayColors.yellow),
-            "Bet Size": Color(HardwayColors.label)
+            "Bet Size": Color(HardwayColors.label),
+            "Cash Infusion": Color.green
         ])
         .chartLegend(position: .bottom, alignment: .center)
         .chartXAxis {
@@ -165,4 +179,5 @@ private struct ChartPoint: Identifiable {
     let rollIndex: Int
     let balance: Int
     let betSize: Int
+    let isATMVisit: Bool
 }

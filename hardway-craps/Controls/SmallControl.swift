@@ -72,20 +72,26 @@ class SmallControl: PlainControl {
     
     private func setupSmallControlView() {
         let dieSize: CGFloat = 28
-        
+
         // Set die images
         dieImageView1.image = UIImage(named: "hardway-die-\(dieValue1)")
         dieImageView2.image = UIImage(named: "hardway-die-\(dieValue2)")
         oddsLabel.text = odds
-        
+
+        // Style the control to match action buttons
+        backgroundColor = HardwayColors.surfaceGray
+        layer.cornerRadius = 16
+        layer.borderWidth = 1.5
+        layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
+
         // Add dice to dice stack view
         diceStackView.addArrangedSubview(dieImageView1)
         diceStackView.addArrangedSubview(dieImageView2)
-        
+
         // Add dice stack and odds label to content stack view
         contentStackView.addArrangedSubview(diceStackView)
         contentStackView.addArrangedSubview(oddsLabel)
-        
+
         addSubview(contentStackView)
         
         NSLayoutConstraint.activate([

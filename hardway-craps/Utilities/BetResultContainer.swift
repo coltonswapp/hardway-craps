@@ -31,6 +31,25 @@ class BetResultContainer: UIVisualEffectView {
         return label
     }()
 
+    private lazy var descriptionContainer: UIVisualEffectView = {
+        let container: UIVisualEffectView
+        if #available(iOS 26.0, *) {
+            let glassEffect = UIGlassEffect(style: .regular)
+            glassEffect.isInteractive = true
+            container = UIVisualEffectView(effect: glassEffect)
+        } else {
+            let blurEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+            container = UIVisualEffectView(effect: blurEffect)
+        }
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.layer.cornerRadius = 12
+        container.layer.borderWidth = 1
+        container.layer.borderColor = UIColor.white.withAlphaComponent(0.2).cgColor
+        container.layer.masksToBounds = true
+        container.alpha = 0
+        return container
+    }()
+
     private let label: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -82,8 +101,11 @@ class BetResultContainer: UIVisualEffectView {
         setupLiquidGlassEffect()
 
         contentView.addSubview(bonusLabel)
-        contentView.addSubview(descriptionLabel)
         contentView.addSubview(label)
+
+        // Add description container and label to contentView
+        contentView.addSubview(descriptionContainer)
+        descriptionContainer.contentView.addSubview(descriptionLabel)
 
         NSLayoutConstraint.activate([
             bonusLabel.centerYAnchor.constraint(equalTo: contentView.topAnchor, constant: 0),
@@ -91,9 +113,16 @@ class BetResultContainer: UIVisualEffectView {
 
             label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            
-            descriptionLabel.centerYAnchor.constraint(equalTo: contentView.bottomAnchor, constant: 0),
-            descriptionLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+
+            // Description container positioned over the bottom of the main container
+            descriptionContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
+            descriptionContainer.centerYAnchor.constraint(equalTo: bottomAnchor),
+
+            // Description label inside its container
+            descriptionLabel.topAnchor.constraint(equalTo: descriptionContainer.contentView.topAnchor, constant: 4),
+            descriptionLabel.bottomAnchor.constraint(equalTo: descriptionContainer.contentView.bottomAnchor, constant: -4),
+            descriptionLabel.leadingAnchor.constraint(equalTo: descriptionContainer.contentView.leadingAnchor, constant: 10),
+            descriptionLabel.trailingAnchor.constraint(equalTo: descriptionContainer.contentView.trailingAnchor, constant: -10),
 
             widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
             heightAnchor.constraint(equalToConstant: 80)
@@ -140,9 +169,11 @@ class BetResultContainer: UIVisualEffectView {
         bonusLabel.textColor = isWin ? HardwayColors.yellow : .systemRed
         descriptionLabel.textColor = isWin ? HardwayColors.yellow : .systemRed
 
-        // Show/hide bonus label
+        // Show/hide bonus label and description container
         bonusLabel.alpha = showBonus ? 1 : 0
-        descriptionLabel.alpha = showBonus ? 1 : 0
+        // Show description container if description is provided (for both bonus and non-bonus descriptions like "Winner!")
+        descriptionContainer.alpha = (description != nil) ? 1 : 0
+        descriptionLabel.alpha = (description != nil) ? 1 : 0
         descriptionLabel.text = description
 
         // Reset label

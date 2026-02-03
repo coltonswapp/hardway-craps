@@ -65,7 +65,6 @@ final class PlayerHandView: UIView {
         }
 
         guard let contentStackView = foundStackView else {
-            print("Warning: Could not find contentStackView in handView")
             return
         }
 
@@ -135,10 +134,6 @@ final class PlayerHandView: UIView {
 
     func setTotalsHidden(_ hidden: Bool) {
         handView.setTotalsHidden(hidden)
-    }
-
-    func showPlaceholders() {
-        handView.showPlaceholders()
     }
 
     func setCardsWithoutAnimation(_ cards: [BlackjackHandView.Card]) {

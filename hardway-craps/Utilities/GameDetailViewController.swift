@@ -17,6 +17,11 @@ final class GameDetailViewController: UIViewController {
     private let canContinueSession: Bool
     var onContinueSession: (() -> Void)?
 
+    // CTA container components
+    private let ctaContainer = UIView()
+    private var continueButton: NNPrimaryLabeledButton?
+    private var visualEffectView: UIVisualEffectView?
+
     init(session: GameSession, canContinueSession: Bool = false) {
         self.session = session
         self.canContinueSession = canContinueSession
@@ -162,11 +167,26 @@ final class GameDetailViewController: UIViewController {
             row5.addArrangedSubview(StatCardView(title: "Sevens Rolled", value: "\(session.sevensRolledValue)"))
             row5.addArrangedSubview(StatCardView(title: "Points Hit", value: "\(session.pointsHitValue)"))
 
+            let row6 = UIStackView()
+            row6.axis = .horizontal
+            row6.spacing = 12
+            row6.distribution = .fillEqually
+            if session.atmVisitsCount > 0 {
+                row6.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
+                // Add empty spacer to keep layout balanced
+                let spacer = UIView()
+                spacer.translatesAutoresizingMaskIntoConstraints = false
+                row6.addArrangedSubview(spacer)
+            }
+
             statGrid.addArrangedSubview(row1)
             statGrid.addArrangedSubview(row2)
             statGrid.addArrangedSubview(row3)
             statGrid.addArrangedSubview(row4)
             statGrid.addArrangedSubview(row5)
+            if session.atmVisitsCount > 0 {
+                statGrid.addArrangedSubview(row6)
+            }
         }
 
         stackView.addArrangedSubview(statGrid)
@@ -186,6 +206,7 @@ final class GameDetailViewController: UIViewController {
         let chartView = GameDetailChartView(
             balanceHistory: session.balanceHistoryValue,
             betSizeHistory: session.betSizeHistoryValue,
+            atmVisitIndices: session.atmVisitIndices ?? [],
             isBlackjack: session.isBlackjackSession
         )
         let hostingController = UIHostingController(rootView: chartView)
@@ -234,27 +255,60 @@ final class GameDetailViewController: UIViewController {
             stackView.addArrangedSubview(betMixStack)
         }
 
-        // Add "Continue Session" button if this is a Blackjack session with remaining balance and continuation is allowed
-        if canContinueSession && session.isBlackjackSession && session.endingBalance > 0 {
-            addContinueSessionButton()
+        // Add "Continue Session" button if this is a session with remaining balance and continuation is allowed
+        if canContinueSession && session.endingBalance > 0 {
+            setupFloatingContinueButton()
         }
     }
 
-    private func addContinueSessionButton() {
-        let button = UIButton(type: .system)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.setTitle("Continue Session", for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        button.backgroundColor = HardwayColors.label
-        button.setTitleColor(.black, for: .normal)
-        button.layer.cornerRadius = 12
-        button.addTarget(self, action: #selector(continueSessionTapped), for: .touchUpInside)
+    private func setupFloatingContinueButton() {
+        // Setup variable blur effect view
+        visualEffectView = UIVisualEffectView()
+        guard let visualEffectView = visualEffectView,
+              let maskImage = UIImage(named: "testBG3") else { return }
 
-        stackView.addArrangedSubview(button)
+        visualEffectView.effect = UIBlurEffect.variableBlurEffect(radius: 16, maskImage: maskImage)
+        visualEffectView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(visualEffectView)
+
+        // Setup container
+        ctaContainer.translatesAutoresizingMaskIntoConstraints = false
+        ctaContainer.backgroundColor = .clear
+        view.addSubview(ctaContainer)
+
+        // Create button
+        let button = NNPrimaryLabeledButton(title: "Continue Session")
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(continueSessionTapped), for: .touchUpInside)
+        continueButton = button
+
+        ctaContainer.addSubview(button)
 
         NSLayoutConstraint.activate([
-            button.heightAnchor.constraint(equalToConstant: 50)
+            // Blur view extends from bottom of container to bottom of screen
+            visualEffectView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            visualEffectView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            visualEffectView.topAnchor.constraint(equalTo: ctaContainer.topAnchor),
+            visualEffectView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            // Container stretches to bottom
+            ctaContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            ctaContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ctaContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            // Button positioned within container with more top padding for taller blur
+            button.leadingAnchor.constraint(equalTo: ctaContainer.leadingAnchor, constant: 16),
+            button.trailingAnchor.constraint(equalTo: ctaContainer.trailingAnchor, constant: -16),
+            button.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            button.topAnchor.constraint(equalTo: ctaContainer.topAnchor, constant: 40),
+            button.heightAnchor.constraint(equalToConstant: 55)
         ])
+
+        // Add bottom content inset to scroll view to prevent content from going under the CTA container
+        view.layoutIfNeeded()
+        let containerHeight = button.frame.height + 56 // 40pt top + 16pt bottom padding
+        scrollView.contentInset.bottom = containerHeight + 20 // Add extra 20pt buffer
+        scrollView.scrollIndicatorInsets.bottom = containerHeight - 20 // Match scroll indicator to content inset
     }
 
     @objc private func continueSessionTapped() {

@@ -40,6 +40,13 @@ class SmallBetChip: UIView {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = HardwayColors.betGray
         layer.cornerRadius = height / 2
+        
+        // Add shadow for depth
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.2
+        layer.shadowRadius = 3
+        layer.shadowOffset = CGSize(width: 0, height: 2)
+        
         isHidden = true
 
         addSubview(amountLabel)

@@ -43,7 +43,7 @@ class FlipDiceContainer: UIControl {
 
     private var diceScene: FlipDiceScene!
     private var isRollingEnabled: Bool = false
-    private var isRolling: Bool = false
+    var isRolling: Bool = false
 
     var onRollStarted: (() -> Void)?
     var onRollComplete: ((Int, Int, Int) -> Void)?

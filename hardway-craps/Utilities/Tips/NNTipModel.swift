@@ -62,6 +62,13 @@ enum BlackjackTips {
         message: "When dealer's upcard is an ace, bet up to half your main bet for insurance. Pays 2:1 if dealer has Blackjack.",
         systemImageName: "shield.lefthalf.filled.badge.checkmark"
     )
+    
+    static let tapReadyTip = NNTipModel(
+        id: "BlackjackTapReadyTip",
+        title: "Tap 'Ready?' to Deal",
+        message: "Once you've placed your bet, tap the 'Ready?' button to deal the cards.",
+        systemImageName: "play.circle.fill"
+    )
 
     // MARK: - Tip Groups
     static let tipGroup: NNTipGroup = NNTipGroup(
@@ -70,7 +77,57 @@ enum BlackjackTips {
             tapToHitTip,
             bonusBetsTip,
             drapChipTip,
-            insuranceTip
+            insuranceTip,
+            tapReadyTip
+        ]
+    )
+}
+
+enum CrapsTips {
+    
+    static let tapToBetTip = NNTipModel(
+        id: "CrapsTapToBetTip",
+        title: "Tap to Bet",
+        message: "Select a chip value and tap any bet area to place your bet. Start with the Pass Line for the best odds.",
+        systemImageName: "dollarsign.circle"
+    )
+    
+    static let comeOutRollTip = NNTipModel(
+        id: "CrapsComeOutRollTip",
+        title: "Come Out Roll",
+        message: "Roll the dice! On 7 or 11 you win. On 2, 3, or 12 you lose. Any other number becomes your point.",
+        systemImageName: "dice.fill"
+    )
+    
+    static let betBoxNumbersTip = NNTipModel(
+        id: "CrapsBetBoxNumbersTip",
+        title: "Make Place Bets",
+        message: "Once the point is set (puck is ON), you can place bets on individual numbers. These win when that number rolls before a 7.",
+        systemImageName: "square.grid.3x3.fill"
+    )
+    
+    static let hitPointToWinTip = NNTipModel(
+        id: "CrapsHitPointToWinTip",
+        title: "Hit the Point to Win",
+        message: "Roll your point number again to win! If you roll a 7 before hitting the point, you lose.",
+        systemImageName: "target"
+    )
+    
+    static let dragChipTip = NNTipModel(
+        id: "CrapsDragChipTip",
+        title: "Drag to Remove",
+        message: "Tap and drag a chip back to your chip stack to remove it from any bet. Some bets can only be removed when puck if OFF.",
+        systemImageName: "hand.draw.fill"
+    )
+    
+    // MARK: - Tip Groups
+    static let tipGroup: NNTipGroup = NNTipGroup(
+        tips: [
+            tapToBetTip,
+            comeOutRollTip,
+            betBoxNumbersTip,
+            hitPointToWinTip,
+            dragChipTip
         ]
     )
 }

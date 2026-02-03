@@ -40,6 +40,8 @@ class BaseSettingsViewController: UITableViewController {
     func setupTableView() {
         tableView.separatorColor = HardwayColors.surfaceGray
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsCell")
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 44
     }
     
     @objc func dismissSettings() {
@@ -88,9 +90,11 @@ class BaseSettingsViewController: UITableViewController {
     }
     
     func createMenuButton(title: String, menu: UIMenu) -> UIButton {
-        let button = UIButton(type: .system)
-        button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 17)
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = title
+        configuration.baseForegroundColor = .systemBlue
+
+        let button = UIButton(configuration: configuration, primaryAction: nil)
         button.menu = menu
         button.showsMenuAsPrimaryAction = true
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -164,5 +168,34 @@ class BaseSettingsViewController: UITableViewController {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         
         layoutLabelAndIcon(label: label, iconView: iconView, in: cell)
+    }
+}
+
+// MARK: - Custom Cell Class
+
+class SettingsTableViewCell: UITableViewCell {
+
+//    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+//        super.init(style: style, reuseIdentifier: reuseIdentifier)
+//
+//        // Set a proper background configuration to prevent crashes
+//        var backgroundConfig = UIBackgroundConfiguration.listGroupedCell()
+//        backgroundConfig.backgroundColor = HardwayColors.surfaceGray
+//        backgroundConfiguration = backgroundConfig
+//    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+
+        // Ensure background configuration is maintained during reuse
+//        if backgroundConfiguration == nil {
+//            var backgroundConfig = UIBackgroundConfiguration.listGroupedCell()
+//            backgroundConfig.backgroundColor = HardwayColors.surfaceGray
+//            backgroundConfiguration = backgroundConfig
+//        }
     }
 }
