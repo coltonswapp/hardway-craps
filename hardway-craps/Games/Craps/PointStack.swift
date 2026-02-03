@@ -53,7 +53,7 @@ class PointStack: UIView {
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            puck.centerYAnchor.constraint(equalTo: topAnchor, constant: 0),
+            puck.centerYAnchor.constraint(equalTo: topAnchor, constant: 12),
             puckCenterXConstraint!
         ])
 

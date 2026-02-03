@@ -80,9 +80,26 @@ final class ChipAnimationHelper {
         winAmount: Int,
         onBalanceUpdate: @escaping (Int) -> Void
     ) {
+        // Use control-specific offset if available, otherwise default to 30 points right
+        let offset = control.winningsAnimationOffset
+        animateWinningsWithOffset(
+            for: control,
+            winAmount: winAmount,
+            offset: offset,
+            onBalanceUpdate: onBalanceUpdate
+        )
+    }
+    
+    /// Animate winnings with custom offset: house → control → balance
+    func animateWinningsWithOffset(
+        for control: PlainControl,
+        winAmount: Int,
+        offset: CGPoint,
+        onBalanceUpdate: @escaping (Int) -> Void
+    ) {
         let steps = [
             AnimationStep.standard(
-                path: .houseToControl(control: control, offset: CGPoint(x: 30, y: 0)),
+                path: .houseToControl(control: control, offset: offset),
                 duration: 0.75,
                 scaleTransform: CGAffineTransform(scaleX: 1.5, y: 1.5)
             ),
@@ -106,6 +123,9 @@ final class ChipAnimationHelper {
         let betAmount = control.betAmount
         guard betAmount > 0 else { return }
 
+        // Hide betView immediately to prevent visual overlap with animation chip
+        control.betView.alpha = 0
+
         let steps = [
             AnimationStep.standard(
                 path: .controlToBalance(control: control),
@@ -113,6 +133,8 @@ final class ChipAnimationHelper {
                 onCompletion: {
                     onBalanceUpdate(betAmount)
                     control.betAmount = 0
+                    // Restore alpha for future bets
+                    control.betView.alpha = 1
                 }
             )
         ]
@@ -166,11 +188,27 @@ final class ChipAnimationHelper {
         winAmount: Int,
         onBalanceUpdate: @escaping (Int) -> Void
     ) {
+        animateBonusBetWinningsWithOffset(
+            for: control,
+            betAmount: betAmount,
+            winAmount: winAmount,
+            offset: CGPoint(x: -35, y: 0),
+            onBalanceUpdate: onBalanceUpdate
+        )
+    }
+    
+    /// Animate bonus bet winnings with custom offset: house → offset → balance (with original bet)
+    func animateBonusBetWinningsWithOffset(
+        for control: PlainControl,
+        betAmount: Int,
+        winAmount: Int,
+        offset: CGPoint,
+        onBalanceUpdate: @escaping (Int) -> Void
+    ) {
         guard let containerView = containerView else { return }
 
         let betPosition = control.getBetViewPosition(in: containerView)
-        let offsetX: CGFloat = -35
-        let winningsPosition = CGPoint(x: betPosition.x + offsetX, y: betPosition.y)
+        let winningsPosition = CGPoint(x: betPosition.x + offset.x, y: betPosition.y + offset.y)
 
         // Create winnings chip
         let winningsChip = createChipView(amount: winAmount)
@@ -178,9 +216,9 @@ final class ChipAnimationHelper {
         winningsChip.center = CGPoint(x: containerView.bounds.midX, y: 0)
         winningsChip.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
 
-        // Step 1: Animate winnings to offset position
+        // Step 1: Animate winnings to offset position with scale animation
         let animator1 = createAnimator(duration: 0.6) {
-            winningsChip.transform = .identity
+            winningsChip.transform = CGAffineTransform(scaleX: 1.5, y: 1.5)  // Scale up like other winnings
             winningsChip.center = winningsPosition
         }
 

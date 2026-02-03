@@ -171,8 +171,9 @@ class BetResultContainer: UIVisualEffectView {
 
         // Show/hide bonus label and description container
         bonusLabel.alpha = showBonus ? 1 : 0
-        descriptionContainer.alpha = (showBonus && description != nil) ? 1 : 0
-        descriptionLabel.alpha = (showBonus && description != nil) ? 1 : 0
+        // Show description container if description is provided (for both bonus and non-bonus descriptions like "Winner!")
+        descriptionContainer.alpha = (description != nil) ? 1 : 0
+        descriptionLabel.alpha = (description != nil) ? 1 : 0
         descriptionLabel.text = description
 
         // Reset label

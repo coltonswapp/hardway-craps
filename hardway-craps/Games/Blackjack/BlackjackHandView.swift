@@ -137,6 +137,8 @@ class BlackjackHandView: UIControl {
         
         let cardsToDiscard = cards
         let cardViewsToDiscard = Array(cardViews) // Create a copy of the array
+        // Store the card identities to check if they're still the same cards later
+        let cardsToDiscardIdentities = cardsToDiscard.map { "\($0.rank)\($0.suit)" }
         
         // Track completion for all cards
         var completedAnimations = 0
@@ -193,10 +195,19 @@ class BlackjackHandView: UIControl {
                     completedAnimations += 1
                     
                     // When all cards are done, clear the hand
+                    // BUT: Don't clear if new cards have been dealt (check if cards are different)
                     if completedAnimations >= totalCards {
-                        self.cards = []
-                        self.cardRotations.removeAll()
-                        self.updateCards(animated: false)
+                        // Check if the current cards are the same as the ones we were discarding
+                        // If cards have changed (new cards dealt), don't clear
+                        let currentCardsIdentities = self.cards.map { "\($0.rank)\($0.suit)" }
+                        let areSameCards = currentCardsIdentities == cardsToDiscardIdentities
+                        
+                        if areSameCards && !currentCardsIdentities.isEmpty {
+                            // Cards are still the same ones we were discarding - safe to clear
+                            self.cards = []
+                            self.cardRotations.removeAll()
+                            self.updateCards(animated: false)
+                        }
                         completion()
                     }
                 })

@@ -18,6 +18,7 @@ struct BlackjackSettings {
     var rebetAmount: Int
     var selectedSideBets: [BlackjackSettingsViewController.SideBetType]
     var fixedHandType: FixedHandType?
+    var faceUpDoubleDown: Bool
 
     /// Default settings configuration
     static var defaultSettings: BlackjackSettings {
@@ -30,7 +31,8 @@ struct BlackjackSettings {
             rebetEnabled: false,
             rebetAmount: 10,
             selectedSideBets: [.royalMatch, .perfectPairs],
-            fixedHandType: nil
+            fixedHandType: nil,
+            faceUpDoubleDown: false
         )
     }
 }
@@ -241,6 +243,14 @@ final class BlackjackSettingsManager {
             selectedSideBets = [.royalMatch, .perfectPairs]
         }
 
+        // Load faceUpDoubleDown (default: false)
+        let faceUpDoubleDown: Bool
+        if defaults.object(forKey: BlackjackSettingsKeys.faceUpDoubleDown) != nil {
+            faceUpDoubleDown = defaults.bool(forKey: BlackjackSettingsKeys.faceUpDoubleDown)
+        } else {
+            faceUpDoubleDown = false
+        }
+
         return BlackjackSettings(
             showTotals: showTotals,
             showDeckCount: showDeckCount,
@@ -250,7 +260,8 @@ final class BlackjackSettingsManager {
             rebetEnabled: rebetEnabled,
             rebetAmount: rebetAmount,
             selectedSideBets: selectedSideBets,
-            fixedHandType: fixedHandType
+            fixedHandType: fixedHandType,
+            faceUpDoubleDown: faceUpDoubleDown
         )
     }
 
@@ -264,6 +275,7 @@ final class BlackjackSettingsManager {
         defaults.set(settings.deckCount, forKey: BlackjackSettingsKeys.deckCount)
         defaults.set(settings.rebetEnabled, forKey: BlackjackSettingsKeys.rebetEnabled)
         defaults.set(settings.rebetAmount, forKey: BlackjackSettingsKeys.rebetAmount)
+        defaults.set(settings.faceUpDoubleDown, forKey: BlackjackSettingsKeys.faceUpDoubleDown)
 
         // Save deck penetration
         if let penetration = settings.deckPenetration {

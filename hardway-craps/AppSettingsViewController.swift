@@ -369,6 +369,8 @@ final class AppSettingsViewController: UITableViewController {
     }
 
     private func resetAllTips() {
+        // Reset all tips (both BlackjackTips and CrapsTips)
+        // This clears the dismissed tips set in NNTipManager, which stores all tip IDs
         NNTipManager.shared.resetAllTips()
 
         // Show success feedback

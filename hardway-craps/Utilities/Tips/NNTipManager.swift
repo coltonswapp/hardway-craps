@@ -250,8 +250,6 @@ class NNTipManager {
     
     // Mark a tip as dismissed
     func dismissTip(_ tip: NNTipModel) {
-        print("🔄 [Tip Debug] Dismissing tip: \(tip.id)")
-        
         var dismissed = dismissedTips
         dismissed.insert(tip.id)
         dismissedTips = dismissed
@@ -260,13 +258,19 @@ class NNTipManager {
         dismissActiveTipView(for: tip.id)
     }
     
+    // Dismiss a tip with a delay (useful for dismissing tips after user actions)
+    func dismissTip(_ tip: NNTipModel, afterDelay delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.dismissTip(tip)
+        }
+    }
+    
     // Dismiss active tip view for a specific tip ID
     private func dismissActiveTipView(for tipId: String) {
         // Find active tip views that match this tip ID
         for tipView in activeTipViews {
             if let nnTipView = tipView as? NNTipView,
                nnTipView.tipId == tipId {
-                print("✅ [Tip Debug] Found matching tip view, dismissing")
                 dismissTipWithAnimation(tipView)
                 break
             }
@@ -277,7 +281,6 @@ class NNTipManager {
     func resetAllTips() {
         dismissedTips = Set<String>()
         resetAllTrackingData()
-        print("✅ [TipKit Debug] All tips reset")
     }
     
     // Reset all tracking data
@@ -286,7 +289,6 @@ class NNTipManager {
         UserDefaults.standard.removeObject(forKey: userActionCountsKey)
         UserDefaults.standard.removeObject(forKey: "app_first_launch_date")
         UserDefaults.standard.set(Date(), forKey: "app_first_launch_date")
-        print("✅ [TipKit Debug] All tracking data reset")
     }
     
     // Keep track of active tip views and their observation tasks

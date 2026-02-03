@@ -172,8 +172,13 @@ extension MainViewController: UITableViewDelegate {
             guard let self = self,
                   let navController = self.navigationController else { return }
 
-            // Create new BlackjackGameplayViewController with the resumed session
-            let gameplayVC = BlackjackGameplayViewController(resumingSession: session)
+            // Create appropriate gameplay view controller with the resumed session
+            let gameplayVC: UIViewController
+            if session.isBlackjackSession {
+                gameplayVC = BlackjackGameplayViewController(resumingSession: session)
+            } else {
+                gameplayVC = CrapsGameplayViewController(resumingSession: session)
+            }
 
             // Pop the detail view controller and push the gameplay view controller
             navController.popViewController(animated: false)

@@ -107,9 +107,6 @@ class BetDragManager {
     func endDrag(at point: CGPoint, in view: UIView) {
         guard let chip = draggedChip else { return }
 
-        print("endDrag called at point: \(point)")
-        print("currentDropTarget: \(currentDropTarget != nil ? "exists" : "nil")")
-
         // Capture values before cleanup
         let valueToAdd = dragValue
         let source = sourceControl
@@ -205,8 +202,8 @@ class BetDragManager {
                         source.betAmount = 0
                         // Don't restore alpha since bet is cleared (betView will be hidden automatically)
                     } else if canRemove {
-                        // Moving to different control - remove from source (only if allowed)
-                        source.removeBet(valueToAdd)
+                        // Moving to different control - remove from source silently (no balance change)
+                        source.removeBetSilently(valueToAdd)
                         // Restore betView alpha if bet still exists (partial removal)
                         // (betView will be hidden by isHidden property if amount is 0)
                         if source.betAmount > 0 {

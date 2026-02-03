@@ -37,8 +37,9 @@ class ChipSelector: UIView, BetDropTarget {
     }()
 
     private var chipControls: [ChipControl] = []
-    private(set) var selectedValue: Int = 1
+    private(set) var selectedValue: Int = 5
     private var indicatorCenterXConstraint: NSLayoutConstraint?
+    private var hasInitializedIndicator = false
 
     let chipValues: [Int]
 
@@ -99,12 +100,52 @@ class ChipSelector: UIView, BetDropTarget {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        
+        // Try to initialize indicator if not already done
+        tryInitializeIndicator()
+    }
+    
+    private func tryInitializeIndicator() {
+        guard !hasInitializedIndicator, !chipControls.isEmpty else { return }
+        
+        guard let index = chipControls.firstIndex(where: { $0.value == selectedValue }) else { return }
+        
+        let targetChip = chipControls[index]
+        
+        // Check if chip has valid frame
+        guard targetChip.frame.width > 0 && targetChip.frame.height > 0 else {
+            // Frames not ready yet, will retry on next layout
+            return
+        }
+        
+        // Frames are ready, initialize indicator
+        hasInitializedIndicator = true
+        moveIndicatorToChip(at: index, animated: false)
+    }
+    
+    /// Call this method after the view has been added to the hierarchy and laid out
+    func initializeIndicatorPosition() {
+        // Force layout first to ensure frames are calculated
+        layoutIfNeeded()
+        
+        // Try to initialize immediately
+        tryInitializeIndicator()
+        
+        // If still not initialized (frames not ready), defer and try again
+        if !hasInitializedIndicator {
+            DispatchQueue.main.async { [weak self] in
+                self?.tryInitializeIndicator()
+            }
+        }
     }
 
     private func moveIndicatorToChip(at index: Int, animated: Bool) {
         guard index < chipControls.count, let constraint = indicatorCenterXConstraint else { return }
 
         let targetChip = chipControls[index]
+        
+        // Ensure chip has a valid frame before positioning indicator
+        guard targetChip.frame.width > 0 && targetChip.frame.height > 0 else { return }
 
         // Convert the chip's center to the selector's coordinate system
         let chipCenterInStackView = CGPoint(x: targetChip.frame.midX, y: targetChip.frame.midY)

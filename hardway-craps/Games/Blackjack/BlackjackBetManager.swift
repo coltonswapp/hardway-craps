@@ -53,23 +53,13 @@ final class BlackjackBetManager {
     }
 
     /// Track a bet for rebet functionality
-    /// If player bets the same amount 3 times in a row, update rebet amount
+    /// Updates rebet amount immediately to the current bet amount
     func trackBetForRebet(amount: Int) {
         guard amount > 0 else { return }
 
-        // Check if this bet matches the last bet
-        if amount == lastBetAmount {
-            consecutiveBetCount += 1
-        } else {
-            // Different bet amount, reset counter
-            consecutiveBetCount = 1
-            lastBetAmount = amount
-        }
-
-        // If player has bet the same amount 3 times in a row, update rebet amount
-        if consecutiveBetCount >= 3 {
-            setRebetAmount(amount)
-        }
+        // Update rebet amount immediately to reflect current bet
+        setRebetAmount(amount)
+        lastBetAmount = amount
     }
 
     /// Calculate the rebet amount to apply

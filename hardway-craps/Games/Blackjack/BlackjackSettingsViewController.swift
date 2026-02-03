@@ -17,6 +17,21 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
     private var rebetEnabled: Bool = false
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, 0.75 = 75%, etc.)
     private var fixedHandType: FixedHandType?
+    private var faceUpDoubleDown: Bool = false
+    
+    // Section item enums for type-safe row management
+    enum DisplaySetting: CaseIterable {
+        case showHandTotals
+        case showDeckCount
+        case cardCounting
+    }
+    
+    enum GameSetting: CaseIterable {
+        case deckCount
+        case rebet
+        case deckPenetration
+        case faceUpDoubleDown
+    }
     
     // Side bet types
     enum SideBetType: String, CaseIterable {
@@ -57,7 +72,7 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
             case .royalMatch:
                 return [
                     (cards: [(.king, .hearts), (.queen, .hearts)], odds: "25:1"),
-                    (cards: [(.jack, .diamonds), (.ten, .diamonds)], odds: "3:1")
+                    (cards: [(.four, .diamonds), (.five, .diamonds)], odds: "3:1")
                 ]
             case .luckyLadies:
                 return [
@@ -155,6 +170,11 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
             // Default to Royal Match and Perfect Pairs
             selectedSideBets = [.royalMatch, .perfectPairs]
         }
+
+        // Load faceUpDoubleDown (default: false)
+        if UserDefaults.standard.object(forKey: BlackjackSettingsKeys.faceUpDoubleDown) != nil {
+            faceUpDoubleDown = UserDefaults.standard.bool(forKey: BlackjackSettingsKeys.faceUpDoubleDown)
+        }
     }
     
     private func saveSettings() {
@@ -163,6 +183,7 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
         UserDefaults.standard.set(showCardCount, forKey: BlackjackSettingsKeys.showCardCount)
         UserDefaults.standard.set(deckCount, forKey: BlackjackSettingsKeys.deckCount)
         UserDefaults.standard.set(rebetEnabled, forKey: BlackjackSettingsKeys.rebetEnabled)
+        UserDefaults.standard.set(faceUpDoubleDown, forKey: BlackjackSettingsKeys.faceUpDoubleDown)
 
         // Save fixedHandType (nil means random)
         if let handType = fixedHandType {
@@ -196,9 +217,9 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
         case 0: // Actions
             return 1
         case 1: // Display Settings
-            return 3
+            return DisplaySetting.allCases.count
         case 2: // Game Settings
-            return 3
+            return GameSetting.allCases.count
         case 3: // Side Bets
             return SideBetType.allCases.count
         case 4: // Testing
@@ -247,46 +268,49 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
                 break
             }
         case 1: // Display Settings
-            switch indexPath.row {
-            case 0: // Show Hand Totals
+            let displaySetting = DisplaySetting.allCases[indexPath.row]
+            switch displaySetting {
+            case .showHandTotals:
                 configureSwitchCell(cell, title: "Show Hand Totals", isOn: showTotals) { [weak self] isOn in
                     self?.showTotals = isOn
                     self?.saveSettings()
                 }
-            case 1: // Show Deck Count
+            case .showDeckCount:
                 configureSwitchCell(cell, title: "Show Deck Count", isOn: showDeckCount) { [weak self] isOn in
                     self?.showDeckCount = isOn
                     self?.saveSettings()
                 }
-            case 2: // Card Counting
+            case .cardCounting:
                 configureCardCountingCell(cell, isOn: showCardCount) { [weak self] isOn in
                     self?.showCardCount = isOn
                     self?.saveSettings()
                 }
-            default:
-                break
             }
         case 2: // Game Settings
-            switch indexPath.row {
-            case 0: // Deck Count
+            let gameSetting = GameSetting.allCases[indexPath.row]
+            switch gameSetting {
+            case .deckCount:
                 configureDeckCountCell(cell, currentValue: deckCount) { [weak self] count in
                     self?.deckCount = count
                     self?.saveSettings()
                     self?.tableView.reloadRows(at: [indexPath], with: .none)
                 }
-            case 1: // Rebet
+            case .rebet:
                 configureSwitchCell(cell, title: "Rebet", isOn: rebetEnabled) { [weak self] isOn in
                     self?.rebetEnabled = isOn
                     self?.saveSettings()
                 }
-            case 2: // Deck Penetration
+            case .deckPenetration:
                 configureDeckPenetrationCell(cell, currentValue: deckPenetration) { [weak self] penetration in
                     self?.deckPenetration = penetration
                     self?.saveSettings()
                     self?.tableView.reloadRows(at: [indexPath], with: .none)
                 }
-            default:
-                break
+            case .faceUpDoubleDown:
+                configureFaceUpDoubleDownCell(cell, isOn: faceUpDoubleDown) { [weak self] isOn in
+                    self?.faceUpDoubleDown = isOn
+                    self?.saveSettings()
+                }
             }
         case 3: // Side Bets
             let sideBetType = SideBetType.allCases[indexPath.row]
@@ -315,6 +339,32 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
     private func configureCardCountingCell(_ cell: UITableViewCell, isOn: Bool, onChange: @escaping (Bool) -> Void) {
         let titleLabel = createStandardLabel(text: "Card Counting")
         let explanationLabel = createSecondaryLabel(text: "(Running Count, True Count)")
+        explanationLabel.numberOfLines = 0
+        let switchControl = createStandardSwitch(isOn: isOn, onChange: onChange)
+        
+        cell.contentView.addSubview(titleLabel)
+        cell.contentView.addSubview(explanationLabel)
+        cell.contentView.addSubview(switchControl)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            titleLabel.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: switchControl.leadingAnchor, constant: -16),
+            
+            explanationLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            explanationLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            explanationLabel.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12),
+            explanationLabel.trailingAnchor.constraint(lessThanOrEqualTo: switchControl.leadingAnchor, constant: -16),
+            
+            switchControl.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+            switchControl.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor)
+        ])
+    }
+    
+    private func configureFaceUpDoubleDownCell(_ cell: UITableViewCell, isOn: Bool, onChange: @escaping (Bool) -> Void) {
+        let titleLabel = createStandardLabel(text: "Face Up Double Down")
+        let explanationLabel = createSecondaryLabel(text: "Deal double down card face up instead of face down")
+        explanationLabel.numberOfLines = 0
         let switchControl = createStandardSwitch(isOn: isOn, onChange: onChange)
         
         cell.contentView.addSubview(titleLabel)
@@ -352,14 +402,14 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
 
     private func configureDeckPenetrationCell(_ cell: UITableViewCell, currentValue: Double?, onSelection: @escaping (Double?) -> Void) {
         let label = createStandardLabel(text: "Deck Penetration")
-        
+
         let displayText: String
         if let penetration = currentValue {
             displayText = penetration == -1.0 ? "Random" : "\(Int(penetration * 100))%"
         } else {
             displayText = "Full Deck"
         }
-        
+
         let menu = UIMenu(title: "", children: [
             UIAction(title: "Full Deck", state: currentValue == nil ? .on : .off) { _ in onSelection(nil) },
             UIAction(title: "Random", state: currentValue == -1.0 ? .on : .off) { _ in onSelection(-1.0) },
@@ -369,10 +419,11 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
             UIAction(title: "70%", state: currentValue == 0.7 ? .on : .off) { _ in onSelection(0.7) },
             UIAction(title: "75%", state: currentValue == 0.75 ? .on : .off) { _ in onSelection(0.75) }
         ])
-        
+
         let button = createMenuButton(title: displayText, menu: menu)
         layoutLabelAndButton(label: label, button: button, in: cell)
     }
+
 
     private func configureFixedHandCell(_ cell: UITableViewCell, currentValue: FixedHandType?, onSelection: @escaping (FixedHandType?) -> Void) {
         let label = createStandardLabel(text: "Fixed Hands")

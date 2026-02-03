@@ -19,7 +19,8 @@ struct GameSession: Codable {
     let pointsHit: Int?
     let balanceHistory: [Int]?
     let betSizeHistory: [Int]?
-    
+    let atmVisitIndices: [Int]?  // Indices in balance history where ATM visits occurred
+
     // Blackjack-specific fields
     let handCount: Int?
     let blackjackMetrics: BlackjackGameplayMetrics?
@@ -90,6 +91,10 @@ struct GameSession: Codable {
         return pointsHit ?? 0
     }
 
+    var atmVisitsCount: Int {
+        return gameplayMetrics?.atmVisitsCount ?? 0
+    }
+
     var balanceHistoryValue: [Int] {
         if let balanceHistory, !balanceHistory.isEmpty {
             return balanceHistory
@@ -150,7 +155,16 @@ struct GameSession: Codable {
     }
 
     var biggestSwing: Int {
-        return rollDeltas.map { abs($0) }.max() ?? 0
+        let deltas = rollDeltas
+        let atmIndices = Set(atmVisitIndices ?? [])
+
+        // Filter out deltas that correspond to ATM visits
+        let filteredDeltas = deltas.enumerated().compactMap { index, delta -> Int? in
+            // If this delta's index corresponds to an ATM visit, exclude it
+            return atmIndices.contains(index) ? nil : abs(delta)
+        }
+
+        return filteredDeltas.max() ?? 0
     }
 
     var longestWinStreak: Int {

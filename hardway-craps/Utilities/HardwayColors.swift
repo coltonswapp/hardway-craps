@@ -21,4 +21,6 @@ struct HardwayColors {
     static let suitRed: UIColor = UIColor(red: 211/255, green: 94/255, blue: 94/255, alpha: 1.0)
     static let whiteSurface: UIColor = UIColor(red: 244/255, green: 244/255, blue: 244/255, alpha: 1.0)
     static let surfaceWhite: UIColor = whiteSurface
+    
+    static let green: UIColor = UIColor(red: 0/255, green: 49/255, blue: 3/255, alpha: 1.0)
 }

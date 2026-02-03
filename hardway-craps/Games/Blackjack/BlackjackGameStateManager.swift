@@ -267,6 +267,47 @@ final class BlackjackGameStateManager {
         return calculateHandTotal(cards: cards) > 21
     }
 
+    /// Check if a hand is a soft 17 (contains an Ace counted as 11, total is 17)
+    func isSoft17(cards: [BlackjackHandView.Card]) -> Bool {
+        let total = calculateHandTotal(cards: cards)
+        guard total == 17 else { return false }
+
+        // Check if hand contains an Ace
+        let hasAce = cards.contains { $0.rank == .ace }
+        guard hasAce else { return false }
+
+        // If total is 17 with an Ace, check if the Ace is being counted as 11
+        // Calculate total counting all Aces as 1
+        var hardTotal = 0
+        for card in cards {
+            switch card.rank {
+            case .ace:
+                hardTotal += 1
+            case .two:
+                hardTotal += 2
+            case .three:
+                hardTotal += 3
+            case .four:
+                hardTotal += 4
+            case .five:
+                hardTotal += 5
+            case .six:
+                hardTotal += 6
+            case .seven:
+                hardTotal += 7
+            case .eight:
+                hardTotal += 8
+            case .nine:
+                hardTotal += 9
+            case .ten, .jack, .queen, .king:
+                hardTotal += 10
+            }
+        }
+
+        // If hard total + 10 equals 17, then one Ace is being counted as 11 (soft)
+        return hardTotal + 10 == 17
+    }
+
     /// Check if insurance should be available (dealer showing Ace)
     func isInsuranceAvailable(dealerUpcard: BlackjackHandView.Card?, hasBeenChecked: Bool) -> Bool {
         guard let upcard = dealerUpcard else { return false }

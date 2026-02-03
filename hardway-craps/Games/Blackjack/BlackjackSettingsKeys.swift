@@ -17,6 +17,7 @@ enum BlackjackSettingsKeys {
     static let fixedHandType = "BlackjackFixedHandType"
     static let deckPenetration = "BlackjackDeckPenetration"
     static let selectedSideBets = "BlackjackSelectedSideBets"
+    static let faceUpDoubleDown = "BlackjackFaceUpDoubleDown"
 }
 
 enum FixedHandType: String {

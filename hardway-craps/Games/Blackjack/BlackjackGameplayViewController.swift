@@ -111,6 +111,9 @@ final class BlackjackGameplayViewController: UIViewController {
     private var deckCount: Int = 1 // Number of decks (1, 2, 4, or 6)
     private var deckPenetration: Double? = nil // nil = full deck, -1.0 = random, otherwise percentage (0.5 = 50%, etc.)
     private var cutCardPosition: Int? = nil // Position in deck where cut card is placed (nil if no cut card)
+    private var faceUpDoubleDown: Bool = false // Deal double down card face up instead of face down
+    private var isDealingCards: Bool = false // Prevent multiple simultaneous calls to dealCards()
+    private var isStartingDealingSequence: Bool = false // Prevent multiple simultaneous calls to startDealingSequence()
 
     // Tip tracking
     private var hasShownPlaceBetTip: Bool = false
@@ -119,9 +122,13 @@ final class BlackjackGameplayViewController: UIViewController {
     private var hasShownSettingsTip: Bool = false
     private var hasShownDragChipTip: Bool = false
     private var hasShownInsuranceTip: Bool = false
+    private var hasShownTapReadyTip: Bool = false
 
     // Optional session to resume from
     private var resumingSession: GameSession?
+    
+    // Flag to prevent recursive calls to updateControls()
+    private var isUpdatingControls: Bool = false
 
     // Custom initializer for resuming a session
     init(resumingSession: GameSession? = nil) {
@@ -170,7 +177,7 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     var selectedChipValue: Int {
-        return chipSelector?.selectedValue ?? 1
+        return chipSelector?.selectedValue ?? 5
     }
 
     // Peek amount for split hands - relative to screen width (20% on each side)
@@ -261,6 +268,13 @@ final class BlackjackGameplayViewController: UIViewController {
         resetGame()
         // Ensure controls are updated after initial setup
         updateControls()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        // Initialize chip selector indicator position after layout
+        chipSelector?.initializeIndicatorPosition()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -377,6 +391,7 @@ final class BlackjackGameplayViewController: UIViewController {
         deckPenetration = settingsManager.currentSettings.deckPenetration
         rebetEnabled = settingsManager.currentSettings.rebetEnabled
         rebetAmount = settingsManager.currentSettings.rebetAmount
+        faceUpDoubleDown = settingsManager.currentSettings.faceUpDoubleDown
     }
     
     private func toggleTotals() {
@@ -626,7 +641,7 @@ final class BlackjackGameplayViewController: UIViewController {
 
             // Page control constraints - positioned at bottom of scroll view
             handsPageControl.centerXAnchor.constraint(equalTo: handsScrollView.centerXAnchor),
-            handsPageControl.bottomAnchor.constraint(equalTo: handsScrollView.bottomAnchor, constant: -8)
+            handsPageControl.topAnchor.constraint(equalTo: handsScrollView.bottomAnchor, constant: 0)
         ])
     }
     
@@ -640,7 +655,8 @@ final class BlackjackGameplayViewController: UIViewController {
         betControl.onBetPlaced = { [weak self] amount in
             guard let self = self else { return }
             // Prevent bet addition once hand has begun
-            if self.gamePhase != .waitingForBet && self.gamePhase != .readyToDeal {
+            let canPlaceBet = self.gamePhase == .waitingForBet || self.gamePhase == .readyToDeal
+            if !canPlaceBet {
                 // Revert the bet addition by removing it
                 betControl.betAmount -= amount
                 HapticsHelper.lightHaptic()
@@ -650,8 +666,8 @@ final class BlackjackGameplayViewController: UIViewController {
             self.trackBet(amount: amount, isMainBet: true)
             self.checkBetStatus()
 
-            // Dismiss place bet tip once user places their first bet
-            NNTipManager.shared.dismissTip(BlackjackTips.placeBetTip)
+            // Dismiss place bet tip once user places their first bet (with 1 second delay)
+            NNTipManager.shared.dismissTip(BlackjackTips.placeBetTip, afterDelay: 1.0)
         }
         betControl.onBetRemoved = { [weak self] amount in
             guard let self = self else { return }
@@ -664,6 +680,7 @@ final class BlackjackGameplayViewController: UIViewController {
         betControl.addedBetCompletionHandler = { [weak self] in
             guard let self = self else { return }
             // Stop shimmer when bet is added
+            // Don't call checkBetStatus() here - it's called explicitly in the flow
             self.updateBetShimmer()
         }
         betControl.canRemoveBet = { [weak self] in
@@ -891,38 +908,10 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func refreshSettings() {
-        // Store previous deck count setting before loading new settings
-        let previousDeckCount = deckCount
-
-        // Reload settings from manager
+        // Reload settings from UserDefaults and notify delegate
+        // This ensures all settings (including faceUpDoubleDown) are immediately applied
         settingsManager.loadSettings()
-
-        // Apply settings to local properties
-        deckCount = settingsManager.currentSettings.deckCount
-        deckPenetration = settingsManager.currentSettings.deckPenetration
-        rebetEnabled = settingsManager.currentSettings.rebetEnabled
-        rebetAmount = settingsManager.currentSettings.rebetAmount
-
-        // Update UI based on settings
-        dealerHandView.setTotalsHidden(!showTotals)
-        playerHandView.setTotalsHidden(!showTotals)
-        splitHandView?.setTotalsHidden(!showTotals)
-        deckView.setCountLabelVisible(showDeckCount)
-        deckView.setCardCountLabelVisible(showCardCount)
-
-        // Only reshuffle if the deck count setting actually changed
-        if deckCount != previousDeckCount {
-            createAndShuffleDeck()
-            deckView.setCardCount(52 * deckCount, animated: true)
-        }
-
-        // Reload bonus bet controls if we're in a safe state (waiting for bet or ready to deal)
-        // This allows side bet selection changes to take effect
-        if gamePhase == .waitingForBet || gamePhase == .readyToDeal {
-            setupBonusBetControls()
-        }
-
-        updateNavigationBarMenu()
+        settingsManager.delegate?.settingsDidChange(settingsManager.currentSettings)
     }
 
     private func showTips() {
@@ -943,6 +932,56 @@ final class BlackjackGameplayViewController: UIViewController {
                 centerHorizontally: true
             )
             return // Always return after attempting to show this highest priority tip
+        }
+        
+        // Priority 1.5: Tap Ready tip (show after bet is placed, before dealing)
+        // Check if ready button should be visible (gamePhase == .readyToDeal and no insurance)
+        let shouldShowReadyButton = gamePhase == .readyToDeal && !isInsuranceAvailable
+        if NNTipManager.shared.shouldShowTip(BlackjackTips.tapReadyTip),
+           !hasShownTapReadyTip,
+           gamePhase == .readyToDeal,
+           playerHandView.betControl.betAmount > 0,
+           shouldShowReadyButton {
+            
+            // Don't show ready tip if bet tip is still showing - wait for it to dismiss first
+            if NNTipManager.shared.isShowingTip(BlackjackTips.placeBetTip) {
+                // Check again after the bet tip dismisses (1 second delay + animation time)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { [weak self] in
+                    guard let self = self,
+                          !self.hasShownTapReadyTip,
+                          self.gamePhase == .readyToDeal,
+                          self.playerHandView.betControl.betAmount > 0,
+                          !self.readyButton.isHidden,
+                          !NNTipManager.shared.isShowingTip(BlackjackTips.placeBetTip) else { return }
+                    
+                    self.hasShownTapReadyTip = true
+                    NNTipManager.shared.showTip(
+                        BlackjackTips.tapReadyTip,
+                        sourceView: self.readyButton,
+                        in: self,
+                        pinToEdge: .top,
+                        offset: CGPoint(x: 0, y: -8),
+                        centerHorizontally: true
+                    )
+                }
+            } else {
+                // Bet tip is not showing, show ready tip immediately
+                hasShownTapReadyTip = true
+                
+                // Small delay to ensure button is visible
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    guard let self = self, !self.readyButton.isHidden else { return }
+                    NNTipManager.shared.showTip(
+                        BlackjackTips.tapReadyTip,
+                        sourceView: self.readyButton,
+                        in: self,
+                        pinToEdge: .top,
+                        offset: CGPoint(x: 0, y: -8),
+                        centerHorizontally: true
+                    )
+                }
+            }
+            return // Return after successfully showing the tip
         }
 
         // Priority 2: Tap to hit tip (second priority - show during player's turn)
@@ -1074,6 +1113,9 @@ final class BlackjackGameplayViewController: UIViewController {
 
         // Immediately change phase to prevent re-triggering discard animation
         gameStateManager.resetToWaitingForBet()
+        // Reset dealing flags when starting a new hand
+        isDealingCards = false
+        isStartingDealingSequence = false
         updateControls()
 
         // Update last balance before next hand
@@ -1086,43 +1128,58 @@ final class BlackjackGameplayViewController: UIViewController {
             // Don't reshuffle - continue drawing from existing deck
             // It will auto-reshuffle when empty
 
-            // Apply rebet if enabled
+            // Apply rebet if enabled (only if no bet exists - if player won, bet stays on control)
             self.applyRebetIfNeeded()
 
+            // Update instruction message
             self.updateInstructionMessage()
+            
+            // Check bet status and transition to readyToDeal if needed
             self.checkBetStatus()
         }
     }
-    
+
+
     private func checkBetStatus() {
         let betAmount = playerHandView.betControl.betAmount
-        
-        if betAmount > 0 && gamePhase == .waitingForBet {
-            gamePhase = .readyToDeal
-            updateControls()
-            updateInstructionMessage()
-        } else if betAmount == 0 && gamePhase == .readyToDeal {
-            gamePhase = .waitingForBet
-            updateControls()
-            updateInstructionMessage()
+
+        // Don't check bet status if we're already dealing or in a later phase
+        // This prevents race conditions during lightning mode auto-dealing
+        guard gamePhase == .waitingForBet || gamePhase == .readyToDeal else {
+            return
         }
-        
+
+        if betAmount > 0 && gamePhase == .waitingForBet {
+            gameStateManager.setGamePhase(.readyToDeal)
+            // updateControls() and updateInstructionMessage() are called by delegate
+        } else if betAmount == 0 && gamePhase == .readyToDeal {
+            gameStateManager.setGamePhase(.waitingForBet)
+            // updateControls() and updateInstructionMessage() are called by delegate
+        }
+
         // Update shimmer based on current state
         updateBetShimmer()
     }
     
     @objc private func readyTapped() {
+        // Dismiss tap ready tip when user taps ready button
+        NNTipManager.shared.dismissTip(BlackjackTips.tapReadyTip)
+        
         // Check if insurance is available and needs to be checked
         if isInsuranceAvailable {
             // Check dealer blackjack for insurance
             checkDealerBlackjackAfterInsurance()
             return
         }
-        
+
         // Normal ready flow - only proceed if in readyToDeal phase
         guard gamePhase == .readyToDeal else { return }
         guard playerHandView.betControl.betAmount > 0 else { return }
 
+        startDealingFromReady()
+    }
+    
+    private func startDealingFromReady() {
         // Record balance before hand starts
         sessionManager.updateLastBalanceBeforeHand(balance)
 
@@ -1140,33 +1197,43 @@ final class BlackjackGameplayViewController: UIViewController {
         
         // Check if we need to reshuffle before dealing
         if deck.count < 6 {
-            gamePhase = .dealing
-            updateControls()
+            gameStateManager.setGamePhase(.dealing)
+            // updateControls() called by delegate
             instructionLabel.showMessage("Reshuffling deck...", shouldFade: false)
-            
+
             // Reshuffle the deck
             createAndShuffleDeck()
             deckView.setCardCount(52 * deckCount, animated: true)
-            
+
             // Wait for shuffle animation to complete (1.4s animation + small buffer)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
-                self?.startDealingSequence()
+                guard let self = self else { return }
+                self.startDealingSequence()
             }
         } else {
-            gamePhase = .dealing
-            updateControls()
-            updateInstructionMessage()
+            gameStateManager.setGamePhase(.dealing)
+            // updateControls() and updateInstructionMessage() called by delegate
             startDealingSequence()
         }
     }
     
     private func startDealingSequence() {
+        // Prevent multiple simultaneous calls
+        guard !isStartingDealingSequence else {
+            return
+        }
+        isStartingDealingSequence = true
+        
+        // Reset dealing flag before starting
+        isDealingCards = false
         // Clear any existing cards
         dealerHandView.clearCards()
         playerHandView.clearCards()
         // Clear insurance bet
         insuranceControl.betAmount = 0
         dealCards()
+        
+        // Reset flag after dealing completes (in dealCards completion)
     }
     
     private func setFixedHand(_ handType: FixedHandType?) {
@@ -1190,6 +1257,12 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func dealCards() {
+        // Prevent multiple simultaneous calls to dealCards()
+        guard !isDealingCards else {
+            return
+        }
+        isDealingCards = true
+        
         // Generate cards for this hand
         let playerCard1: BlackjackHandView.Card
         let playerCard2: BlackjackHandView.Card
@@ -1215,11 +1288,11 @@ final class BlackjackGameplayViewController: UIViewController {
         let deckCenter1 = view.convert(deckView.deckCenter, from: deckView)
         playerHandView.dealCard(playerCard1, from: deckCenter1, in: view)
 
-        // Deal dealer's first card (face down) after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self else { return }
-            let deckCenter2 = self.view.convert(self.deckView.deckCenter, from: self.deckView)
-            self.dealerHandView.dealCard(dealerCard1, from: deckCenter2, in: self.view)
+            // Deal dealer's first card (face down) after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self = self else { return }
+                let deckCenter2 = self.view.convert(self.deckView.deckCenter, from: self.deckView)
+                self.dealerHandView.dealCard(dealerCard1, from: deckCenter2, in: self.view)
 
             // Deal player's second card
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -1236,6 +1309,9 @@ final class BlackjackGameplayViewController: UIViewController {
                         // Evaluate bonus bets immediately after initial 4 cards are dealt
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                             guard let self = self else { return }
+                            // Reset dealing flags after all cards are dealt
+                            self.isDealingCards = false
+                            self.isStartingDealingSequence = false
                             let playerCards = self.playerHandView.currentCards
                             self.checkAndPayBonusBets(playerCards: playerCards)
                         }
@@ -1249,14 +1325,12 @@ final class BlackjackGameplayViewController: UIViewController {
                             if playerTotal == 21 {
                                 // Auto-stand on 21
                                 self.gameStateManager.setPlayerStood()
-                                self.gamePhase = .dealerTurn
-                                self.updateControls()
-                                self.updateInstructionMessage()
+                                self.gameStateManager.setGamePhase(.dealerTurn)
+                                // updateControls() and updateInstructionMessage() called by delegate
                                 self.startDealerTurn()
                             } else {
-                                self.gamePhase = .playerTurn
-                                self.updateControls()
-                                self.updateInstructionMessage()
+                                self.gameStateManager.setGamePhase(.playerTurn)
+                                // updateControls() and updateInstructionMessage() called by delegate
                             }
                         }
                     }
@@ -1345,21 +1419,16 @@ final class BlackjackGameplayViewController: UIViewController {
                     // Wait a moment for card flip animation, then end game
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                         guard let self = self else { return }
-                        self.gamePhase = .gameOver
-                        self.updateControls()
-                        self.updateInstructionMessage()
+                        self.gameStateManager.setGamePhase(.gameOver)
+                        // updateControls() and updateInstructionMessage() called by delegate
                         self.endGame()
                     }
                 } else if playerTotal == 21 {
                     // Auto-stand on 21
                     self.gameStateManager.setPlayerStood()
-                    self.gamePhase = .dealerTurn
-                    self.updateControls()
-                    self.updateInstructionMessage()
+                    self.gameStateManager.setGamePhase(.dealerTurn)
+                    // updateControls() and updateInstructionMessage() called by delegate
                     self.startDealerTurn()
-                } else {
-                    self.updateControls()
-                    self.updateInstructionMessage()
                 }
             }
         }
@@ -1371,15 +1440,14 @@ final class BlackjackGameplayViewController: UIViewController {
         
         if firstHandDone && secondHandDone {
             // Both hands complete, start dealer turn
-            gamePhase = .dealerTurn
-            updateControls()
-            updateInstructionMessage()
-            
+            gameStateManager.setGamePhase(.dealerTurn)
+            // updateControls() and updateInstructionMessage() called by delegate
+
             // Reveal dealer's hole card
             if dealerHandView.isHoleCardHidden() {
                 dealerHandView.revealHoleCard(animated: true)
             }
-            
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.startDealerTurn()
             }
@@ -1421,9 +1489,8 @@ final class BlackjackGameplayViewController: UIViewController {
             // Normal single hand stand
             guard !hasPlayerStood else { return }
             gameStateManager.setPlayerStood()
-            gamePhase = .dealerTurn
-            updateControls()
-            updateInstructionMessage()
+            gameStateManager.setGamePhase(.dealerTurn)
+            // updateControls() and updateInstructionMessage() called by delegate
             startDealerTurn()
         }
     }
@@ -1431,13 +1498,19 @@ final class BlackjackGameplayViewController: UIViewController {
     @objc private func playerSplitTapped() {
         guard gamePhase == .playerTurn && !hasPlayerStood && !hasPlayerDoubled else { return }
         guard playerHandView.currentCards.count == 2 && !hasPlayerHit else { return }
-        
+
+        // If insurance is available, check for dealer blackjack BEFORE allowing split
+        if isInsuranceAvailable {
+            checkDealerBlackjackAfterInsurance()
+            return
+        }
+
         let cards = playerHandView.currentCards
         guard cards[0].rank == cards[1].rank else { return }
-        
+
         let betAmount = playerHandView.betControl.betAmount
         guard betAmount > 0 else { return }
-        
+
         // Check if player has enough balance to split
         if betAmount > balance {
             HapticsHelper.lightHaptic()
@@ -1676,10 +1749,14 @@ final class BlackjackGameplayViewController: UIViewController {
             // Track the additional bet
             trackBet(amount: betAmount, isMainBet: true)
 
-            // Deal a face-down card
+            // Deal a card (face up or face down depending on setting)
             let deckCenter = view.convert(deckView.deckCenter, from: deckView)
             let doubleDownCard = randomHandCard()
-            currentHand.dealCardFaceDown(doubleDownCard, from: deckCenter, in: view)
+            if faceUpDoubleDown {
+                currentHand.dealCard(doubleDownCard, from: deckCenter, in: view)
+            } else {
+                currentHand.dealCardFaceDown(doubleDownCard, from: deckCenter, in: view)
+            }
 
             // Auto-stand after double down
             gameStateManager.updateSplitHandState(index: activeHandIndex, hasStood: true)
@@ -1727,19 +1804,22 @@ final class BlackjackGameplayViewController: UIViewController {
         // Track the additional bet
         trackBet(amount: betAmount, isMainBet: true)
 
-        // Deal a face-down card to the player
+        // Deal a card to the player (face up or face down depending on setting)
         let deckCenter = view.convert(deckView.deckCenter, from: deckView)
         let doubleDownCard = randomHandCard()
 
-        // Deal card face-down
-        playerHandView.dealCardFaceDown(doubleDownCard, from: deckCenter, in: view)
+        // Deal card face-down or face-up based on setting
+        if faceUpDoubleDown {
+            playerHandView.dealCard(doubleDownCard, from: deckCenter, in: view)
+        } else {
+            playerHandView.dealCardFaceDown(doubleDownCard, from: deckCenter, in: view)
+        }
 
         // Auto-stand after double down
         gameStateManager.setPlayerStood()
-        gamePhase = .dealerTurn
-        updateControls()
-        updateInstructionMessage()
-        
+        gameStateManager.setGamePhase(.dealerTurn)
+        // updateControls() and updateInstructionMessage() called by delegate
+
         // Start dealer turn after card animation completes
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
@@ -1748,6 +1828,9 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func startDealerTurn() {
+        // Don't check pause here - if pause was tapped during dealer turn,
+        // we want dealer to finish their turn, then pause at gameOver
+        
         // First, reveal the dealer's face-down card
         dealerHandView.revealHoleCard(animated: true)
 
@@ -1764,34 +1847,44 @@ final class BlackjackGameplayViewController: UIViewController {
         if isPlayerBlackjack {
             // Player has blackjack - just check dealer's hand, don't let dealer play
             // Wait for hole card reveal, then immediately end game
+            // Don't check pause - if pause was tapped, dealer should finish turn, then pause at gameOver
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.endGame()
             }
         } else {
             // Normal game - let dealer play their hand
+            // Don't check pause - if pause was tapped, dealer should finish turn, then pause at gameOver
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.dealerPlay()
+                guard let self = self else { return }
+                self.dealerPlay()
             }
         }
     }
     
     private func dealerPlay() {
+        // Don't check pause here - if pause was tapped during dealer turn,
+        // we want dealer to finish their turn, then pause at gameOver
+        
         let dealerCards = dealerHandView.currentCards
         let dealerTotal = calculateHandTotal(cards: dealerCards)
-        
+
         // Dealer must hit until they reach 17 or higher
-        if dealerTotal < 17 {
+        // Dealer must also hit on soft 17
+        let isSoft17 = gameStateManager.isSoft17(cards: dealerCards)
+        if dealerTotal < 17 || isSoft17 {
             // Dealer hits
             let deckCenter = view.convert(deckView.deckCenter, from: deckView)
             // Note: randomHandCard() already calls drawCard() internally, so deck count updates automatically
             dealerHandView.dealCard(randomHandCard(), from: deckCenter, in: view)
-            
+
             // Wait for card animation, then check again
+            // Don't check pause - if pause was tapped, dealer should finish turn, then pause at gameOver
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.dealerPlay()
+                guard let self = self else { return }
+                self.dealerPlay()
             }
         } else {
-            // Dealer stands (17 or higher)
+            // Dealer stands (17 or higher, and not soft 17)
             // If split, reveal any double down cards
             if isSplit {
                 var cardsToReveal: [(view: PlayerHandView, index: Int)] = []
@@ -1864,11 +1957,11 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func endGame() {
-        gamePhase = .gameOver
-        updateControls()
-        
+        gameStateManager.setGamePhase(.gameOver)
+        // updateControls() called by delegate
+
         if isSplit {
-            endSplitGame()
+            endSplitGame(wasPaused: false)
             return
         }
         
@@ -1973,6 +2066,9 @@ final class BlackjackGameplayViewController: UIViewController {
         // Note: Most bonus bets are evaluated immediately after initial 4 cards are dealt,
         // but Lucky 7 and Buster are evaluated at the end of the game
         
+        // When NOT paused, cards are discarded in newHandTapped() (called by auto-continue timer)
+        // Cards stay visible during the auto-continue delay to show the result
+        
         // Check if we need to shuffle after hand completes (cut card was reached)
         if shouldShuffleAfterHand {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -1984,7 +2080,8 @@ final class BlackjackGameplayViewController: UIViewController {
         }
     }
     
-    private func endSplitGame() {
+    private func endSplitGame(wasPaused: Bool = false) {
+        // wasPaused parameter kept for compatibility but no longer used
         guard let splitHand = splitHandView else { return }
         
         let dealerCards = dealerHandView.currentCards
@@ -2094,7 +2191,7 @@ final class BlackjackGameplayViewController: UIViewController {
                 sessionManager.recordLoss()
             }
         }
-
+        
         // Track hand outcome (split hands count as one hand)
         sessionManager.incrementHandCount()
         
@@ -2174,10 +2271,13 @@ final class BlackjackGameplayViewController: UIViewController {
         func checkCompletion() {
             completedDiscards += 1
             if completedDiscards >= totalDiscards {
-                // All cards discarded, clear the hands
-                dealerHandView.clearCards()
-                playerHandView.clearCards()
-                splitHandView?.clearCards()
+                // All cards discarded
+                // NOTE: We DON'T clear cards here because:
+                // 1. startDealingSequence() already clears cards before dealing
+                // 2. discardCards() in BlackjackHandView clears cards in its completion handler (with protection)
+                // 3. Clearing here creates race conditions in lightning mode where new cards are dealt
+                //    before the discard animation completes
+                // Cards will be cleared by startDealingSequence() when the next hand begins
                 completion?()
             }
         }
@@ -2217,6 +2317,11 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func updateControls() {
+        // Prevent recursive calls that could cause infinite loops
+        guard !isUpdatingControls else { return }
+        isUpdatingControls = true
+        defer { isUpdatingControls = false }
+        
         // Update button states based on game phase
         updateActionButtonsVisibility()
         updateStandButtonState()
@@ -2225,12 +2330,10 @@ final class BlackjackGameplayViewController: UIViewController {
         updateInsuranceButtonVisibility()
 
         // Lock bet once hand begins (prevent addition/removal)
+        // Only allow changes in waitingForBet or readyToDeal
         let betLocked = gamePhase != .waitingForBet && gamePhase != .readyToDeal
         playerHandView.betControl.setBetRemovalDisabled(betLocked)
         playerHandView.betControl.isEnabled = !betLocked
-
-        // Show tips based on game phase
-        showTips()
         
         // Also disable split hand bet control if it exists
         if let splitHand = splitHandView {
@@ -2243,18 +2346,34 @@ final class BlackjackGameplayViewController: UIViewController {
             control.isEnabled = !betLocked
         }
         
-        // Update Ready/Continue button
+        // Update Ready button
         // Show "Continue" when insurance is available, "Ready?" when readyToDeal
         // Insurance is only available if it hasn't been checked yet
-        let shouldShowReadyButton = gamePhase == .readyToDeal || isInsuranceAvailable
-        let shouldReadyBeEnabled = (gamePhase == .readyToDeal && playerHandView.betControl.betAmount > 0) || isInsuranceAvailable
-        
-        // Update button title based on context
-        if isInsuranceAvailable {
-            readyButton.setTitle("Continue", for: .normal)
+        let insuranceAvailable = isInsuranceAvailable
+
+        // Determine if we should show the button
+        let shouldShowReadyButton: Bool
+        let shouldReadyBeEnabled: Bool
+        let buttonTitle: String
+
+        if insuranceAvailable {
+            // Show continue button for insurance
+            shouldShowReadyButton = true
+            shouldReadyBeEnabled = true
+            buttonTitle = "Continue"
+        } else if gamePhase == .readyToDeal {
+            // Show ready button when ready to deal
+            shouldShowReadyButton = true
+            shouldReadyBeEnabled = playerHandView.betControl.betAmount > 0
+            buttonTitle = "Ready?"
         } else {
-            readyButton.setTitle("Ready?", for: .normal)
+            // Hide button in all other cases
+            shouldShowReadyButton = false
+            shouldReadyBeEnabled = false
+            buttonTitle = "Ready?"
         }
+
+        readyButton.setTitle(buttonTitle, for: .normal)
         
         // Update insurance status label
         updateInsuranceStatusLabel()
@@ -2275,18 +2394,17 @@ final class BlackjackGameplayViewController: UIViewController {
         } else if shouldShowReadyButton && !readyButton.isHidden {
             // Button is already visible, just update styling and title if needed
             readyButton.isEnabled = shouldReadyBeEnabled
-            // Update title based on context
-            if isInsuranceAvailable {
-                readyButton.setTitle("Continue", for: .normal)
-            } else {
-                readyButton.setTitle("Ready?", for: .normal)
-            }
+            // Use the computed buttonTitle (already set above)
+            readyButton.setTitle(buttonTitle, for: .normal)
             
             // Update insurance status label
             updateInsuranceStatusLabel()
             
             readyButton.setGameButtonStyle(enabled: shouldReadyBeEnabled)
         }
+
+        // Show tips based on game phase (called after ready button visibility is updated)
+        showTips()
 
         // Update New Hand button visibility
         let shouldShowNewHandButton = gamePhase == .gameOver
@@ -2423,7 +2541,8 @@ final class BlackjackGameplayViewController: UIViewController {
             guard let self = self, let control = control else { return }
 
             // Check if bonus bet can be placed in current game phase
-            if !self.betManager.canPlaceBonusBet(gamePhase: self.gamePhase) {
+            let canPlaceBonusBet = self.betManager.canPlaceBonusBet(gamePhase: self.gamePhase)
+            if !canPlaceBonusBet {
                 control.betAmount -= amount
                 HapticsHelper.lightHaptic()
                 return
@@ -3232,6 +3351,8 @@ extension BlackjackGameplayViewController: BlackjackSettingsManagerDelegate {
         deckCount = settings.deckCount
         deckPenetration = settings.deckPenetration
 
+        faceUpDoubleDown = settings.faceUpDoubleDown
+
         // Update deck manager with new settings
         deckManager.deckCount = settings.deckCount
         deckManager.deckPenetration = settings.deckPenetration
@@ -3253,6 +3374,7 @@ extension BlackjackGameplayViewController: BlackjackSettingsManagerDelegate {
         }
 
         updateNavigationBarMenu()
+        updateControls()
     }
 }
 

@@ -64,7 +64,7 @@ class MultiBetControl: PlainControl {
     
     let numbers: [Int]
     let odds: String
-    private var hitNumbers: Set<Int> = []
+    private(set) var hitNumbers: Set<Int> = []
     
     init(title: String, numbers: [Int], odds: String) {
         self.numbers = numbers
@@ -86,7 +86,7 @@ class MultiBetControl: PlainControl {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
     private func setupMultiBetView(title: String) {
         titleLabel.text = title
         oddsLabel.text = odds

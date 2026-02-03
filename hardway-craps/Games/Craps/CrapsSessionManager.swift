@@ -1,38 +1,43 @@
 //
-//  BlackjackSessionManager.swift
+//  CrapsSessionManager.swift
 //  hardway-craps
 //
-//  Created by Claude Code on 1/26/26.
+//  Created by Claude Code on 1/28/26.
 //
 
 import Foundation
 
 /// Delegate protocol for session-related events
-protocol BlackjackSessionManagerDelegate: AnyObject {
+protocol CrapsSessionManagerDelegate: AnyObject {
     func sessionDidStart(id: String)
     func sessionWasSaved(session: GameSession)
-    func metricsDidUpdate(metrics: BlackjackGameplayMetrics)
+    func metricsDidUpdate(metrics: GameplayMetrics)
     func balanceDidChange(from oldBalance: Int, to newBalance: Int)
-    func handCountDidChange(count: Int)
+    func rollCountDidChange(count: Int)
+    func sevenWasRolled(total: Int)
+    func pointWasMade(number: Int)
 }
 
-/// Manages session lifecycle, metrics collection, and persistence
-final class BlackjackSessionManager {
+/// Manages session lifecycle, metrics collection, and persistence for Craps
+final class CrapsSessionManager {
 
     // MARK: - Properties
 
-    weak var delegate: BlackjackSessionManagerDelegate?
+    weak var delegate: CrapsSessionManagerDelegate?
 
     private(set) var sessionId: String?
     private(set) var sessionStartTime: Date?
     private(set) var accumulatedPlayTime: TimeInterval = 0
     private(set) var currentPeriodStartTime: Date?
-    private(set) var handCount: Int = 0
+    private(set) var rollCount: Int = 0
+    private(set) var sevensRolled: Int = 0
+    private(set) var pointsHit: Int = 0
     private(set) var balanceHistory: [Int] = []
     private(set) var betSizeHistory: [Int] = []
-    private(set) var lastBalanceBeforeHand: Int
+    private(set) var atmVisitIndices: [Int] = []  // Track which balance history indices are ATM visits
+    private(set) var lastBalanceBeforeRoll: Int
     private(set) var hasBeenSaved: Bool = false
-    private(set) var blackjackMetrics: BlackjackGameplayMetrics
+    private(set) var gameplayMetrics: GameplayMetrics
 
     private let startingBalance: Int
     private var pendingBetSizeSnapshot: Int = 0
@@ -50,7 +55,7 @@ final class BlackjackSessionManager {
     init(startingBalance: Int = 200, resumingSession: GameSession? = nil) {
         self.startingBalance = startingBalance
         self.currentBalance = startingBalance
-        self.lastBalanceBeforeHand = startingBalance
+        self.lastBalanceBeforeRoll = startingBalance
 
         if let resuming = resumingSession {
             // Resume existing session
@@ -58,18 +63,21 @@ final class BlackjackSessionManager {
             self.sessionStartTime = resuming.date
             self.accumulatedPlayTime = resuming.duration
             self.currentPeriodStartTime = Date() // Start tracking active time from now
-            self.handCount = resuming.handCount ?? 0
-            self.blackjackMetrics = resuming.blackjackMetrics ?? BlackjackGameplayMetrics()
-            self.blackjackMetrics.lastBalanceBeforeHand = resuming.endingBalance
+            self.rollCount = resuming.rollCount ?? 0
+            self.sevensRolled = resuming.sevensRolled ?? 0
+            self.pointsHit = resuming.pointsHit ?? 0
+            self.gameplayMetrics = resuming.gameplayMetrics ?? GameplayMetrics()
+            self.gameplayMetrics.lastBalanceBeforeRoll = resuming.endingBalance
             self.balanceHistory = resuming.balanceHistory ?? [resuming.endingBalance]
             self.betSizeHistory = resuming.betSizeHistory ?? []
-            self.lastBalanceBeforeHand = resuming.endingBalance
+            self.atmVisitIndices = resuming.atmVisitIndices ?? []
+            self.lastBalanceBeforeRoll = resuming.endingBalance
             self.currentBalance = resuming.endingBalance
             self.hasBeenSaved = false
         } else {
             // Start new session
-            self.blackjackMetrics = BlackjackGameplayMetrics()
-            self.blackjackMetrics.lastBalanceBeforeHand = startingBalance
+            self.gameplayMetrics = GameplayMetrics()
+            self.gameplayMetrics.lastBalanceBeforeRoll = startingBalance
             self.balanceHistory = [startingBalance]
             self.betSizeHistory = []
         }
@@ -85,12 +93,16 @@ final class BlackjackSessionManager {
         sessionStartTime = Date()
         accumulatedPlayTime = 0
         currentPeriodStartTime = Date()
-        handCount = 0
-        blackjackMetrics = BlackjackGameplayMetrics()
-        blackjackMetrics.lastBalanceBeforeHand = startingBalance
+        rollCount = 0
+        sevensRolled = 0
+        pointsHit = 0
+        gameplayMetrics = GameplayMetrics()
+        gameplayMetrics.lastBalanceBeforeRoll = startingBalance
         balanceHistory = [startingBalance]
         betSizeHistory = []
-        lastBalanceBeforeHand = startingBalance
+        atmVisitIndices = []
+        lastBalanceBeforeRoll = startingBalance
+        pendingBetSizeSnapshot = 0
         hasBeenSaved = false
 
         if let id = sessionId {
@@ -118,116 +130,98 @@ final class BlackjackSessionManager {
         currentPeriodStartTime = Date()
     }
 
-    /// Record a balance snapshot after a hand completes
+    /// Record a balance snapshot after a roll completes
     func recordBalanceSnapshot() {
         balanceHistory.append(currentBalance)
         betSizeHistory.append(pendingBetSizeSnapshot)
     }
 
-    /// Snapshot the bet size before dealing
+    /// Snapshot the bet size before rolling
     func snapshotBetSize(_ betSize: Int) {
         pendingBetSizeSnapshot = betSize
     }
 
-    /// Update last balance before hand starts
-    func updateLastBalanceBeforeHand(_ balance: Int) {
-        lastBalanceBeforeHand = balance
+    /// Update last balance before roll starts
+    func updateLastBalanceBeforeRoll(_ balance: Int) {
+        lastBalanceBeforeRoll = balance
+        gameplayMetrics.lastBalanceBeforeRoll = balance
     }
 
-    /// Increment hand count
-    func incrementHandCount() {
-        handCount += 1
-        delegate?.handCountDidChange(count: handCount)
+    /// Increment roll count
+    func incrementRollCount() {
+        rollCount += 1
+        delegate?.rollCountDidChange(count: rollCount)
+    }
+
+    /// Track that a seven was rolled
+    func trackSevenRolled() {
+        sevensRolled += 1
+        delegate?.sevenWasRolled(total: sevensRolled)
+    }
+
+    /// Track that a point was made
+    func trackPointMade(number: Int) {
+        pointsHit += 1
+        delegate?.pointWasMade(number: number)
+    }
+
+    /// Track an ATM visit (bankroll reload)
+    func trackATMVisit() {
+        gameplayMetrics.atmVisitsCount += 1
+        // Record the index in balance history where ATM visit occurred
+        // This will be used to exclude ATM visits from biggest swing calculation
+        atmVisitIndices.append(balanceHistory.count)
+        delegate?.metricsDidUpdate(metrics: gameplayMetrics)
     }
 
     /// Track a bet placed
-    func trackBet(amount: Int, isMainBet: Bool) {
-        let betPercent = Double(amount) / Double(max(currentBalance + amount, 1))
+    func trackBet(amount: Int, type: BetType) {
+        let betPercent = Double(amount) / Double(max(currentBalance + amount, 1)) * 100.0
 
         // Check for loss chasing: if placing bet after a loss
-        if currentBalance < lastBalanceBeforeHand {
-            blackjackMetrics.betsAfterLossCount += 1
+        if currentBalance < lastBalanceBeforeRoll {
+            gameplayMetrics.betsAfterLossCount += 1
         }
 
-        if isMainBet {
-            blackjackMetrics.mainBetCount += 1
-            blackjackMetrics.totalMainBetAmount += amount
-        } else {
-            blackjackMetrics.bonusBetCount += 1
-            blackjackMetrics.totalBonusBetAmount += amount
+        switch type {
+        case .passLine:
+            gameplayMetrics.passLineBetCount += 1
+            gameplayMetrics.totalPassLineAmount += amount
+        case .odds:
+            gameplayMetrics.oddsBetCount += 1
+            gameplayMetrics.totalOddsAmount += amount
+        case .place:
+            gameplayMetrics.placeBetCount += 1
+            gameplayMetrics.totalPlaceAmount += amount
+        case .hardway:
+            gameplayMetrics.hardwayBetCount += 1
+            gameplayMetrics.totalHardwayAmount += amount
+        case .horn:
+            gameplayMetrics.hornBetCount += 1
+            gameplayMetrics.totalHornAmount += amount
+        case .field:
+            gameplayMetrics.fieldBetCount += 1
+            gameplayMetrics.totalFieldAmount += amount
+        case .dontPass:
+            gameplayMetrics.dontPassBetCount += 1
+            gameplayMetrics.totalDontPassAmount += amount
         }
 
         // Track largest bet
-        if amount > blackjackMetrics.largestBetAmount {
-            blackjackMetrics.largestBetAmount = amount
-            blackjackMetrics.largestBetPercent = betPercent
+        if amount > gameplayMetrics.largestBetAmount {
+            gameplayMetrics.largestBetAmount = amount
+            gameplayMetrics.largestBetPercent = betPercent
         }
 
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.metricsDidUpdate(metrics: gameplayMetrics)
     }
 
     /// Update concurrent bet count
     func updateConcurrentBets(count: Int) {
-        if count > blackjackMetrics.maxConcurrentBets {
-            blackjackMetrics.maxConcurrentBets = count
-            delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        if count > gameplayMetrics.maxConcurrentBets {
+            gameplayMetrics.maxConcurrentBets = count
+            delegate?.metricsDidUpdate(metrics: gameplayMetrics)
         }
-    }
-
-    /// Record a win
-    func recordWin(isBlackjack: Bool = false) {
-        blackjackMetrics.wins += 1
-        if isBlackjack {
-            blackjackMetrics.blackjacksHit += 1
-        }
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
-    }
-
-    /// Record a loss
-    func recordLoss() {
-        blackjackMetrics.losses += 1
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
-    }
-
-    /// Record a push
-    func recordPush() {
-        blackjackMetrics.pushes += 1
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
-    }
-
-    /// Record a double down
-    func recordDoubleDown() {
-        blackjackMetrics.doublesDown += 1
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
-    }
-
-    /// Record a bonus bet win
-    func recordBonusWin(amount: Int, type: String) {
-        blackjackMetrics.bonusesWon += 1
-        blackjackMetrics.totalBonusWinnings += amount
-
-        // Update specific bonus metrics
-        switch type {
-        case "Perfect Pairs":
-            blackjackMetrics.perfectPairsWon += 1
-        case "Royal Match":
-            blackjackMetrics.royalMatchesWon += 1
-        default:
-            break
-        }
-
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
-    }
-
-    /// Update detailed bonus metrics from evaluator
-    func updateBonusMetrics(perfectPairs: Int = 0, coloredPairs: Int = 0, mixedPairs: Int = 0,
-                            royalMatches: Int = 0, suitedMatches: Int = 0) {
-        blackjackMetrics.perfectPairsWon += perfectPairs
-        blackjackMetrics.coloredPairsWon += coloredPairs
-        blackjackMetrics.mixedPairsWon += mixedPairs
-        blackjackMetrics.royalMatchesWon += royalMatches
-        blackjackMetrics.suitedMatchesWon += suitedMatches
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
     }
 
     /// Save the current session
@@ -240,8 +234,8 @@ final class BlackjackSessionManager {
             return nil
         }
 
-        // Only save session if there was actual gameplay (bets placed or hands played)
-        guard handCount > 0 || blackjackMetrics.totalBetAmount > 0 else {
+        // Only save session if there was actual gameplay (bets placed or rolls made)
+        guard rollCount > 0 || gameplayMetrics.totalBetAmount > 0 else {
             return nil
         }
 
@@ -260,15 +254,15 @@ final class BlackjackSessionManager {
             duration: duration,
             startingBalance: startingBalance,
             endingBalance: endingBalance,
-            rollCount: nil,
-            gameplayMetrics: nil,
-            sevensRolled: nil,
-            pointsHit: nil,
+            rollCount: rollCount,
+            gameplayMetrics: gameplayMetrics,
+            sevensRolled: sevensRolled,
+            pointsHit: pointsHit,
             balanceHistory: balanceHistory,
             betSizeHistory: betSizeHistory,
-            atmVisitIndices: nil,  // ATM visits not implemented for Blackjack yet
-            handCount: handCount,
-            blackjackMetrics: blackjackMetrics
+            atmVisitIndices: atmVisitIndices,
+            handCount: nil,
+            blackjackMetrics: nil
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -283,7 +277,7 @@ final class BlackjackSessionManager {
               let startTime = sessionStartTime else { return nil }
 
         // Only save session if there was actual gameplay
-        guard handCount > 0 || blackjackMetrics.totalBetAmount > 0 else {
+        guard rollCount > 0 || gameplayMetrics.totalBetAmount > 0 else {
             return nil
         }
 
@@ -302,15 +296,15 @@ final class BlackjackSessionManager {
             duration: duration,
             startingBalance: startingBalance,
             endingBalance: endingBalance,
-            rollCount: nil,
-            gameplayMetrics: nil,
-            sevensRolled: nil,
-            pointsHit: nil,
+            rollCount: rollCount,
+            gameplayMetrics: gameplayMetrics,
+            sevensRolled: sevensRolled,
+            pointsHit: pointsHit,
             balanceHistory: balanceHistory,
             betSizeHistory: betSizeHistory,
-            atmVisitIndices: nil,  // ATM visits not implemented for Blackjack yet
-            handCount: handCount,
-            blackjackMetrics: blackjackMetrics
+            atmVisitIndices: atmVisitIndices,
+            handCount: nil,
+            blackjackMetrics: nil
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -319,22 +313,40 @@ final class BlackjackSessionManager {
         return session
     }
 
-    /// Get a snapshot of the current session
+    /// End the current session and clear state
+    func endSession() -> GameSession? {
+        let session = saveCurrentSessionForced()
+
+        // Clear session tracking
+        sessionId = nil
+        sessionStartTime = nil
+        accumulatedPlayTime = 0
+        currentPeriodStartTime = nil
+        rollCount = 0
+        sevensRolled = 0
+        pointsHit = 0
+        gameplayMetrics = GameplayMetrics()
+        balanceHistory = []
+        betSizeHistory = []
+        pendingBetSizeSnapshot = 0
+        hasBeenSaved = false
+
+        return session
+    }
+
+    /// Get a snapshot of the current session (for live display)
     func currentSessionSnapshot() -> GameSession? {
-        guard let sessionId = sessionId, let startTime = sessionStartTime else { return nil }
+        guard let sessionId = sessionId,
+              let startTime = sessionStartTime else { return nil }
 
-        // Calculate duration including current period
-        var duration = accumulatedPlayTime
-        if let periodStart = currentPeriodStartTime {
-            duration += Date().timeIntervalSince(periodStart)
-        }
-
+        // Use accumulated time for duration (not including current period)
+        let duration = Date().timeIntervalSince(startTime)
         let endingBalance = currentBalance
 
         var balanceSnapshot = balanceHistory
         var betSnapshot = betSizeHistory
 
-        if handCount == 0 {
+        if rollCount == 0 {
             balanceSnapshot = [endingBalance]
             betSnapshot = [0]
         } else {
@@ -360,15 +372,15 @@ final class BlackjackSessionManager {
             duration: duration,
             startingBalance: startingBalance,
             endingBalance: endingBalance,
-            rollCount: nil,
-            gameplayMetrics: nil,
-            sevensRolled: nil,
-            pointsHit: nil,
+            rollCount: rollCount,
+            gameplayMetrics: gameplayMetrics,
+            sevensRolled: sevensRolled,
+            pointsHit: pointsHit,
             balanceHistory: balanceSnapshot,
             betSizeHistory: betSnapshot,
-            atmVisitIndices: nil,  // ATM visits not implemented for Blackjack yet
-            handCount: handCount,
-            blackjackMetrics: blackjackMetrics
+            atmVisitIndices: atmVisitIndices,
+            handCount: nil,
+            blackjackMetrics: nil
         )
     }
 
@@ -377,19 +389,18 @@ final class BlackjackSessionManager {
         return sessionId != nil && sessionStartTime != nil
     }
 
-    // MARK: - Private Methods
+    // MARK: - Private Helper Methods
 
+    /// Finalize balance history to ensure consistency
     private func finalizeBalanceHistory() {
-        if handCount == 0 {
+        if rollCount == 0 {
             balanceHistory = [currentBalance]
             betSizeHistory = [0]
             return
         }
-
         if balanceHistory.isEmpty {
             balanceHistory = [startingBalance, currentBalance]
         }
-
         if balanceHistory.last != currentBalance {
             balanceHistory.append(currentBalance)
         }
@@ -403,4 +414,17 @@ final class BlackjackSessionManager {
             betSizeHistory = Array(betSizeHistory.prefix(balanceHistory.count))
         }
     }
+}
+
+// MARK: - BetType Enum
+
+/// Types of bets available in Craps
+enum BetType {
+    case passLine
+    case odds
+    case place
+    case hardway
+    case horn
+    case field
+    case dontPass
 }
