@@ -82,7 +82,8 @@ final class BlackjackDeckManager {
 
         // Reset card count when deck is shuffled
         runningCount = 0
-        delegate?.deckWasShuffled(cardCount: 52 * deckCount)
+        // Report actual deck count including cut card (if present)
+        delegate?.deckWasShuffled(cardCount: deck.count)
         delegate?.cardCountDidUpdate(running: 0, trueCount: 0)
     }
 
@@ -92,7 +93,7 @@ final class BlackjackDeckManager {
         if deck.isEmpty || deck.count < 6 {
             // Out of cards or too few cards - shuffle immediately
             createAndShuffleDeck()
-            delegate?.deckWasShuffled(cardCount: 52 * deckCount)
+            // deckWasShuffled is already called in createAndShuffleDeck()
         }
 
         // Draw and remove the top card
@@ -111,8 +112,8 @@ final class BlackjackDeckManager {
             return drawCard()
         }
 
-        // Only update deck count when returning a real card
-        delegate?.deckCountDidChange(remaining: deck.count)
+        // Don't update deck count here - it will be updated when the card is visually dealt
+        // This ensures the count decrements as each card appears, not all at once
         return card
     }
 
@@ -129,31 +130,44 @@ final class BlackjackDeckManager {
             // Perfect Pair: Same rank and suit (e.g., 7♠, 7♠) - pays 30:1
             playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .spades)
             playerCard2 = BlackjackHandView.Card(rank: .seven, suit: .spades)
+            // Remove cards from deck to maintain accurate deck count
+            removeCardFromDeck(rank: .seven, suit: .spades)
+            removeCardFromDeck(rank: .seven, suit: .spades)
 
         case .coloredPair:
             // Colored Pair: Same rank, same color, different suits (e.g., 7♥, 7♦) - pays 10:1
             playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .hearts)
             playerCard2 = BlackjackHandView.Card(rank: .seven, suit: .diamonds)
+            removeCardFromDeck(rank: .seven, suit: .hearts)
+            removeCardFromDeck(rank: .seven, suit: .diamonds)
 
         case .mixedPair:
             // Mixed Pair: Same rank, different colors (e.g., 7♥, 7♣) - pays 5:1
             playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .hearts)
             playerCard2 = BlackjackHandView.Card(rank: .seven, suit: .clubs)
+            removeCardFromDeck(rank: .seven, suit: .hearts)
+            removeCardFromDeck(rank: .seven, suit: .clubs)
 
         case .royalMatch:
             // Royal Match: Suited King and Queen (e.g., K♥, Q♥) - pays 25:1
             playerCard1 = BlackjackHandView.Card(rank: .king, suit: .hearts)
             playerCard2 = BlackjackHandView.Card(rank: .queen, suit: .hearts)
+            removeCardFromDeck(rank: .king, suit: .hearts)
+            removeCardFromDeck(rank: .queen, suit: .hearts)
 
         case .suitedCards:
             // Suited Cards: Any two suited cards (e.g., 7♥, K♥) - pays 3:1
             playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .hearts)
             playerCard2 = BlackjackHandView.Card(rank: .king, suit: .hearts)
+            removeCardFromDeck(rank: .seven, suit: .hearts)
+            removeCardFromDeck(rank: .king, suit: .hearts)
 
         case .regular:
             // Regular hand: No bonus (e.g., 7♥, 9♣)
             playerCard1 = BlackjackHandView.Card(rank: .seven, suit: .hearts)
             playerCard2 = BlackjackHandView.Card(rank: .nine, suit: .clubs)
+            removeCardFromDeck(rank: .seven, suit: .hearts)
+            removeCardFromDeck(rank: .nine, suit: .clubs)
 
         case .aceUp:
             // Ace Up: Dealer's up-card is Ace, first card is random
@@ -162,6 +176,8 @@ final class BlackjackDeckManager {
             let aceUpDealerCard1 = drawCard()
             // Dealer's second card (up-card) is Ace
             let aceUpDealerCard2 = BlackjackHandView.Card(rank: .ace, suit: .spades)
+            // Remove card from deck to maintain accurate deck count
+            removeCardFromDeck(rank: .ace, suit: .spades)
             return (aceUpPlayerCard1, aceUpPlayerCard2, aceUpDealerCard1, aceUpDealerCard2)
 
         case .dealerBlackjack:
@@ -171,6 +187,9 @@ final class BlackjackDeckManager {
             // Dealer gets blackjack (Ace as hole card, King as up-card)
             let dealerBJDealerCard2 = BlackjackHandView.Card(rank: .king, suit: .hearts)
             let dealerBJDealerCard1 = BlackjackHandView.Card(rank: .ace, suit: .spades)
+            // Remove cards from deck to maintain accurate deck count
+            removeCardFromDeck(rank: .king, suit: .hearts)
+            removeCardFromDeck(rank: .ace, suit: .spades)
             return (dealerBJPlayerCard1, dealerBJPlayerCard2, dealerBJDealerCard1, dealerBJDealerCard2)
 
         case .random:
@@ -207,6 +226,27 @@ final class BlackjackDeckManager {
     }
 
     // MARK: - Private Methods
+
+    /// Remove a card from the deck to maintain accurate deck count when fixed cards are used
+    private func removeCardFromDeck(rank: PlayingCardView.Rank, suit: PlayingCardView.Suit) {
+        // Find and remove the first matching card (ignoring cut cards)
+        if let index = deck.firstIndex(where: { !$0.isCutCard && $0.rank == rank && $0.suit == suit }) {
+            deck.remove(at: index)
+            // Don't update count here - it will be updated when the card is visually dealt
+        } else {
+            // If card not found (shouldn't happen in normal play), remove any card to maintain count
+            // This handles edge cases where the deck might not have the exact card
+            if !deck.isEmpty {
+                // Remove cut cards first if present, otherwise remove first card
+                if let cutCardIndex = deck.firstIndex(where: { $0.isCutCard }) {
+                    deck.remove(at: cutCardIndex)
+                } else {
+                    deck.removeFirst()
+                }
+                // Don't update count here - it will be updated when the card is visually dealt
+            }
+        }
+    }
 
     private func insertCutCard() {
         guard let penetration = deckPenetration else {

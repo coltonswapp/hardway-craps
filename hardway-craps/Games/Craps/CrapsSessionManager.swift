@@ -224,6 +224,47 @@ final class CrapsSessionManager {
         }
     }
 
+    /// Update and save the current session (called after every roll)
+    /// This always saves, updating the existing session, so the app can be backgrounded/quit safely
+    func updateSession() {
+        guard let sessionId = sessionId,
+              let startTime = sessionStartTime else { return }
+
+        // Only save session if there was actual gameplay (bets placed or rolls made)
+        guard rollCount > 0 || gameplayMetrics.totalBetAmount > 0 else {
+            return
+        }
+
+        // Calculate total duration: accumulated time + current active period (if any)
+        var duration = accumulatedPlayTime
+        if let periodStart = currentPeriodStartTime {
+            duration += Date().timeIntervalSince(periodStart)
+        }
+
+        let endingBalance = currentBalance
+        finalizeBalanceHistory()
+
+        let session = GameSession(
+            id: sessionId,
+            date: startTime,
+            duration: duration,
+            startingBalance: startingBalance,
+            endingBalance: endingBalance,
+            rollCount: rollCount,
+            gameplayMetrics: gameplayMetrics,
+            sevensRolled: sevensRolled,
+            pointsHit: pointsHit,
+            balanceHistory: balanceHistory,
+            betSizeHistory: betSizeHistory,
+            atmVisitIndices: atmVisitIndices,
+            handCount: nil,
+            blackjackMetrics: nil
+        )
+
+        SessionPersistenceManager.shared.saveSession(session)
+        // Note: Don't set hasBeenSaved = true here, so this can be called multiple times
+    }
+
     /// Save the current session
     func saveCurrentSession() -> GameSession? {
         guard let sessionId = sessionId,

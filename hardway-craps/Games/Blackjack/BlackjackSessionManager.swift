@@ -30,6 +30,7 @@ final class BlackjackSessionManager {
     private(set) var handCount: Int = 0
     private(set) var balanceHistory: [Int] = []
     private(set) var betSizeHistory: [Int] = []
+    private(set) var atmVisitIndices: [Int] = []  // Track which balance history indices are ATM visits
     private(set) var lastBalanceBeforeHand: Int
     private(set) var hasBeenSaved: Bool = false
     private(set) var blackjackMetrics: BlackjackGameplayMetrics
@@ -63,6 +64,7 @@ final class BlackjackSessionManager {
             self.blackjackMetrics.lastBalanceBeforeHand = resuming.endingBalance
             self.balanceHistory = resuming.balanceHistory ?? [resuming.endingBalance]
             self.betSizeHistory = resuming.betSizeHistory ?? []
+            self.atmVisitIndices = resuming.atmVisitIndices ?? []
             self.lastBalanceBeforeHand = resuming.endingBalance
             self.currentBalance = resuming.endingBalance
             self.hasBeenSaved = false
@@ -72,6 +74,7 @@ final class BlackjackSessionManager {
             self.blackjackMetrics.lastBalanceBeforeHand = startingBalance
             self.balanceHistory = [startingBalance]
             self.betSizeHistory = []
+            self.atmVisitIndices = []
         }
     }
 
@@ -90,6 +93,7 @@ final class BlackjackSessionManager {
         blackjackMetrics.lastBalanceBeforeHand = startingBalance
         balanceHistory = [startingBalance]
         betSizeHistory = []
+        atmVisitIndices = []
         lastBalanceBeforeHand = startingBalance
         hasBeenSaved = false
 
@@ -230,6 +234,58 @@ final class BlackjackSessionManager {
         delegate?.metricsDidUpdate(metrics: blackjackMetrics)
     }
 
+    /// Track an ATM visit (bankroll reload)
+    /// Note: Should be called AFTER recordBalanceSnapshot() to record the correct index
+    func trackATMVisit() {
+        blackjackMetrics.atmVisitsCount += 1
+        // Record the index in balance history where ATM visit occurred
+        // This will be used to exclude ATM visits from biggest swing calculation
+        // Index is balanceHistory.count - 1 because snapshot was just recorded
+        atmVisitIndices.append(balanceHistory.count - 1)
+        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+    }
+
+    /// Update and save the current session (called after every hand)
+    /// This always saves, updating the existing session, so the app can be backgrounded/quit safely
+    func updateSession() {
+        guard let sessionId = sessionId,
+              let startTime = sessionStartTime else { return }
+
+        // Only save session if there was actual gameplay (bets placed or hands played)
+        guard handCount > 0 || blackjackMetrics.totalBetAmount > 0 else {
+            return
+        }
+
+        // Calculate total duration: accumulated time + current active period (if any)
+        var duration = accumulatedPlayTime
+        if let periodStart = currentPeriodStartTime {
+            duration += Date().timeIntervalSince(periodStart)
+        }
+
+        let endingBalance = currentBalance
+        finalizeBalanceHistory()
+
+        let session = GameSession(
+            id: sessionId,
+            date: startTime,
+            duration: duration,
+            startingBalance: startingBalance,
+            endingBalance: endingBalance,
+            rollCount: nil,
+            gameplayMetrics: nil,
+            sevensRolled: nil,
+            pointsHit: nil,
+            balanceHistory: balanceHistory,
+            betSizeHistory: betSizeHistory,
+            atmVisitIndices: atmVisitIndices,
+            handCount: handCount,
+            blackjackMetrics: blackjackMetrics
+        )
+
+        SessionPersistenceManager.shared.saveSession(session)
+        // Note: Don't set hasBeenSaved = true here, so this can be called multiple times
+    }
+
     /// Save the current session
     func saveCurrentSession() -> GameSession? {
         guard let sessionId = sessionId,
@@ -266,7 +322,7 @@ final class BlackjackSessionManager {
             pointsHit: nil,
             balanceHistory: balanceHistory,
             betSizeHistory: betSizeHistory,
-            atmVisitIndices: nil,  // ATM visits not implemented for Blackjack yet
+            atmVisitIndices: atmVisitIndices,
             handCount: handCount,
             blackjackMetrics: blackjackMetrics
         )
@@ -308,7 +364,7 @@ final class BlackjackSessionManager {
             pointsHit: nil,
             balanceHistory: balanceHistory,
             betSizeHistory: betSizeHistory,
-            atmVisitIndices: nil,  // ATM visits not implemented for Blackjack yet
+            atmVisitIndices: atmVisitIndices,
             handCount: handCount,
             blackjackMetrics: blackjackMetrics
         )
@@ -366,7 +422,7 @@ final class BlackjackSessionManager {
             pointsHit: nil,
             balanceHistory: balanceSnapshot,
             betSizeHistory: betSnapshot,
-            atmVisitIndices: nil,  // ATM visits not implemented for Blackjack yet
+            atmVisitIndices: atmVisitIndices,
             handCount: handCount,
             blackjackMetrics: blackjackMetrics
         )

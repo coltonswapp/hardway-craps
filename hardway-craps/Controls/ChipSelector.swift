@@ -12,6 +12,18 @@ protocol ChipSelectorDelegate: AnyObject {
 }
 
 class ChipSelector: UIView, BetDropTarget {
+    func hasLockedBet() -> Bool {
+        return false
+    }
+    
+    func animateBetViewSlideLeftForOdds() {
+        //
+    }
+    
+    func restoreBetViewPosition() {
+        //
+    }
+    
 
     weak var delegate: ChipSelectorDelegate?
     var onBetReturned: ((Int) -> Void)?  // Callback when bet is returned to balance

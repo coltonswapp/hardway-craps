@@ -92,7 +92,11 @@ struct GameSession: Codable {
     }
 
     var atmVisitsCount: Int {
-        return gameplayMetrics?.atmVisitsCount ?? 0
+        if isBlackjackSession {
+            return blackjackMetrics?.atmVisitsCount ?? 0
+        } else {
+            return gameplayMetrics?.atmVisitsCount ?? 0
+        }
     }
 
     var balanceHistoryValue: [Int] {

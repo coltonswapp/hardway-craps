@@ -93,6 +93,7 @@ struct BlackjackGameplayMetrics: Codable {
 
     var betsAfterLossCount: Int = 0
     var lastBalanceBeforeHand: Int = 0
+    var atmVisitsCount: Int = 0
 
     var blackjacksHit: Int = 0
     var doublesDown: Int = 0
@@ -142,6 +143,9 @@ struct BlackjackGameplayMetrics: Codable {
 
         betsAfterLossCount = try container.decode(Int.self, forKey: .betsAfterLossCount)
         lastBalanceBeforeHand = try container.decode(Int.self, forKey: .lastBalanceBeforeHand)
+
+        // New fields - use default values if not present (backwards compatibility)
+        atmVisitsCount = try container.decodeIfPresent(Int.self, forKey: .atmVisitsCount) ?? 0
 
         blackjacksHit = try container.decode(Int.self, forKey: .blackjacksHit)
         doublesDown = try container.decode(Int.self, forKey: .doublesDown)

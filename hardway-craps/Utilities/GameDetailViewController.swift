@@ -125,11 +125,26 @@ final class GameDetailViewController: UIViewController {
                 row5.addArrangedSubview(StatCardView(title: "Doubles", value: "0"))
             }
 
+            let row6 = UIStackView()
+            row6.axis = .horizontal
+            row6.spacing = 12
+            row6.distribution = .fillEqually
+            if session.atmVisitsCount > 0 {
+                row6.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
+                // Add empty spacer to keep layout balanced
+                let spacer = UIView()
+                spacer.translatesAutoresizingMaskIntoConstraints = false
+                row6.addArrangedSubview(spacer)
+            }
+
             statGrid.addArrangedSubview(row1)
             statGrid.addArrangedSubview(row2)
             statGrid.addArrangedSubview(row3)
             statGrid.addArrangedSubview(row4)
             statGrid.addArrangedSubview(row5)
+            if session.atmVisitsCount > 0 {
+                statGrid.addArrangedSubview(row6)
+            }
         } else {
             // Craps-specific stats
             let row1 = UIStackView()
