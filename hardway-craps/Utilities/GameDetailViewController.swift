@@ -87,121 +87,112 @@ final class GameDetailViewController: UIViewController {
             // Blackjack-specific stats
             let row1 = UIStackView()
             row1.axis = .horizontal
-            row1.spacing = 12
+            row1.spacing = 8
             row1.distribution = .fillEqually
             row1.addArrangedSubview(StatCardView(title: "Hands", value: "\(session.handCountValue)"))
             row1.addArrangedSubview(StatCardView(title: "Time Playing", value: session.formattedDuration))
+            row1.addArrangedSubview(StatCardView(title: "Win Rate", value: formatPercent(session.winRate)))
 
             let row2 = UIStackView()
             row2.axis = .horizontal
-            row2.spacing = 12
+            row2.spacing = 8
             row2.distribution = .fillEqually
-            row2.addArrangedSubview(StatCardView(title: "Win Rate", value: formatPercent(session.winRate)))
             row2.addArrangedSubview(StatCardView(title: "Avg Bet", value: formatCurrency(session.averageBetSize)))
+            row2.addArrangedSubview(StatCardView(title: "Biggest Swing", value: formatCurrency(Double(session.biggestSwing))))
+            row2.addArrangedSubview(StatCardView(title: "Time / Hand", value: formatTimePerHand(session.timePerHand)))
 
             let row3 = UIStackView()
             row3.axis = .horizontal
-            row3.spacing = 12
+            row3.spacing = 8
             row3.distribution = .fillEqually
-            row3.addArrangedSubview(StatCardView(title: "Biggest Swing", value: formatCurrency(Double(session.biggestSwing))))
-            row3.addArrangedSubview(StatCardView(title: "Time / Hand", value: formatTimePerHand(session.timePerHand)))
+            row3.addArrangedSubview(StatCardView(title: "Wins", value: "\(session.winningHandsCount)"))
+            row3.addArrangedSubview(StatCardView(title: "Losses", value: "\(session.losingHandsCount)"))
+            if let metrics = session.blackjackMetrics {
+                row3.addArrangedSubview(StatCardView(title: "Blackjacks", value: "\(metrics.blackjacksHit)"))
+            } else {
+                row3.addArrangedSubview(StatCardView(title: "Blackjacks", value: "0"))
+            }
 
             let row4 = UIStackView()
             row4.axis = .horizontal
-            row4.spacing = 12
+            row4.spacing = 8
             row4.distribution = .fillEqually
-            row4.addArrangedSubview(StatCardView(title: "Wins", value: "\(session.winningHandsCount)"))
-            row4.addArrangedSubview(StatCardView(title: "Losses", value: "\(session.losingHandsCount)"))
-
-            let row5 = UIStackView()
-            row5.axis = .horizontal
-            row5.spacing = 12
-            row5.distribution = .fillEqually
             if let metrics = session.blackjackMetrics {
-                row5.addArrangedSubview(StatCardView(title: "Blackjacks", value: "\(metrics.blackjacksHit)"))
-                row5.addArrangedSubview(StatCardView(title: "Doubles", value: "\(metrics.doublesDown)"))
+                row4.addArrangedSubview(StatCardView(title: "Doubles", value: "\(metrics.doublesDown)"))
             } else {
-                row5.addArrangedSubview(StatCardView(title: "Blackjacks", value: "0"))
-                row5.addArrangedSubview(StatCardView(title: "Doubles", value: "0"))
+                row4.addArrangedSubview(StatCardView(title: "Doubles", value: "0"))
             }
-
-            let row6 = UIStackView()
-            row6.axis = .horizontal
-            row6.spacing = 12
-            row6.distribution = .fillEqually
             if session.atmVisitsCount > 0 {
-                row6.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
+                row4.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
                 // Add empty spacer to keep layout balanced
                 let spacer = UIView()
                 spacer.translatesAutoresizingMaskIntoConstraints = false
-                row6.addArrangedSubview(spacer)
+                row4.addArrangedSubview(spacer)
+            } else {
+                // Add two empty spacers to keep layout balanced
+                let spacer1 = UIView()
+                spacer1.translatesAutoresizingMaskIntoConstraints = false
+                let spacer2 = UIView()
+                spacer2.translatesAutoresizingMaskIntoConstraints = false
+                row4.addArrangedSubview(spacer1)
+                row4.addArrangedSubview(spacer2)
             }
 
             statGrid.addArrangedSubview(row1)
             statGrid.addArrangedSubview(row2)
             statGrid.addArrangedSubview(row3)
             statGrid.addArrangedSubview(row4)
-            statGrid.addArrangedSubview(row5)
-            if session.atmVisitsCount > 0 {
-                statGrid.addArrangedSubview(row6)
-            }
         } else {
             // Craps-specific stats
             let row1 = UIStackView()
             row1.axis = .horizontal
-            row1.spacing = 12
+            row1.spacing = 8
             row1.distribution = .fillEqually
             row1.addArrangedSubview(StatCardView(title: "Rolls", value: "\(session.rollCountValue)"))
             row1.addArrangedSubview(StatCardView(title: "Time Rolling", value: session.formattedDuration))
+            row1.addArrangedSubview(StatCardView(title: "Win Rate", value: formatPercent(session.winRate)))
 
             let row2 = UIStackView()
             row2.axis = .horizontal
-            row2.spacing = 12
+            row2.spacing = 8
             row2.distribution = .fillEqually
-            row2.addArrangedSubview(StatCardView(title: "Win Rate", value: formatPercent(session.winRate)))
             row2.addArrangedSubview(StatCardView(title: "Avg Bet", value: formatCurrency(session.averageBetSize)))
+            row2.addArrangedSubview(StatCardView(title: "Biggest Swing", value: formatCurrency(Double(session.biggestSwing))))
+            row2.addArrangedSubview(StatCardView(title: "Time / Roll", value: formatTimePerRoll(session.timePerRoll)))
 
             let row3 = UIStackView()
             row3.axis = .horizontal
-            row3.spacing = 12
+            row3.spacing = 8
             row3.distribution = .fillEqually
-            row3.addArrangedSubview(StatCardView(title: "Biggest Swing", value: formatCurrency(Double(session.biggestSwing))))
-            row3.addArrangedSubview(StatCardView(title: "Time / Roll", value: formatTimePerRoll(session.timePerRoll)))
+            row3.addArrangedSubview(StatCardView(title: "Win Streak", value: "\(session.longestWinStreak)"))
+            row3.addArrangedSubview(StatCardView(title: "Loss Streak", value: "\(session.longestLossStreak)"))
+            row3.addArrangedSubview(StatCardView(title: "Sevens Rolled", value: "\(session.sevensRolledValue)"))
 
             let row4 = UIStackView()
             row4.axis = .horizontal
-            row4.spacing = 12
+            row4.spacing = 8
             row4.distribution = .fillEqually
-            row4.addArrangedSubview(StatCardView(title: "Win Streak", value: "\(session.longestWinStreak)"))
-            row4.addArrangedSubview(StatCardView(title: "Loss Streak", value: "\(session.longestLossStreak)"))
-
-            let row5 = UIStackView()
-            row5.axis = .horizontal
-            row5.spacing = 12
-            row5.distribution = .fillEqually
-            row5.addArrangedSubview(StatCardView(title: "Sevens Rolled", value: "\(session.sevensRolledValue)"))
-            row5.addArrangedSubview(StatCardView(title: "Points Hit", value: "\(session.pointsHitValue)"))
-
-            let row6 = UIStackView()
-            row6.axis = .horizontal
-            row6.spacing = 12
-            row6.distribution = .fillEqually
+            row4.addArrangedSubview(StatCardView(title: "Points Hit", value: "\(session.pointsHitValue)"))
             if session.atmVisitsCount > 0 {
-                row6.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
+                row4.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
                 // Add empty spacer to keep layout balanced
                 let spacer = UIView()
                 spacer.translatesAutoresizingMaskIntoConstraints = false
-                row6.addArrangedSubview(spacer)
+                row4.addArrangedSubview(spacer)
+            } else {
+                // Add two empty spacers to keep layout balanced
+                let spacer1 = UIView()
+                spacer1.translatesAutoresizingMaskIntoConstraints = false
+                let spacer2 = UIView()
+                spacer2.translatesAutoresizingMaskIntoConstraints = false
+                row4.addArrangedSubview(spacer1)
+                row4.addArrangedSubview(spacer2)
             }
 
             statGrid.addArrangedSubview(row1)
             statGrid.addArrangedSubview(row2)
             statGrid.addArrangedSubview(row3)
             statGrid.addArrangedSubview(row4)
-            statGrid.addArrangedSubview(row5)
-            if session.atmVisitsCount > 0 {
-                statGrid.addArrangedSubview(row6)
-            }
         }
 
         stackView.addArrangedSubview(statGrid)
@@ -372,11 +363,11 @@ private final class StatCardView: UIView {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         valueLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        titleLabel.font = .systemFont(ofSize: 11, weight: .regular)
         titleLabel.textColor = .lightGray
         titleLabel.numberOfLines = 2
 
-        valueLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        valueLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         valueLabel.textColor = .white
         valueLabel.numberOfLines = 1
 
@@ -384,14 +375,14 @@ private final class StatCardView: UIView {
         addSubview(valueLabel)
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
 
-            valueLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
-            valueLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            valueLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
+            valueLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            valueLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            valueLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
     }
 

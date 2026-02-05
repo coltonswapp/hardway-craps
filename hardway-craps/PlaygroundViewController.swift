@@ -23,6 +23,8 @@ class PlaygroundViewController: UIViewController {
     private var clearAllButton: UIButton!
     private var controlButtonsStackView: UIStackView!
     
+    private var programmaticChipsStackView: UIStackView!
+    
     var balance: Int {
         get {
             return balanceView?.balance ?? startingBalance
@@ -44,6 +46,7 @@ class PlaygroundViewController: UIViewController {
         view.backgroundColor = .black
         
         setupViewController()
+        setupProgrammaticChips()
         setupBalanceView()
         setupChipSelector()
         setupBottomStackView()
@@ -54,7 +57,7 @@ class PlaygroundViewController: UIViewController {
     // MARK: - Setup
     
     private func setupViewController() {
-        title = "Pass Line + Odds Playground"
+        title = "Playground"
         
         // Configure navigation bar
         navigationItem.leftBarButtonItem = UIBarButtonItem(
@@ -62,6 +65,34 @@ class PlaygroundViewController: UIViewController {
             target: self,
             action: #selector(dismissPlayground)
         )
+    }
+    
+    private func setupProgrammaticChips() {
+        // Create stack view for programmatic chips
+        programmaticChipsStackView = UIStackView()
+        programmaticChipsStackView.translatesAutoresizingMaskIntoConstraints = false
+        programmaticChipsStackView.axis = .horizontal
+        programmaticChipsStackView.distribution = .fill
+        programmaticChipsStackView.alignment = .center
+        programmaticChipsStackView.spacing = 12
+        
+        // Create chips with test values using different color sets
+        let chipValues = [1, 5, 25, 50, 100]
+        let colorSets: [ChipColorSet] = [.yellowGreen, .cyan, .green, .red, .purple]
+        
+        for (index, value) in chipValues.enumerated() {
+            let colorSet = colorSets[index % colorSets.count] // Cycle through color sets
+            let chip = ProgrammaticChipView(value: value, size: 45, colorSet: colorSet)
+            chip.translatesAutoresizingMaskIntoConstraints = false
+            programmaticChipsStackView.addArrangedSubview(chip)
+        }
+        
+        view.addSubview(programmaticChipsStackView)
+        
+        NSLayoutConstraint.activate([
+            programmaticChipsStackView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            programmaticChipsStackView.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+        ])
     }
     
     private func setupBalanceView() {

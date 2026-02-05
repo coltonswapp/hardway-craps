@@ -249,13 +249,11 @@ class OddsBetStack: UIView {
         
         // When bet is locked, only odds can be dragged, not the main bet
         if isLocked {
-            HapticsHelper.failureHaptic()
             return
         }
         
         let canRemove = canRemoveBet?() ?? true
         if !canRemove {
-            HapticsHelper.failureHaptic()
             return
         }
         

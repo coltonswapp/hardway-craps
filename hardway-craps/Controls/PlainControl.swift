@@ -449,8 +449,6 @@ class PlainControl: UIControl, BetDropTarget {
         // Check if bet can be removed - if not, prevent drag from starting
         let canRemove = canRemoveBet?() ?? true
         if !canRemove {
-            // Provide haptic feedback to indicate bet cannot be removed
-            HapticsHelper.failureHaptic()
             return
         }
         

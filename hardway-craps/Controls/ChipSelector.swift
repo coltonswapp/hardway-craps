@@ -32,9 +32,9 @@ class ChipSelector: UIView, BetDropTarget {
         let sv = UIStackView()
         sv.translatesAutoresizingMaskIntoConstraints = false
         sv.axis = .horizontal
-        sv.distribution = .fill
+        sv.distribution = .fill  // Fill available space
         sv.alignment = .center
-        sv.spacing = -20  // Negative spacing creates overlap (increased for more overlap)
+        sv.spacing = -22  // Negative spacing creates overlap (increased for more overlap)
         sv.clipsToBounds = false  // Allow chips to extend beyond bounds when overlapping
         return sv
     }()
@@ -48,15 +48,17 @@ class ChipSelector: UIView, BetDropTarget {
         return view
     }()
 
-    private var chipControls: [ChipControl] = []
+    private var chipControls: [ProgrammaticChipView] = []
     private(set) var selectedValue: Int = 5
     private var indicatorCenterXConstraint: NSLayoutConstraint?
     private var hasInitializedIndicator = false
 
     let chipValues: [Int]
+    let chipSize: CGFloat
 
-    init(chipValues: [Int] = [1, 5, 25, 50, 100]) {
+    init(chipValues: [Int] = [1, 5, 25, 50, 100], chipSize: CGFloat = 60) {
         self.chipValues = chipValues
+        self.chipSize = chipSize
         super.init(frame: .zero)
         setupView()
     }
@@ -96,10 +98,17 @@ class ChipSelector: UIView, BetDropTarget {
     }
 
     private func setupChips() {
+        let colorSet = ChipColorSet.current
         for (index, value) in chipValues.enumerated() {
-            let chip = ChipControl(value: value)
+            let chip = ProgrammaticChipView(value: value, size: chipSize, colorSet: colorSet)
             chip.tag = index
             chip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+            
+            // Prevent chips from stretching - maintain their fixed size
+            chip.setContentHuggingPriority(.required, for: .horizontal)
+            chip.setContentHuggingPriority(.required, for: .vertical)
+            chip.setContentCompressionResistancePriority(.required, for: .horizontal)
+            chip.setContentCompressionResistancePriority(.required, for: .vertical)
             
             // Set z-position so earlier chips (like $1) appear on top and cast shadows on later ones
             // Reverse the order: first chip gets highest zPosition
@@ -176,7 +185,7 @@ class ChipSelector: UIView, BetDropTarget {
         }
     }
 
-    @objc private func chipTapped(_ sender: ChipControl) {
+    @objc private func chipTapped(_ sender: ProgrammaticChipView) {
         guard let index = chipControls.firstIndex(where: { $0 === sender }) else { return }
 
         selectedValue = sender.value
