@@ -58,11 +58,13 @@ final class AppSettingsViewController: UITableViewController {
     enum DebugRow: Int, CaseIterable {
         case resetTips
         case clearSessions
+        case playground
 
         var title: String {
             switch self {
             case .resetTips: return "Reset All Tips"
             case .clearSessions: return "Clear All Sessions"
+            case .playground: return "Odds Control Playground"
             }
         }
 
@@ -70,6 +72,7 @@ final class AppSettingsViewController: UITableViewController {
             switch self {
             case .resetTips: return "arrow.clockwise"
             case .clearSessions: return "trash"
+            case .playground: return "gamecontroller"
             }
         }
 
@@ -77,6 +80,7 @@ final class AppSettingsViewController: UITableViewController {
             switch self {
             case .resetTips: return false
             case .clearSessions: return true
+            case .playground: return false
             }
         }
     }
@@ -116,6 +120,7 @@ final class AppSettingsViewController: UITableViewController {
         // Reload table view to update chip preview when returning from color selection
         tableView.reloadData()
     }
+    
 
     private func setupViewController() {
         title = "Settings"
@@ -134,6 +139,7 @@ final class AppSettingsViewController: UITableViewController {
         tableView.separatorColor = .separator
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsCell")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "ChipColorCell")
+        tableView.register(UITableViewHeaderFooterView.self, forHeaderFooterViewReuseIdentifier: "SectionFooter")
     }
 
     @objc private func dismissSettings() {
@@ -191,11 +197,54 @@ final class AppSettingsViewController: UITableViewController {
     }
     
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        // Add footer text for debug section
-        if section == Section.debug.rawValue {
-            return "These options are for testing and debugging purposes."
-        }
         return nil
+    }
+    
+    override func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        guard section == Section.debug.rawValue else { return nil }
+        
+        // Dequeue reusable footer view (following Apple's recommended approach)
+        let footerView = tableView.dequeueReusableHeaderFooterView(withIdentifier: "SectionFooter")
+        
+        // Remove any existing subviews to avoid duplicates when reusing
+        footerView?.contentView.subviews.forEach { $0.removeFromSuperview() }
+        
+        guard let footer = footerView else { return nil }
+        
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+        
+        let versionLabel = UILabel()
+        versionLabel.translatesAutoresizingMaskIntoConstraints = false
+        versionLabel.text = "🎰 \(version) (\(build)) 🎲"
+        versionLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        versionLabel.textColor = .secondaryLabel
+        versionLabel.textAlignment = .center
+        footer.contentView.addSubview(versionLabel)
+        
+        NSLayoutConstraint.activate([
+            
+            versionLabel.topAnchor.constraint(equalTo: footer.contentView.topAnchor, constant: 8),
+            versionLabel.leadingAnchor.constraint(equalTo: footer.contentView.leadingAnchor, constant: 20),
+            versionLabel.trailingAnchor.constraint(equalTo: footer.contentView.trailingAnchor, constant: -20),
+            versionLabel.bottomAnchor.constraint(equalTo: footer.contentView.bottomAnchor, constant: -8)
+        ])
+        
+        return footer
+    }
+    
+    override func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        if section == Section.debug.rawValue {
+            return UITableView.automaticDimension
+        }
+        return 0
+    }
+    
+    override func tableView(_ tableView: UITableView, estimatedHeightForFooterInSection section: Int) -> CGFloat {
+        if section == Section.debug.rawValue {
+            return 80
+        }
+        return 0
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -335,6 +384,11 @@ final class AppSettingsViewController: UITableViewController {
             showResetTipsConfirmation()
         case .clearSessions:
             showClearSessionsConfirmation()
+        case .playground:
+            let playgroundVC = PlaygroundViewController()
+            let nav = UINavigationController(rootViewController: playgroundVC)
+            nav.isModalInPresentation = true
+            present(nav, animated: true)
         }
     }
 

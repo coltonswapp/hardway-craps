@@ -45,9 +45,35 @@ class PointControl: PlainControl {
 
     var isOn: Bool = false
     
+    // Come bet with odds support (vertical layout, right-aligned)
+    private var comeBetStack: OddsBetStack?
+    private var betViewCenterXConstraint: NSLayoutConstraint!
+    private var comeBetStackTrailingConstraint: NSLayoutConstraint?
+    
+    var hasComeBet: Bool {
+        return comeBetStack != nil && comeBetStack!.betAmount > 0
+    }
+    
+    var comeBetAmount: Int {
+        return comeBetStack?.betAmount ?? 0
+    }
+    
+    var comeBetOddsAmount: Int {
+        return comeBetStack?.oddsAmount ?? 0
+    }
+    
+    // Callbacks for come bet
+    var onComeBetOddsPlaced: ((Int) -> Void)?
+    var onComeBetOddsRemoved: ((Int) -> Void)?
+    
     /// Override to animate winnings slightly above the bet (instead of to the right)
     override var winningsAnimationOffset: CGPoint {
-        return CGPoint(x: 0, y: -30)  // Offset 30 points above the bet
+        return CGPoint(x: 0, y: -30)  // Offset 20 points above the bet
+    }
+    
+    /// Override originalBetWinningsOffset since animateWinnings uses this instead of winningsAnimationOffset
+    override var originalBetWinningsOffset: CGPoint {
+        return CGPoint(x: 0, y: -30)  // Offset 20 points above the bet
     }
 
     init(pointNumber: Int) {
@@ -102,9 +128,83 @@ class PointControl: PlainControl {
     }
 
     override func configureBetViewConstraints() {
+        // Store centerX constraint so we can modify it when come bet is added
+        betViewCenterXConstraint = betView.centerXAnchor.constraint(equalTo: centerXAnchor)
+        
         NSLayoutConstraint.activate([
-            betView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            betViewCenterXConstraint,
             betView.centerYAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
+    }
+    
+    // MARK: - Come Bet Support
+    
+    func addComeBet(amount: Int, getSelectedChipValue: @escaping () -> Int, getBalance: @escaping () -> Int) {
+        if comeBetStack == nil {
+            comeBetStack = OddsBetStack(layout: .vertical)
+            comeBetStack?.parentControl = self
+            addSubview(comeBetStack!)
+            
+            // Wire up callbacks
+            comeBetStack?.getSelectedChipValue = getSelectedChipValue
+            comeBetStack?.getBalance = getBalance
+            comeBetStack?.onBetPlaced = { [weak self] _ in
+                // Come bet is placed - no action needed (already locked)
+            }
+            comeBetStack?.onBetRemoved = { [weak self] _ in
+                // Come bet removal handled by clearComeBet
+            }
+            comeBetStack?.onOddsPlaced = { [weak self] amount in
+                self?.onComeBetOddsPlaced?(amount)
+            }
+            comeBetStack?.onOddsRemoved = { [weak self] amount in
+                self?.onComeBetOddsRemoved?(amount)
+            }
+            
+            setupComeBetConstraints()
+        }
+        
+        comeBetStack?.betAmount = amount
+        comeBetStack?.lockBet()  // Come bet is locked immediately
+    }
+    
+    func clearComeBet() {
+        let oddsToReturn = comeBetStack?.oddsAmount ?? 0
+        if oddsToReturn > 0 {
+            onComeBetOddsRemoved?(oddsToReturn)
+        }
+        comeBetStack?.removeFromSuperview()
+        comeBetStack = nil
+        restorePlaceBetPosition()
+    }
+    
+    private func setupComeBetConstraints() {
+        guard let stack = comeBetStack else { return }
+        
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Position come bet stack on the right side
+        comeBetStackTrailingConstraint = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
+        
+        NSLayoutConstraint.activate([
+            comeBetStackTrailingConstraint!,
+            stack.centerYAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+        ])
+        
+        // Shift place bet to the left
+        animatePlaceBetShift(left: true)
+    }
+    
+    private func restorePlaceBetPosition() {
+        animatePlaceBetShift(left: false)
+    }
+    
+    private func animatePlaceBetShift(left: Bool) {
+        let targetConstant: CGFloat = left ? -40 : 0  // Shift left by 40pt when come bet exists
+        
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
+            self.betViewCenterXConstraint.constant = targetConstant
+            self.layoutIfNeeded()
+        }
     }
 }

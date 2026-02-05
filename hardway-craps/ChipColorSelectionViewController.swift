@@ -24,16 +24,28 @@ final class ChipColorSelectionViewController: UITableViewController {
         }
     }
     
-    private let chipColors: [(name: String, colorKey: String)] = [
-        ("Cyan", "cyan"),
-        ("Green", "green"),
-        ("Grey", "grey"),
-        ("Purple", "purple"),
-        ("Red", "red"),
-        ("Yellow", "yellow"),
-    ]
-    
     private let chipValues = [1, 5, 25, 50, 100]
+    
+    /// Get the currently selected color set name
+    private var selectedColorSetName: String {
+        // First try to get the color set name directly (new system)
+        if let colorSetName = UserDefaults.standard.string(forKey: "ChipColorSetName"),
+           ChipColorSet.named(colorSetName) != nil {
+            return colorSetName
+        }
+        
+        // Fall back to mapping old color keys to new color set names (backward compatibility)
+        let colorKey = selectedChipColor
+        switch colorKey.lowercased() {
+        case "cyan": return "Cyan"
+        case "green": return "Green"
+        case "grey", "gray": return "Grey"
+        case "purple": return "Purple"
+        case "red": return "Red"
+        case "yellow": return "Yellow"
+        default: return "Cyan"
+        }
+    }
     
     init() {
         super.init(style: .insetGrouped)
@@ -58,17 +70,17 @@ final class ChipColorSelectionViewController: UITableViewController {
     // MARK: - Table View Data Source
     
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return chipColors.count
+        return ChipColorSet.all.count
     }
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "ChipColorCell", for: indexPath) as! ChipColorCell
         
-        let colorOption = chipColors[indexPath.row]
-        let isSelected = colorOption.colorKey == selectedChipColor
+        let colorSet = ChipColorSet.all[indexPath.row]
+        let isSelected = colorSet.name == selectedColorSetName
         
         cell.configure(
-            colorKey: colorOption.colorKey,
+            colorSet: colorSet,
             chipValues: chipValues,
             isSelected: isSelected
         )
@@ -81,8 +93,24 @@ final class ChipColorSelectionViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         
-        let colorOption = chipColors[indexPath.row]
-        selectedChipColor = colorOption.colorKey
+        let colorSet = ChipColorSet.all[indexPath.row]
+        
+        // Store the color set name directly (new system)
+        UserDefaults.standard.set(colorSet.name, forKey: "ChipColorSetName")
+        
+        // Also update the old color key for backward compatibility
+        // Map color set name back to old color key if possible
+        let colorKey: String
+        switch colorSet.name.lowercased() {
+        case "cyan": colorKey = "cyan"
+        case "green": colorKey = "green"
+        case "grey", "gray": colorKey = "grey"
+        case "purple": colorKey = "purple"
+        case "red": colorKey = "red"
+        case "yellow": colorKey = "yellow"
+        default: colorKey = "cyan" // Default for unmapped color sets
+        }
+        selectedChipColor = colorKey
         
         // Reload all cells to update selection indicators
         tableView.reloadData()
@@ -101,7 +129,7 @@ final class ChipColorCell: UITableViewCell {
         stackView.axis = .horizontal
         stackView.distribution = .fill
         stackView.alignment = .center
-        stackView.spacing = -35  // Negative spacing creates overlap (increased for more overlap)
+        stackView.spacing = -10  // Negative spacing creates overlap (increased for more overlap)
         return stackView
     }()
     
@@ -134,7 +162,7 @@ final class ChipColorCell: UITableViewCell {
         NSLayoutConstraint.activate([
             chipStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
             chipStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            chipStackView.heightAnchor.constraint(equalToConstant: 50),
+            chipStackView.heightAnchor.constraint(equalToConstant: 45),
             
             checkmarkImageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
             checkmarkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -143,37 +171,22 @@ final class ChipColorCell: UITableViewCell {
         ])
     }
     
-    func configure(colorKey: String, chipValues: [Int], isSelected: Bool) {
+    func configure(colorSet: ChipColorSet, chipValues: [Int], isSelected: Bool) {
         checkmarkImageView.isHidden = !isSelected
         
         // Clear existing chip views
         chipStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         
-        // Create chip image views using individual color assets
+        // Create programmatic chip views
         for (index, value) in chipValues.enumerated() {
-            let chipImageView = UIImageView()
-            chipImageView.translatesAutoresizingMaskIntoConstraints = false
-            chipImageView.contentMode = .scaleAspectFit
-            
-            // Load chip image with color suffix
-            chipImageView.image = UIImage(named: "hardway-chip-\(value)-\(colorKey)")
+            let chip = ProgrammaticChipView(value: value, size: 45, colorSet: colorSet)
+            chip.translatesAutoresizingMaskIntoConstraints = false
+            chip.isUserInteractionEnabled = false // Disable interaction in selection view
             
             // Set z-position so earlier chips appear on top (like ChipSelector)
-            chipImageView.layer.zPosition = CGFloat(chipValues.count - 1 - index)
+            chip.layer.zPosition = CGFloat(chipValues.count - 1 - index)
             
-            // Add shadow for overlapping effect (like ChipSelector)
-            chipImageView.layer.shadowColor = UIColor.black.cgColor
-            chipImageView.layer.shadowOffset = CGSize(width: 2, height: 2)
-            chipImageView.layer.shadowRadius = 4
-            chipImageView.layer.shadowOpacity = 0.3
-            chipImageView.layer.masksToBounds = false
-            
-            chipStackView.addArrangedSubview(chipImageView)
-            
-            NSLayoutConstraint.activate([
-                chipImageView.widthAnchor.constraint(equalToConstant: 65),
-                chipImageView.heightAnchor.constraint(equalToConstant: 65)
-            ])
+            chipStackView.addArrangedSubview(chip)
         }
     }
     

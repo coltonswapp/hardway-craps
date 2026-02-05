@@ -132,16 +132,18 @@ final class CrapsPassLineManager {
     }
 
     /// Calculate odds payout based on point number
+    /// Returns TOTAL payout (original bet + profit)
     /// - Parameters:
     ///   - betAmount: The odds bet amount
     ///   - point: The point number
     /// - Returns: Win result with point-based payout
     func calculateOddsPayout(betAmount: Int, point: Int) -> PassLineWinResult {
         let multiplier = calculateOddsMultiplier(for: point)
-        let winnings = Int(Double(betAmount) * multiplier)
+        let profit = Int(Double(betAmount) * multiplier)
+        let winnings = betAmount + profit  // Original bet + profit
         return PassLineWinResult(
             originalBet: betAmount,
-            winnings: winnings,
+            winnings: winnings,  // Total payout (bet + profit)
             oddsMultiplier: multiplier
         )
     }
@@ -182,33 +184,78 @@ final class CrapsPassLineManager {
     func processPassLineOddsLoss(betAmount: Int) {
         delegate?.passLineOddsLossProcessed(lostAmount: betAmount)
     }
+    
+    // MARK: - Don't Pass Odds
+    
+    /// Calculate don't pass (lay) odds multiplier for a given point
+    /// Lay odds are the inverse of pass line odds
+    /// - Parameter point: The point number (4, 5, 6, 8, 9, or 10)
+    /// - Returns: The lay odds multiplier
+    func calculateDontPassOddsMultiplier(for point: Int) -> Double {
+        switch point {
+        case 4, 10:
+            return 0.5  // 1:2 odds (bet $20, win $10)
+        case 5, 9:
+            return 2.0 / 3.0  // 2:3 odds (bet $15, win $10)
+        case 6, 8:
+            return 5.0 / 6.0  // 5:6 odds (bet $12, win $10)
+        default:
+            return 1.0
+        }
+    }
+    
+    /// Calculate don't pass odds payout based on point number
+    /// Returns TOTAL payout (original bet + profit)
+    /// - Parameters:
+    ///   - betAmount: The odds bet amount
+    ///   - point: The point number
+    /// - Returns: Win result with lay odds payout
+    func calculateDontPassOddsPayout(betAmount: Int, point: Int) -> PassLineWinResult {
+        let multiplier = calculateDontPassOddsMultiplier(for: point)
+        let profit = Int(Double(betAmount) * multiplier)
+        let totalPayout = betAmount + profit  // Original bet + profit
+        return PassLineWinResult(
+            originalBet: betAmount,
+            winnings: totalPayout,  // Total payout (bet + profit)
+            oddsMultiplier: multiplier
+        )
+    }
 
     /// Update pass line control states based on game phase
     /// - Parameters:
     ///   - isPointPhase: Whether the game is in point phase
     ///   - hasPassLineBet: Whether there's a pass line bet
-    ///   - passLineControl: The pass line control to update
-    ///   - oddsControl: The odds control to update
+    ///   - passLineControl: The pass line control to update (with integrated odds support)
+    ///   - shouldLock: Whether the bet should be locked (only after first roll after placing bet during point phase)
     func updateControlStates(
         isPointPhase: Bool,
         hasPassLineBet: Bool,
         passLineControl: PlainControl,
-        oddsControl: PlainControl
+        shouldLock: Bool = false
     ) {
-        let isEnabled = shouldEnableOdds(isPointPhase: isPointPhase, hasPassLineBet: hasPassLineBet)
+        // Keep control enabled at all times - use locking instead of disabling
+        // This allows adding odds when point is set
+        passLineControl.isEnabled = true
 
-        // Allow pass line betting at any time, EXCEPT when it already has a bet AND point is set
-        // This prevents adding additional bets once a bet exists and point is established
-        passLineControl.isEnabled = !(hasPassLineBet && isPointPhase)
+        // Update disabled state for pass line control (visual locked appearance)
+        // Only show locked/greyed out appearance when bet is actually locked (after first roll)
+        // This prevents the control from looking locked when bet is first placed during point phase
+        passLineControl.setBetRemovalDisabled(shouldLock)
 
-        // Update disabled state for pass line control (cannot remove bet when point is set)
-        passLineControl.setBetRemovalDisabled(isPointPhase)
-
-        // Update disabled state for odds control (can bet when there's a pass line bet and point is set)
-        oddsControl.setBetRemovalDisabled(!isEnabled)
-        oddsControl.isEnabled = isEnabled
-
-        // Always show odds control
-        oddsControl.isHidden = false
+        // Lock/unlock bet for odds support
+        // Only lock if shouldLock is true (bet was placed during point phase and roll has occurred)
+        // This allows adding to bet when point is set but bet hasn't been rolled yet
+        if isPointPhase && hasPassLineBet && shouldLock {
+            // Point is set, bet exists, and roll has occurred - lock the bet so odds can be added
+            passLineControl.lockBet()
+        } else if !isPointPhase || !hasPassLineBet {
+            // Not in point phase or no bet - unlock (will clear odds if any)
+            // Only unlock when we're actually leaving point phase or removing bet
+            passLineControl.unlockBet(clearOdds: true)
+        } else {
+            // We're in point phase with a bet but not locked yet - ensure unlocked state without clearing odds
+            // This prevents clearing odds when we're just updating state after adding to bet
+            passLineControl.unlockBet(clearOdds: false)
+        }
     }
 }

@@ -12,6 +12,7 @@ class BaseSettingsViewController: UITableViewController {
     // Common callbacks
     var onSettingsChanged: (() -> Void)?
     var onShowGameDetails: (() -> Void)?
+    var onHitATM: (() -> Void)?
     
     init() {
         super.init(style: .insetGrouped)

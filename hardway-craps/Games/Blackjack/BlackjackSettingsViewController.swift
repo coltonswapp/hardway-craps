@@ -215,7 +215,7 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: // Actions
-            return 1
+            return 2 // Game Details + Hit the ATM
         case 1: // Display Settings
             return DisplaySetting.allCases.count
         case 2: // Game Settings
@@ -262,6 +262,10 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
             switch indexPath.row {
             case 0: // Game Details
                 configureActionCell(cell, title: "Game Details", icon: "chart.line.uptrend.xyaxis") { [weak self] in
+                    // Tap handled in didSelectRowAt
+                }
+            case 1: // Hit the ATM
+                configureActionCell(cell, title: "Hit the ATM", icon: "creditcard") { [weak self] in
                     // Tap handled in didSelectRowAt
                 }
             default:
@@ -539,8 +543,12 @@ final class BlackjackSettingsViewController: BaseSettingsViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
-        if indexPath.section == 0 && indexPath.row == 0 {
-            onShowGameDetails?()
+        if indexPath.section == 0 {
+            if indexPath.row == 0 {
+                onShowGameDetails?()
+            } else if indexPath.row == 1 {
+                onHitATM?()
+            }
         } else if indexPath.section == 3 {
             // Side bets section
             let sideBetType = SideBetType.allCases[indexPath.row]
