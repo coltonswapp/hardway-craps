@@ -13,8 +13,10 @@ final class BlackjackGameplayViewController: UIViewController {
     typealias SideBetType = BlackjackSettingsViewController.SideBetType
     
     // Session tracking (managed by SessionManager)
-    private let startingBalance: Int = 200
-    private var initialBalance: Int = 200 // Store the initial balance to set after UI is ready
+    private var startingBalance: Int {
+        return AppSettingsViewController.startingBankroll
+    }
+    private var initialBalance: Int = AppSettingsViewController.startingBankroll // Store the initial balance to set after UI is ready
 
     private let dealerHandView = DealerHandView()
     private let playerHandView = PlayerHandView()

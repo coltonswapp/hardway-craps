@@ -18,11 +18,21 @@ class SmallBetChip: UIView {
         return label
     }()
 
+    private let normalBackgroundColor = HardwayColors.betGray
+    private let lockedBackgroundColor: UIColor = {
+        // Darker version of betGray for locked state
+        return HardwayColors.betGray.darker(by: 6.0)
+    }()
+
     var amount: Int = 0 {
         didSet {
             amountLabel.text = "\(amount)"
             isHidden = amount == 0
         }
+    }
+    
+    func setLocked(_ locked: Bool) {
+        backgroundColor = locked ? lockedBackgroundColor : normalBackgroundColor
     }
 
     init() {

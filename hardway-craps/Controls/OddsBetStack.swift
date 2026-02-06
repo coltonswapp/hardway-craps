@@ -26,14 +26,12 @@ class OddsBetStack: UIView {
         static let oddsChipLeadingSpacing: CGFloat = -6      // Spacing between bet and odds chips
         
         // Vertical layout constraints
-        static let oddsChipTopSpacing: CGFloat = 4            // Spacing between bet and odds chips
+        static let oddsChipTopSpacing: CGFloat = -10         // Overlap between bet and odds chips (negative = overlap)
         
         // Hit area expansion for easier dragging
         static let hitAreaExpansion: CGFloat = -5             // Negative inset expands hit area
         
-        // Visual states
-        static let lockedBetAlpha: CGFloat = 0.6               // Dimmed alpha when bet is locked
-        static let unlockedBetAlpha: CGFloat = 1.0             // Full alpha when unlocked
+        // Visual states (now using background color instead of alpha)
     }
     
     private struct AnimationConstants {
@@ -98,6 +96,15 @@ class OddsBetStack: UIView {
                 return
             }
             oddsChip.amount = newValue
+            
+            // Update layout based on odds amount
+            if layout == .vertical {
+                // Vertical layout (come bets) - update stack position via parent control
+                if let pointControl = parentControl as? PointControl {
+                    pointControl.updateComeBetStackPosition()
+                }
+            }
+            
             // If odds are cleared, ensure betChip slides back to normal position (horizontal layout only)
             // CRITICAL: Don't fade out if we're animating a payout or collecting a bet
             // - During payout: animation chip is visible, original chip is already hidden (alpha=0)
@@ -129,7 +136,7 @@ class OddsBetStack: UIView {
     // Callbacks
     var onBetPlaced: ((Int) -> Void)?
     var onBetRemoved: ((Int) -> Void)?
-    var onOddsPlaced: ((Int) -> Void)?
+    var onOddsPlaced: ((Int, Int) -> Void)?  // (amount, previousOddsAmount)
     var onOddsRemoved: ((Int) -> Void)?
     var getSelectedChipValue: (() -> Int)?
     var getBalance: (() -> Int)?
@@ -247,7 +254,15 @@ class OddsBetStack: UIView {
     @objc private func handleBetChipPan(_ gesture: UIPanGestureRecognizer) {
         guard betAmount > 0 else { return }
         
-        // When bet is locked, only odds can be dragged, not the main bet
+        // When bet is locked and odds exist, drag the odds instead of the bet
+        // This makes it easier to remove odds from come bets - any drag on the come bet drags odds
+        if isLocked && oddsAmount > 0 {
+            // Delegate to odds chip pan handler
+            handleOddsChipPan(gesture)
+            return
+        }
+        
+        // When bet is locked but no odds, don't allow dragging the bet
         if isLocked {
             return
         }
@@ -271,11 +286,10 @@ class OddsBetStack: UIView {
             betChip.alpha = 0
             // Pass parent control as source so BetDragManager knows it's a bet move
             // This allows BetDragManager to call onBetReturned on ChipSelector
-            if let parent = parentControl as? PlainControl {
+            if let parent = parentControl as? BetDragSource {
                 BetDragManager.shared.startDragging(value: betAmount, from: location, in: containerView, source: parent)
             } else {
-                // Fallback: if parent isn't a PlainControl, pass nil
-                // We'll handle balance restoration manually in .ended if needed
+                // Fallback: if parent doesn't conform to BetDragSource, pass nil
                 BetDragManager.shared.startDragging(value: betAmount, from: location, in: containerView, source: nil)
             }
         case .changed:
@@ -360,6 +374,9 @@ class OddsBetStack: UIView {
             
             let originalOddsAmount = oddsAmount
             
+            // Check if BetDragManager has a valid drop target BEFORE endDrag clears it
+            let hadValidDropTarget = BetDragManager.shared.hasCurrentDropTarget()
+            
             BetDragManager.shared.endDrag(at: location, in: containerView)
             
             // Clear isDraggingOdds flag after endDrag (but we'll use originalOddsAmount to identify odds removal)
@@ -370,8 +387,8 @@ class OddsBetStack: UIView {
                 // This handles balance restoration. We just need to clear the odds.
                 // Note: We don't call onOddsRemoved here because onBetReturned already restores balance
                 oddsAmount = 0
-            } else if !isDroppingOnSameStack {
-                // Moved to different control - odds were already added there, remove silently
+            } else if !isDroppingOnSameStack && hadValidDropTarget {
+                // Moved to a valid different control - odds were already added there, remove silently
                 // Use removeOddsSilently to ensure we remove from odds, not bet
                 removeOddsSilently(originalOddsAmount)
             } else {
@@ -461,17 +478,17 @@ class OddsBetStack: UIView {
     func lockBet() {
         guard betAmount > 0 else { return }
         isLocked = true
-        // Dim the locked bet to indicate it can't be moved
+        // Change to darker background color to indicate it can't be moved
         UIView.animate(withDuration: AnimationConstants.lockUnlockDuration) {
-            self.betChip.alpha = LayoutConstants.lockedBetAlpha
+            self.betChip.setLocked(true)
         }
     }
     
     func unlockBet(clearOdds: Bool = true) {
         isLocked = false
-        // Restore full opacity
+        // Restore normal background color
         UIView.animate(withDuration: AnimationConstants.lockUnlockDuration) {
-            self.betChip.alpha = LayoutConstants.unlockedBetAlpha
+            self.betChip.setLocked(false)
         }
         // CRITICAL: Don't clear odds if we're animating a payout or collecting a bet
         // The odds will be cleared by the animation completion handler
@@ -571,6 +588,7 @@ class OddsBetStack: UIView {
         
         if isLocked {
             let wasEmpty = oddsAmount == 0
+            let previousOddsAmount = oddsAmount  // Capture previous amount BEFORE adding
             oddsChip.addToBet(amount)
             oddsChip.alpha = 1
             oddsChip.isHidden = false
@@ -597,7 +615,7 @@ class OddsBetStack: UIView {
                 }
             }
             
-            onOddsPlaced?(amount)
+            onOddsPlaced?(amount, previousOddsAmount)
             bringSubviewToFront(oddsChip)
             // Also ensure parent brings this stack to front
             if let parentView = parentControl as? UIView {
@@ -610,6 +628,7 @@ class OddsBetStack: UIView {
         guard !isDraggingOdds else { return }
         
         let wasEmpty = oddsAmount == 0
+        let previousOddsAmount = oddsAmount  // Capture previous amount BEFORE adding
         oddsChip.addToBet(amount)
         oddsChip.alpha = 1
         oddsChip.isHidden = false
@@ -645,7 +664,7 @@ class OddsBetStack: UIView {
             }
         }
         
-        onOddsPlaced?(amount)
+        onOddsPlaced?(amount, previousOddsAmount)
         bringSubviewToFront(oddsChip)
         // Also ensure parent brings this stack to front
         if let parentView = parentControl as? UIView {
@@ -687,19 +706,12 @@ class OddsBetStack: UIView {
     func removeOddsSilently(_ amount: Int) {
         let oldOddsAmount = oddsAmount
         if oldOddsAmount > 0 {
-            oddsChip.addToBet(-amount)
-            if oddsAmount == 0 {
-                if layout == .horizontal {
-                    animateBetChipSlide(left: false)
-                }
-                UIView.animate(withDuration: AnimationConstants.fadeDuration) {
-                    self.oddsChip.alpha = 0
-                } completion: { _ in
-                    self.oddsChip.isHidden = true
-                }
-            } else {
-                oddsChip.alpha = 1
-            }
+            // Use the setter to ensure layout restoration happens (for both horizontal and vertical layouts)
+            // The setter will handle layout updates automatically
+            oddsAmount = max(0, oldOddsAmount - amount)
+            
+            // Note: Layout restoration (bet chip slide-back for horizontal, stack position for vertical)
+            // is handled by the oddsAmount setter, so we don't need to do it here
         }
     }
     

@@ -13,7 +13,7 @@ enum WinningsAnimationDirection {
     case trailing // Animate 30 points from the trailing edge of betView
 }
 
-class PlainControl: UIControl, BetDropTarget {
+class PlainControl: UIControl, BetDropTarget, BetDragSource {
 
     let background: UIColor = HardwayColors.surfaceGray
     let labelColor: UIColor = HardwayColors.label
@@ -91,16 +91,16 @@ class PlainControl: UIControl, BetDropTarget {
         }
     }
     
-    var onOddsPlaced: ((Int) -> Void)? {
+    var onOddsPlaced: ((Int, Int) -> Void)? {  // (amount, previousOddsAmount)
         get { oddsBetStack?.onOddsPlaced }
         set {
             // Wrap the callback to ensure oddsBetStack is brought to front when odds are added
-            oddsBetStack?.onOddsPlaced = { [weak self] amount in
+            oddsBetStack?.onOddsPlaced = { [weak self] amount, previousOddsAmount in
                 guard let self = self, let stack = self.oddsBetStack else { return }
                 // Ensure stack is on top so odds chip can receive touches
                 self.bringSubviewToFront(stack)
                 self.updateTitleAlignment()
-                newValue?(amount)
+                newValue?(amount, previousOddsAmount)
             }
         }
     }

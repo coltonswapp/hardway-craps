@@ -9,7 +9,7 @@ import UIKit
 
 /// A standalone control for Come bets with odds functionality
 /// Based on PlainControl but designed specifically for odds betting
-class ComeBetControl: UIControl, BetDropTarget {
+class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
     
     // MARK: - Properties
     
@@ -227,7 +227,15 @@ class ComeBetControl: UIControl, BetDropTarget {
     @objc private func handleBetViewPan(_ gesture: UIPanGestureRecognizer) {
         guard betAmount > 0 else { return }
         
-        // When bet is locked, only odds can be dragged, not the main bet
+        // When bet is locked and odds exist, drag the odds instead of the bet
+        // This makes it easier to remove odds from come bets - any drag on the come bet drags odds
+        if isBetLocked && oddsAmount > 0 {
+            // Delegate to odds view pan handler
+            handleOddsViewPan(gesture)
+            return
+        }
+        
+        // When bet is locked but no odds, don't allow dragging the bet
         if isBetLocked {
             HapticsHelper.failureHaptic()
             return
@@ -252,49 +260,17 @@ class ComeBetControl: UIControl, BetDropTarget {
         case .began:
             isDraggingBet = true
             betView.alpha = 0
-            // Pass nil as source since we're not a PlainControl - we'll handle removal ourselves
-            BetDragManager.shared.startDragging(value: betAmount, from: location, in: containerView, source: nil)
+            // Pass self as source — BetDragManager handles everything (same as PlainControl)
+            BetDragManager.shared.startDragging(value: betAmount, from: location, in: containerView, source: self)
         case .changed:
             BetDragManager.shared.updateDrag(to: location)
         case .ended:
-            // Check drop target before calling endDrag (endDrag may clear it)
-            let chipSelectorFrame = findChipSelectorFrame(in: containerView)
-            let isDroppingOnChipSelector = chipSelectorFrame.contains(location)
-            let controlFrame = frameInView(containerView)
-            let isDroppingOnSameControl = controlFrame.contains(location)
-            let hasValidDropTarget = BetDragManager.shared.hasCurrentDropTarget()
-            
-            // Clear isDraggingBet flag BEFORE endDrag so addBetWithAnimation can work
-            // (unless dropping back on same control, in which case we'll restore visibility)
-            if !isDroppingOnSameControl {
-                isDraggingBet = false
-            }
-            
+            isDraggingBet = false
             BetDragManager.shared.endDrag(at: location, in: containerView)
             
-            // Handle bet removal ourselves since we're not a PlainControl
-            if isDroppingOnChipSelector {
-                // Return bet to balance
-                let amountToReturn = betAmount
-                betAmount = 0
-                onBetRemoved?(amountToReturn)
-            } else if !isDroppingOnSameControl && hasValidDropTarget {
-                // Moved to different control - bet was already added there, remove silently
-                removeBetSilently(betAmount)
-            } else if !isDroppingOnSameControl && !hasValidDropTarget {
-                // Dropped outside any control - restore bet (don't remove it)
-                betView.alpha = 1
-                // Restore flag since we're keeping the bet
-                isDraggingBet = false
-            } else {
-                // Dropped back on same control - restore visibility
-                betView.alpha = 1
-                isDraggingBet = false
-            }
-            
+            // Safety net: ensure betView is visible if bet still exists
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self = self else { return }
-                self.isDraggingBet = false
                 if self.betAmount > 0 && self.betView.alpha == 0 {
                     self.betView.alpha = 1
                 }
@@ -341,6 +317,9 @@ class ComeBetControl: UIControl, BetDropTarget {
             // Store the original odds amount before endDrag might modify it
             let originalOddsAmount = oddsAmount
             
+            // Check if BetDragManager has a valid drop target BEFORE endDrag clears it
+            let hadValidDropTarget = BetDragManager.shared.hasCurrentDropTarget()
+            
             // Clear isDraggingOdds flag BEFORE endDrag so removal logic can work
             // This ensures removeBetSilently can properly remove odds and trigger slide-back
             isDraggingOdds = false
@@ -357,8 +336,8 @@ class ComeBetControl: UIControl, BetDropTarget {
             // Handle odds removal/restoration ourselves
             if isDroppingOnChipSelector {
                 // Already handled above - odds cleared and bet should have slid back
-            } else if !isDroppingOnSameControl {
-                // Moved to different control - odds were already added there, remove silently
+            } else if !isDroppingOnSameControl && hadValidDropTarget {
+                // Moved to a valid different control - odds were already added there, remove silently
                 removeBetSilently(originalOddsAmount)
             } else {
                 // Dropped back on same control - restore the odds amount and visibility

@@ -25,16 +25,19 @@ final class AppSettingsViewController: UITableViewController {
 
     enum GeneralRow: Int, CaseIterable {
         case playerTypes
+        case bankroll
 
         var title: String {
             switch self {
             case .playerTypes: return "Player Types"
+            case .bankroll: return "Starting Bankroll"
             }
         }
 
         var iconName: String {
             switch self {
             case .playerTypes: return "person.3.fill"
+            case .bankroll: return "dollarsign.circle.fill"
             }
         }
     }
@@ -97,6 +100,25 @@ final class AppSettingsViewController: UITableViewController {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: ChipColorKeys.chipColor)
+        }
+    }
+    
+    // MARK: - Bankroll Management
+    
+    private struct BankrollKeys {
+        static let startingBankroll = "StartingBankroll"
+    }
+    
+    static var startingBankroll: Int {
+        get {
+            let saved = UserDefaults.standard.integer(forKey: BankrollKeys.startingBankroll)
+            // Default to 200 if not set, or if invalid (0 or negative)
+            return saved > 0 ? saved : 200
+        }
+        set {
+            // Clamp to max 5000
+            let clampedValue = min(max(newValue, 1), 5000)
+            UserDefaults.standard.set(clampedValue, forKey: BankrollKeys.startingBankroll)
         }
     }
 
@@ -269,7 +291,21 @@ final class AppSettingsViewController: UITableViewController {
 
         let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsCell", for: indexPath)
         configureCell(cell, icon: row.iconName, title: row.title)
-        cell.accessoryType = .disclosureIndicator
+        
+        switch row {
+        case .playerTypes:
+            cell.accessoryType = .disclosureIndicator
+            cell.accessoryView = nil
+            
+        case .bankroll:
+            cell.accessoryType = .none
+            let label = UILabel()
+            label.text = "$\(Self.startingBankroll)"
+            label.textColor = .secondaryLabel
+            label.font = .systemFont(ofSize: 17)
+            label.sizeToFit()
+            cell.accessoryView = label
+        }
 
         return cell
     }
@@ -363,7 +399,50 @@ final class AppSettingsViewController: UITableViewController {
         case .playerTypes:
             let playerTypesVC = PlayerTypesViewController()
             navigationController?.pushViewController(playerTypesVC, animated: true)
+        case .bankroll:
+            showBankrollMenu()
         }
+    }
+    
+    private func showBankrollMenu() {
+        let bankrollOptions: [Int] = [200, 500, 1000, 1500, 2000]
+        let currentBankroll = Self.startingBankroll
+        
+        let alert = UIAlertController(
+            title: "Starting Bankroll",
+            message: nil,
+            preferredStyle: .actionSheet
+        )
+        
+        for amount in bankrollOptions {
+            var title = "$\(amount)"
+            // Add checkmark for current selection
+            if amount == currentBankroll {
+                title = "✓ \(title)"
+            }
+            
+            let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                Self.startingBankroll = amount
+                // Reload just the bankroll row
+                let bankrollIndexPath = IndexPath(row: GeneralRow.bankroll.rawValue, section: Section.general.rawValue)
+                self.tableView.reloadRows(at: [bankrollIndexPath], with: .none)
+                HapticsHelper.lightHaptic()
+            }
+            
+            alert.addAction(action)
+        }
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        // For iPad support
+        if let popover = alert.popoverPresentationController,
+           let cell = tableView.cellForRow(at: IndexPath(row: GeneralRow.bankroll.rawValue, section: Section.general.rawValue)) {
+            popover.sourceView = cell
+            popover.sourceRect = cell.bounds
+        }
+        
+        present(alert, animated: true)
     }
     
     private func handleAppearanceRowSelection(at indexPath: IndexPath) {
