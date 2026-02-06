@@ -31,6 +31,8 @@ class PointStack: UIView {
     var getBalance: (() -> Int)?
     var onBetPlaced: ((Int) -> Void)?
     var onBetRemoved: ((Int) -> Void)?
+    var onComeBetOddsPlaced: ((Int, Int, Int) -> Void)?  // (amount, previousOddsAmount, pointNumber)
+    var onComeBetOddsRemoved: ((Int) -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -78,6 +80,12 @@ class PointStack: UIView {
             }
             pointControl.onBetRemoved = { [weak self] amount in
                 self?.onBetRemoved?(amount)
+            }
+            pointControl.onComeBetOddsPlaced = { [weak self] amount, previousOddsAmount, pointNumber in
+                self?.onComeBetOddsPlaced?(amount, previousOddsAmount, pointNumber)
+            }
+            pointControl.onComeBetOddsRemoved = { [weak self] amount in
+                self?.onComeBetOddsRemoved?(amount)
             }
 
             pointControls.append(pointControl)
@@ -132,6 +140,27 @@ class PointStack: UIView {
         }
     }
 
+    // MARK: - Come Bet Convenience Methods
+    
+    /// Clears all come bets from all point controls (used on seven-out)
+    func clearAllComeBets() {
+        for pointControl in pointControls {
+            if pointControl.hasComeBet {
+                pointControl.clearComeBet()
+            }
+        }
+    }
+    
+    /// Returns the total come bet amount across all point controls (bet + odds)
+    func getComeBetTotal() -> Int {
+        return pointControls.reduce(0) { $0 + $1.comeBetAmount + $1.comeBetOddsAmount }
+    }
+    
+    /// Returns all point controls that currently have a come bet
+    func getPointControlsWithComeBets() -> [PointControl] {
+        return pointControls.filter { $0.hasComeBet }
+    }
+    
     override func layoutSubviews() {
         super.layoutSubviews()
 

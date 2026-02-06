@@ -14,6 +14,7 @@ final class BetResultManager {
     private var activeContainers: [BetResultContainer] = []
     private let containerHeight: CGFloat = 80
     private let containerSpacing: CGFloat = 20
+    private let baseVerticalOffset: CGFloat = -100  // Base offset to move containers lower on screen
     
     private init() {}
     
@@ -49,7 +50,7 @@ final class BetResultManager {
         
         NSLayoutConstraint.activate([
             betResultContainer.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
-            betResultContainer.centerYAnchor.constraint(equalTo: rootView.centerYAnchor, constant: verticalOffset)
+            betResultContainer.centerYAnchor.constraint(equalTo: rootView.centerYAnchor, constant: baseVerticalOffset + verticalOffset)
         ])
         
         // Track this container
@@ -67,8 +68,9 @@ final class BetResultManager {
     private func calculateVerticalOffset() -> CGFloat {
         // Calculate offset based on number of active containers
         // Each container is 80pt tall, with 20pt spacing between them
-        // Stack them vertically downward: first at center (0), second below (+100), third below that (+200), etc.
+        // Stack them vertically downward: first at baseVerticalOffset, second below (+100), third below that (+200), etc.
         // This creates a natural stacking effect where new containers appear below existing ones
+        // The baseVerticalOffset is added in the constraint, so this just calculates the additional offset per container
         let count = activeContainers.count
         return CGFloat(count) * (containerHeight + containerSpacing)
     }

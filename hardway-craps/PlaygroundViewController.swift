@@ -16,12 +16,20 @@ class PlaygroundViewController: UIViewController {
     private var chipSelector: ChipSelector!
     private var balanceView: BalanceView!
     private var passLineControl: PlainControl!
+    private var pointControl: PointControl!
     private var bottomStackView: UIStackView!
     
     private var lockBetButton: UIButton!
     private var unlockBetButton: UIButton!
     private var clearAllButton: UIButton!
     private var controlButtonsStackView: UIStackView!
+    
+    private var placeBetButton: UIButton!
+    private var addComeBetButton: UIButton!
+    private var addComeOddsButton: UIButton!
+    private var hitComeBetButton: UIButton!
+    private var clearPointControlButton: UIButton!
+    private var pointControlButtonsStackView: UIStackView!
     
     private var programmaticChipsStackView: UIStackView!
     
@@ -50,6 +58,8 @@ class PlaygroundViewController: UIViewController {
         setupBalanceView()
         setupChipSelector()
         setupBottomStackView()
+        setupPointControl()
+        setupPointControlButtons()
         setupPassLineControl()
         setupControlButtons()
     }
@@ -140,6 +150,109 @@ class PlaygroundViewController: UIViewController {
         ])
     }
     
+    private func setupPointControl() {
+        pointControl = PointControl(pointNumber: 8)
+        pointControl.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Configure callbacks for place bets
+        pointControl.getSelectedChipValue = { [weak self] in
+            return self?.selectedChipValue ?? 5
+        }
+        pointControl.getBalance = { [weak self] in
+            return self?.balance ?? 200
+        }
+        pointControl.onBetPlaced = { [weak self] amount in
+            guard let self = self else { return }
+            self.balance -= amount
+        }
+        pointControl.onBetRemoved = { [weak self] amount in
+            guard let self = self else { return }
+            self.balance += amount
+        }
+        
+        // Configure callbacks for come bet odds
+        pointControl.onComeBetOddsPlaced = { [weak self] amount, previousOddsAmount, pointNumber in
+            guard let self = self else { return }
+            // Playground doesn't enforce limits, just deduct the full amount
+            self.balance -= amount
+        }
+        pointControl.onComeBetOddsRemoved = { [weak self] amount in
+            guard let self = self else { return }
+            self.balance += amount
+        }
+        
+        // Register with BetDragManager for drag-and-drop support
+        BetDragManager.shared.registerDropTarget(pointControl)
+        
+        view.addSubview(pointControl)
+        
+        NSLayoutConstraint.activate([
+            pointControl.widthAnchor.constraint(equalToConstant: 60),
+            pointControl.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            // Position above pass line buttons: bottomStackView (20pt gap) + passLineControl (50pt) + gap (20pt) + controlButtonsStackView (44pt) + desired spacing (40pt) = 174pt
+            pointControl.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -174),
+            pointControl.heightAnchor.constraint(equalToConstant: 150)
+        ])
+    }
+    
+    private func setupPointControlButtons() {
+        // Create buttons for point control testing
+        placeBetButton = createControlButton(title: "Place Bet", backgroundColor: HardwayColors.green)
+        placeBetButton.addTarget(self, action: #selector(placeBetTapped), for: .touchUpInside)
+        
+        addComeBetButton = createControlButton(title: "Add Come Bet", backgroundColor: HardwayColors.green)
+        addComeBetButton.addTarget(self, action: #selector(addComeBetTapped), for: .touchUpInside)
+        
+        addComeOddsButton = createControlButton(title: "Add Come Odds", backgroundColor: HardwayColors.surfaceGray)
+        addComeOddsButton.addTarget(self, action: #selector(addComeOddsTapped), for: .touchUpInside)
+        
+        hitComeBetButton = createControlButton(title: "Hit Come Bet", backgroundColor: HardwayColors.surfaceGray)
+        hitComeBetButton.addTarget(self, action: #selector(hitComeBetTapped), for: .touchUpInside)
+        
+        clearPointControlButton = createControlButton(title: "Clear All", backgroundColor: HardwayColors.surfaceGray)
+        clearPointControlButton.addTarget(self, action: #selector(clearPointControlTapped), for: .touchUpInside)
+        
+        // Create first row (3 buttons)
+        let firstRow = UIStackView()
+        firstRow.axis = .horizontal
+        firstRow.distribution = .fillEqually
+        firstRow.alignment = .fill
+        firstRow.spacing = 8
+        firstRow.addArrangedSubview(placeBetButton)
+        firstRow.addArrangedSubview(addComeBetButton)
+        firstRow.addArrangedSubview(addComeOddsButton)
+        
+        // Create second row (2 buttons)
+        let secondRow = UIStackView()
+        secondRow.axis = .horizontal
+        secondRow.distribution = .fillEqually
+        secondRow.alignment = .fill
+        secondRow.spacing = 8
+        secondRow.addArrangedSubview(hitComeBetButton)
+        secondRow.addArrangedSubview(clearPointControlButton)
+        
+        // Create vertical stack view for rows
+        pointControlButtonsStackView = UIStackView()
+        pointControlButtonsStackView.translatesAutoresizingMaskIntoConstraints = false
+        pointControlButtonsStackView.axis = .vertical
+        pointControlButtonsStackView.distribution = .fillEqually
+        pointControlButtonsStackView.alignment = .fill
+        pointControlButtonsStackView.spacing = 8
+        
+        pointControlButtonsStackView.addArrangedSubview(firstRow)
+        pointControlButtonsStackView.addArrangedSubview(secondRow)
+        
+        view.addSubview(pointControlButtonsStackView)
+        
+        NSLayoutConstraint.activate([
+            pointControlButtonsStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            pointControlButtonsStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            pointControlButtonsStackView.bottomAnchor.constraint(equalTo: pointControl.topAnchor, constant: -12),
+            // Height: 2 rows * 44pt each + 1 spacing * 8pt = 88 + 8 = 96pt
+            pointControlButtonsStackView.heightAnchor.constraint(equalToConstant: 96)
+        ])
+    }
+    
     private func setupPassLineControl() {
         passLineControl = PlainControl(title: "Pass Line")
         passLineControl.translatesAutoresizingMaskIntoConstraints = false
@@ -162,7 +275,7 @@ class PlaygroundViewController: UIViewController {
             guard let self = self else { return }
             self.balance += amount
         }
-        passLineControl.onOddsPlaced = { [weak self] amount in
+        passLineControl.onOddsPlaced = { [weak self] amount, previousOddsAmount in
             guard let self = self else { return }
             self.balance -= amount
         }
@@ -249,6 +362,82 @@ class PlaygroundViewController: UIViewController {
     
     @objc private func clearAllTapped() {
         passLineControl.clearAll()
+        HapticsHelper.lightHaptic()
+    }
+    
+    // MARK: - Point Control Actions
+    
+    @objc private func placeBetTapped() {
+        let amount = selectedChipValue
+        guard balance >= amount else {
+            HapticsHelper.failureHaptic()
+            return
+        }
+        pointControl.addBetWithAnimation(amount)
+        HapticsHelper.lightHaptic()
+    }
+    
+    @objc private func addComeBetTapped() {
+        let amount = selectedChipValue
+        guard balance >= amount else {
+            HapticsHelper.failureHaptic()
+            return
+        }
+        guard pointControl.betAmount > 0 else {
+            HapticsHelper.failureHaptic()
+            return
+        }
+        pointControl.addComeBet(
+            amount: amount,
+            getSelectedChipValue: { [weak self] in
+                return self?.selectedChipValue ?? 5
+            },
+            getBalance: { [weak self] in
+                return self?.balance ?? 200
+            }
+        )
+        balance -= amount
+        HapticsHelper.lightHaptic()
+    }
+    
+    @objc private func addComeOddsTapped() {
+        guard pointControl.hasComeBet else {
+            HapticsHelper.failureHaptic()
+            return
+        }
+        let amount = selectedChipValue
+        guard balance >= amount else {
+            HapticsHelper.failureHaptic()
+            return
+        }
+        pointControl.addComeBetOdds(amount: amount)
+        HapticsHelper.lightHaptic()
+    }
+    
+    @objc private func hitComeBetTapped() {
+        guard pointControl.hasComeBet else {
+            HapticsHelper.failureHaptic()
+            return
+        }
+        // Return the come bet amount to balance (odds already returned via callback)
+        let comeBetAmount = pointControl.comeBetAmount
+        balance += comeBetAmount
+        pointControl.clearComeBet()
+        HapticsHelper.lightHaptic()
+    }
+    
+    @objc private func clearPointControlTapped() {
+        // Store come bet amount before clearing (odds and place bet handled by callbacks)
+        let comeBetAmount = pointControl.comeBetAmount
+        
+        // Clear all bets (place bet and come bet)
+        // clearAll() triggers onBetRemoved callback for place bet
+        // clearComeBet() triggers onComeBetOddsRemoved callback for odds
+        pointControl.clearAll()
+        pointControl.clearComeBet()
+        
+        // Restore come bet amount manually (addComeBet doesn't trigger callbacks)
+        balance += comeBetAmount
         HapticsHelper.lightHaptic()
     }
 }

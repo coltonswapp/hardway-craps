@@ -20,12 +20,15 @@ class CrapsGameplayViewController: UIViewController {
 
     // MARK: - Constants
 
-    private let startingBalance: Int = 200
+    private var startingBalance: Int {
+        return AppSettingsViewController.startingBankroll
+    }
 
     private var chipSelector: ChipSelector!
     private var passLineControl: PlainControl!
     private var passLineControlWidthConstraint: NSLayoutConstraint!
     private var fieldControl: PlainControl!
+    private var comeBetControl: ComeBetControl!
     private var dontPassControl: DontPassControl!
     private var dontPassControlWidthConstraint: NSLayoutConstraint!
     private var pointStack: PointStack!
@@ -60,6 +63,8 @@ class CrapsGameplayViewController: UIViewController {
 
     // Track whether bets are currently enabled or disabled
     private var betsAreOn: Bool = true
+    
+    // Come bet: read comeBetControl.betAmount directly (no cached state needed)
     
     // Tip tracking
     private var hasShownTapToBetTip: Bool = false
@@ -199,6 +204,8 @@ class CrapsGameplayViewController: UIViewController {
         // 8. Setup FieldControl (below PointStack)
         setupFieldControl()
 
+        // 9. Setup ComeBetControl (between Field and PassLine/DontPass)
+        setupComeBetControl()
 
         setupDebugMenu()
 
@@ -206,10 +213,10 @@ class CrapsGameplayViewController: UIViewController {
         view.bringSubviewToFront(flipDiceContainer)
         view.bringSubviewToFront(topStackView)
 
-        // Set balance from session manager if resuming (after UI is set up)
-        if resumingSession != nil {
-            balance = sessionManager.currentBalance
-        }
+        // Set balance from session manager (after UI is set up)
+        // For new sessions, this ensures balanceView is initialized with the correct startingBalance
+        // For resuming sessions, this restores the saved balance
+        balance = sessionManager.currentBalance
 
         // Initialize chip availability based on starting balance
         chipSelector.updateAvailableChips(balance: balance)
@@ -351,6 +358,7 @@ class CrapsGameplayViewController: UIViewController {
         if passLineControl.oddsAmount > 0 { concurrentCount += 1 }
         if fieldControl.betAmount > 0 { concurrentCount += 1 }
         if dontPassControl.betAmount > 0 { concurrentCount += 1 }
+        if comeBetControl != nil && comeBetControl.betAmount > 0 { concurrentCount += 1 }
         
         // Check point bets
         if let pointStack = pointStack {
@@ -493,6 +501,48 @@ class CrapsGameplayViewController: UIViewController {
             // Dismiss drag chip tip once user removes a bet (with delay to let them see it)
             NNTipManager.shared.dismissTip(CrapsTips.dragChipTip, afterDelay: 1.0)
         }
+        
+        pointStack.onComeBetOddsPlaced = { [weak self] amount, previousOddsAmount, pointNumber in
+            guard let self = self else { return }
+            // Find the PointControl for this point number to get the come bet amount
+            guard let pointControl = self.pointStack.getPointControl(for: pointNumber) else {
+                // Fallback: just track and deduct if we can't find the control
+                self.trackBet(amount: amount, type: .odds)
+                self.balance -= amount
+                self.updateCurrentBet()
+                return
+            }
+            
+            // Check if this bet exceeds the maximum odds for this point (3-4-5x rule)
+            let comeBetAmount = pointControl.comeBetAmount
+            let maxMultiplier = self.maxOddsMultiplier(for: pointNumber)
+            let maxOddsBet = comeBetAmount * maxMultiplier
+            let newOddsBet = pointControl.comeBetOddsAmount
+            
+            if newOddsBet > maxOddsBet {
+                // Reverse the bet - remove the excess amount
+                // Use the previousOddsAmount passed from OddsBetStack (captured BEFORE addition)
+                let actualAmountAdded = maxOddsBet - previousOddsAmount  // Amount that was actually added (could be 0 if already at max)
+                pointControl.setComeBetOddsAmount(maxOddsBet)
+                HapticsHelper.lightHaptic()
+                // Only track and deduct the amount that was actually added (not the full amount)
+                if actualAmountAdded > 0 {
+                    self.trackBet(amount: actualAmountAdded, type: .odds)
+                    self.balance -= actualAmountAdded
+                }
+                // Don't add excess to balance - it was never deducted in the first place
+            } else {
+                self.trackBet(amount: amount, type: .odds)
+                self.balance -= amount
+            }
+            self.updateCurrentBet()
+        }
+        
+        pointStack.onComeBetOddsRemoved = { [weak self] amount in
+            guard let self = self else { return }
+            self.balance += amount
+            self.updateCurrentBet()
+        }
 
         view.addSubview(pointStack)
         
@@ -608,20 +658,26 @@ class CrapsGameplayViewController: UIViewController {
         // Enable odds support on pass line control
         passLineControl.supportsOdds = true
         passLineControl.winningsAnimationDirection = .leading
-        passLineControl.onOddsPlaced = { [weak self] amount in
+        passLineControl.onOddsPlaced = { [weak self] amount, previousOddsAmount in
             guard let self = self else { return }
-            // Check if this bet exceeds 10X the pass line bet
-            let maxOddsBet = self.passLineControl.betAmount * 10
+            // Check if this bet exceeds the maximum odds for the current point (3-4-5x rule)
+            let currentPoint = self.game.currentPoint ?? 0
+            let maxMultiplier = self.maxOddsMultiplier(for: currentPoint)
+            let maxOddsBet = self.passLineControl.betAmount * maxMultiplier
             let newOddsBet = self.passLineControl.oddsAmount
             
             if newOddsBet > maxOddsBet {
                 // Reverse the bet - remove the excess amount
-                let excess = newOddsBet - maxOddsBet
+                // Use the previousOddsAmount passed from OddsBetStack (captured BEFORE addition)
+                let actualAmountAdded = maxOddsBet - previousOddsAmount  // Amount that was actually added (could be 0 if already at max)
                 self.passLineControl.oddsAmount = maxOddsBet
-                self.balance += excess
                 HapticsHelper.lightHaptic()
-                // Track the actual bet amount (not the excess)
-                self.trackBet(amount: maxOddsBet, type: .odds)
+                // Only track and deduct the amount that was actually added (not the full amount)
+                if actualAmountAdded > 0 {
+                    self.trackBet(amount: actualAmountAdded, type: .odds)
+                    self.balance -= actualAmountAdded
+                }
+                // Don't add excess to balance - it was never deducted in the first place
             } else {
                 self.trackBet(amount: amount, type: .odds)
                 self.balance -= amount
@@ -704,6 +760,20 @@ class CrapsGameplayViewController: UIViewController {
                 dontPass.unlockBet(clearOdds: false)
             }
         }
+        
+        // Update come bet control state - only enabled during point phase
+        updateComeBetControlState()
+    }
+    
+    private func updateComeBetControlState() {
+        guard let comeBet = comeBetControl else { return }
+        
+        let shouldEnable = game.isPointPhase
+        
+        UIView.animate(withDuration: 0.2) {
+            comeBet.isUserInteractionEnabled = shouldEnable
+            comeBet.alpha = shouldEnable ? 1.0 : 0.5
+        }
     }
     
     func setupFieldControl() {
@@ -744,9 +814,52 @@ class CrapsGameplayViewController: UIViewController {
         NSLayoutConstraint.activate([
             fieldControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             fieldControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            fieldControl.bottomAnchor.constraint(equalTo: passLineControl.topAnchor, constant: -12),
-            // Connect pointStack bottom to fieldControl top to make pointStack flexible
-            pointStack.bottomAnchor.constraint(equalTo: fieldControl.topAnchor, constant: -24)
+            // Bottom connects to passLine; top connects to comeBetControl (set in setupComeBetControl)
+            fieldControl.bottomAnchor.constraint(equalTo: passLineControl.topAnchor, constant: -12)
+        ])
+    }
+    
+    func setupComeBetControl() {
+        comeBetControl = ComeBetControl(title: "Come")
+        comeBetControl.translatesAutoresizingMaskIntoConstraints = false
+        
+        comeBetControl.getSelectedChipValue = { [weak self] in
+            return self?.selectedChipValue ?? 1
+        }
+        comeBetControl.getBalance = { [weak self] in
+            return self?.balance ?? 200
+        }
+        comeBetControl.onBetPlaced = { [weak self] amount in
+            guard let self = self else { return }
+            self.trackBet(amount: amount, type: .comeBet)
+            self.balance -= amount
+            self.updateCurrentBet()
+            self.updateRollingState()
+        }
+        comeBetControl.onBetRemoved = { [weak self] amount in
+            guard let self = self else { return }
+            self.balance += amount
+            self.updateCurrentBet()
+            self.updateRollingState()
+        }
+        
+        // Come bet cannot have odds while on the come line (odds only after moving to a number)
+        // The ComeBetControl already has odds support but we don't need it here
+        // Odds will be handled by the OddsBetStack on the PointControl after the bet moves
+        
+        // Come bet can only be placed during point phase - starts disabled
+        comeBetControl.isUserInteractionEnabled = false
+        comeBetControl.alpha = 0.5
+        
+        view.addSubview(comeBetControl)
+        
+        NSLayoutConstraint.activate([
+            comeBetControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            comeBetControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            comeBetControl.heightAnchor.constraint(equalToConstant: 50),
+            // Position between pointStack and field
+            pointStack.bottomAnchor.constraint(equalTo: comeBetControl.topAnchor, constant: -24),
+            comeBetControl.bottomAnchor.constraint(equalTo: fieldControl.topAnchor, constant: -12)
         ])
     }
 
@@ -849,20 +962,26 @@ class CrapsGameplayViewController: UIViewController {
         // Enable odds support on don't pass control (similar to pass line)
         dontPassControl.supportsOdds = true
         dontPassControl.winningsAnimationDirection = .leading
-        dontPassControl.onOddsPlaced = { [weak self] amount in
+        dontPassControl.onOddsPlaced = { [weak self] amount, previousOddsAmount in
             guard let self = self else { return }
-            // Check if this bet exceeds 10X the don't pass bet
-            let maxOddsBet = self.dontPassControl.betAmount * 10
+            // Check if this bet exceeds the maximum odds for the current point (3-4-5x rule)
+            let currentPoint = self.game.currentPoint ?? 0
+            let maxMultiplier = self.maxOddsMultiplier(for: currentPoint)
+            let maxOddsBet = self.dontPassControl.betAmount * maxMultiplier
             let newOddsBet = self.dontPassControl.oddsAmount
             
             if newOddsBet > maxOddsBet {
                 // Reverse the bet - remove the excess amount
-                let excess = newOddsBet - maxOddsBet
+                // Use the previousOddsAmount passed from OddsBetStack (captured BEFORE addition)
+                let actualAmountAdded = maxOddsBet - previousOddsAmount  // Amount that was actually added (could be 0 if already at max)
                 self.dontPassControl.oddsAmount = maxOddsBet
-                self.balance += excess
                 HapticsHelper.lightHaptic()
-                // Track the actual bet amount (not the excess)
-                self.trackBet(amount: maxOddsBet, type: .odds)
+                // Only track and deduct the amount that was actually added (not the full amount)
+                if actualAmountAdded > 0 {
+                    self.trackBet(amount: actualAmountAdded, type: .odds)
+                    self.balance -= actualAmountAdded
+                }
+                // Don't add excess to balance - it was never deducted in the first place
             } else {
                 self.trackBet(amount: amount, type: .odds)
                 self.balance -= amount
@@ -1487,7 +1606,15 @@ class CrapsGameplayViewController: UIViewController {
     
     private func updateCurrentBet() {
         // Sum all bet amounts from controls
-        let totalBet = getAllBettingControls().reduce(0) { $0 + $1.betAmount }
+        var totalBet = getAllBettingControls().reduce(0) { $0 + $1.betAmount }
+        
+        // Add pending come bet amount (on come line)
+        totalBet += comeBetControl?.betAmount ?? 0
+        
+        // Add come bet amounts on points
+        if let pointStack = pointStack {
+            totalBet += pointStack.getPointControlsWithComeBets().reduce(0) { $0 + $1.comeBetAmount }
+        }
         
         // Add odds amounts from pass line and don't pass controls
         var totalOdds: Int = 0
@@ -1564,14 +1691,34 @@ class CrapsGameplayViewController: UIViewController {
 
     // Structure to track winning bets
     private struct WinningBet {
-        let control: PlainControl
+        let control: AnyObject  // Changed to AnyObject to support both PlainControl and ComeBetControl
         let winAmount: Int
         let odds: Double
         let isBonus: Bool
         let description: String?
     }
     
+    /// Returns the maximum odds multiplier for a given point number (3-4-5x rule)
+    /// - 3x for points 4 and 10
+    /// - 4x for points 5 and 9
+    /// - 5x for points 6 and 8
+    private func maxOddsMultiplier(for pointNumber: Int) -> Int {
+        switch pointNumber {
+        case 4, 10:
+            return 3
+        case 5, 9:
+            return 4
+        case 6, 8:
+            return 5
+        default:
+            return 10  // Fallback to 10x for any other point (shouldn't happen in craps)
+        }
+    }
+    
     private func handleRollResult(die1: Int, die2: Int, total: Int) {
+        // Disable rolling immediately to prevent rolling during animations
+        flipDiceContainer.disableRolling()
+        
         // Increment roll count
         sessionManager.incrementRollCount()
         
@@ -1582,7 +1729,7 @@ class CrapsGameplayViewController: UIViewController {
         let balanceBeforeRoll = balance
         sessionManager.updateLastBalanceBeforeRoll(balanceBeforeRoll)
 
-        pendingBetSizeSnapshot = getAllBettingControls().reduce(0) { $0 + $1.betAmount }
+        pendingBetSizeSnapshot = getAllBettingControls().reduce(0) { $0 + $1.betAmount } + (comeBetControl?.betAmount ?? 0) + pointStack.getComeBetTotal()
 
         // Check if we're in point phase BEFORE processing the roll
         // (processRoll changes phase back to comeOut on sevenOut)
@@ -1649,6 +1796,8 @@ class CrapsGameplayViewController: UIViewController {
         // These are used later to determine if rebet should apply
         let passLineBetAmountBeforeOutcome = passLineControl.betAmount
         let dontPassBetAmountBeforeOutcome = dontPassControl.betAmount
+        // Capture pass line odds before switch statement for loss calculation
+        let passLineOddsAmountBeforeOutcome = passLineControl.oddsAmount
         
         // Handle pass line outcomes based on game event
         switch event {
@@ -1865,6 +2014,14 @@ class CrapsGameplayViewController: UIViewController {
             dontPassDidLose = dontPassResult.didLose
         }
 
+        // Capture come bet totals BEFORE handling (handleComeBets clears them)
+        let comeBetTotalBeforeHandling = pointStack.getComeBetTotal()
+        
+        // Handle come bets (pending on come line + existing on point numbers)
+        let (comeBetMessages, comeBetWins) = handleComeBets(total: total, event: event, wasInPointPhase: wasInPointPhase)
+        allWinMessages.append(contentsOf: comeBetMessages)
+        winningBets.append(contentsOf: comeBetWins)
+
         // Handle other bets (field, point bets)
         // Pass the event so we know if this roll established the point
         let (otherBetMessages, otherWins) = handleOtherBets(total, event: event)
@@ -1880,6 +2037,7 @@ class CrapsGameplayViewController: UIViewController {
         
         // Show loss container if seven out
         // Note: Don't Pass WINS on seven out, so exclude it from losses
+        // Note: Pending come bet WINS on seven out (7 is natural for come bet)
         if case .sevenOut = event {
             var losingBets = 0
             for control in getAllBettingControls() {
@@ -1888,7 +2046,15 @@ class CrapsGameplayViewController: UIViewController {
                     continue
                 }
                 losingBets += control.betAmount
+                // Include odds amounts for all controls (pass line odds, place bet odds, etc.)
+                losingBets += control.oddsAmount
             }
+            // Add come bets on points (they lose on seven out)
+            // Use the captured total since handleComeBets already cleared them
+            // Note: getComeBetTotal() already includes comeBetAmount + comeBetOddsAmount
+            losingBets += comeBetTotalBeforeHandling
+            // Add pass line odds (captured before switch statement to avoid timing issues)
+            losingBets += passLineOddsAmountBeforeOutcome
 
             // Only show loss container if bets are ON
             if losingBets > 0 && betsAreOn {
@@ -1906,7 +2072,9 @@ class CrapsGameplayViewController: UIViewController {
         }
 
         // Clear one-time bets after roll completes (excluding winning bets)
-        clearOneTimeBets(excludingWinningControls: winningBets.map { $0.control })
+        // Filter to only PlainControl instances (ComeBetControl is not a one-time bet control)
+        let winningControls = winningBets.compactMap { $0.control as? PlainControl }
+        clearOneTimeBets(excludingWinningControls: winningControls)
         
         // Determine if there was a pass line or don't pass outcome (for rebet logic)
         // Rebet should only apply when there's a pass line or don't pass outcome, not for field/other bets
@@ -1944,13 +2112,28 @@ class CrapsGameplayViewController: UIViewController {
             hasPassLineOrDontPassOutcome = dontPassHadOutcome
         }
         
+        // Calculate the longest winnings animation duration
+        // Longest animation: come bet win with odds
+        // - Starts at: 0.3s delay
+        // - Step 1: 0.6s (winnings chip flies down)
+        // - Step 2: 0.35s pause + 0.5s (bet chip flies to balance, starts 0.08s after winnings)
+        // - Odds chip: starts 0.16s after bet chip, 0.5s duration
+        // - Total: 0.3 + 0.6 + 0.35 + 0.08 + 0.16 + 0.5 = ~1.99s from animation start
+        // - But animations can start with delays (odds win starts at 0.8s), so worst case is ~2.3s
+        // Use 1.875s (25% shorter than 2.5s) to be responsive while still covering animations
+        let longestWinningsAnimationDuration: TimeInterval = 1.875
+        
         // Update rolling state after all animations complete
         // For seven out, wait longer for all chip animations to complete
         // For pointMade, wait for bet collection animation to complete (or don't pass loss)
         // For passLineLoss, wait for chip removal animation to complete (extended delay for rebet)
         // For passLineWin, check if don't pass lost and wait for chip removal
+        // For all cases with winnings, wait for longest winnings animation
         let delay: TimeInterval
-        if case .sevenOut = event {
+        if !winningBets.isEmpty {
+            // Has winnings - wait for longest winnings animation to complete
+            delay = longestWinningsAnimationDuration
+        } else if case .sevenOut = event {
             // Seven out: chips animate away starting at 0.5-0.6s, animation takes 0.5s + fade 0.2s = ~1.3s total
             delay = 2.0  // Wait for all chip removal animations to complete
         } else if case .pointMade = event {
@@ -2725,6 +2908,574 @@ class CrapsGameplayViewController: UIViewController {
         }
     }
 
+    // MARK: - Come Bet Handling
+    
+    private func handleComeBets(total: Int, event: GameEvent, wasInPointPhase: Bool) -> ([String], [WinningBet]) {
+        var winMessages: [String] = []
+        var winningBets: [WinningBet] = []
+        
+        // Track if an existing come bet won (used to delay pending come bet handling)
+        var existingComeBetWon = false
+        
+        // --- 1. Handle EXISTING come bets on point numbers ---
+        // These should pay regardless of phase (e.g., if point is made and then rolled again)
+        // Must process before pending come bet so that if a number is hit,
+        // the existing come bet on that number pays out before a new one arrives
+        
+        if total == 7 {
+            // Seven out: All existing come bets on points LOSE on any 7 (unless bets are OFF)
+            if betsAreOn {
+                let comeBetPointControls = pointStack.getPointControlsWithComeBets()
+                for pointControl in comeBetPointControls {
+                    let comeBetAmount = pointControl.comeBetAmount
+                    let comeBetOdds = pointControl.comeBetOddsAmount
+                    let totalLoss = comeBetAmount + comeBetOdds
+                    if totalLoss > 0 {
+                        // Animate come bet chips flying away (to house), then clear
+                        animateComeBetLoss(pointControl: pointControl, comeBetAmount: comeBetAmount, comeBetOdds: comeBetOdds)
+                    }
+                }
+            }
+        } else {
+            // Check if any existing come bet's number was hit
+            // Pay regardless of phase - come bets on numbers pay whenever that number is rolled
+            if let hitPointControl = pointStack.getPointControl(for: total), hitPointControl.hasComeBet {
+                let comeBetAmount = hitPointControl.comeBetAmount
+                let comeBetOdds = hitPointControl.comeBetOddsAmount
+                
+                // Come bet wins at 1:1
+                let comeBetWinnings = comeBetAmount
+                
+                // Come bet odds win at true odds (same as pass line odds)
+                var oddsWinnings = 0
+                if comeBetOdds > 0 {
+                    let oddsMultiplier = hitPointControl.oddsMultiplier
+                    oddsWinnings = Int(Double(comeBetOdds) * oddsMultiplier)
+                }
+                
+                let totalWinnings = comeBetWinnings + oddsWinnings
+                
+                winMessages.append("Come bet on \(total) wins!")
+                
+                // Mark that an existing come bet won (so we can delay pending come bet handling)
+                existingComeBetWon = true
+                
+                // Add to winning bets so winningsContainer displays
+                winningBets.append(WinningBet(
+                    control: hitPointControl,
+                    winAmount: totalWinnings,
+                    odds: oddsWinnings > 0 ? hitPointControl.oddsMultiplier : 1.0,
+                    isBonus: false,
+                    description: nil
+                ))
+                
+                // Animate come bet win: chips fly to balance with winnings
+                animateComeBetWin(
+                    pointControl: hitPointControl,
+                    comeBetAmount: comeBetAmount,
+                    comeBetOdds: comeBetOdds,
+                    comeBetWinnings: comeBetWinnings,
+                    oddsWinnings: oddsWinnings
+                )
+            }
+        }
+        
+        // --- 2. Handle PENDING come bet (on come line) ---
+        // Only process pending come bets if we were in point phase when the roll happened
+        guard wasInPointPhase else { return (winMessages, winningBets) }
+        
+        let pendingComeBet = comeBetControl?.betAmount ?? 0
+        if pendingComeBet > 0 {
+            // If an existing come bet won on this number (4-10), delay pending come bet handling
+            // to allow the win animation to complete first (~1.6 seconds total animation time)
+            // For 7/11/2/3/12, handle immediately (no conflict with existing come bets)
+            let needsDelay = existingComeBetWon && (4...10).contains(total)
+            // Use 2.0 seconds to ensure win animation's clearComeBet has definitely completed
+            let delay: TimeInterval = needsDelay ? 2.0 : 0.0
+            
+            if delay > 0 {
+                // Delayed handling for number rolls when existing come bet won
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self = self else { return }
+                    
+                    // Re-check pending bet amount (might have changed during delay)
+                    let currentPendingBet = self.comeBetControl?.betAmount ?? 0
+                    guard currentPendingBet > 0 else { return }
+                    
+                    // Come bet moves to the rolled number
+                    // The win animation should have cleared the existing bet by now
+                    self.animateComeBetToPoint(amount: currentPendingBet, pointNumber: total)
+                }
+            } else {
+                // Immediate handling for 7/11/2/3/12 or when no existing come bet won
+                switch total {
+                case 7, 11:
+                    // Come bet wins on natural (7 or 11)
+                    // Note: 7 also triggers sevenOut for pass line, but come bet still wins
+                    let winAmount = pendingComeBet  // 1:1 payout
+                    winMessages.append("Come bet wins on \(total)!")
+                    
+                    // Add to winning bets so winningsContainer displays
+                    // Use comeBetControl as the control since this is a pending come bet
+                    if let comeBetControl = comeBetControl {
+                        winningBets.append(WinningBet(
+                            control: comeBetControl,
+                            winAmount: winAmount,
+                            odds: 1.0,
+                            isBonus: false,
+                            description: nil
+                        ))
+                    }
+                    
+                    // Animate: winnings fly down from house to bet, then both fly to balance
+                    animatePendingComeBetWin(betAmount: pendingComeBet, winAmount: winAmount)
+                    
+                case 2, 3, 12:
+                    // Come bet loses (craps)
+                    // Balance was already deducted when bet was placed
+                    
+                    // Animate: chip flies away to house
+                    animatePendingComeBetLoss(betAmount: pendingComeBet)
+                    
+                case 4, 5, 6, 8, 9, 10:
+                    // Come bet moves to the rolled number (no existing come bet won, so no delay needed)
+                    animateComeBetToPoint(amount: pendingComeBet, pointNumber: total)
+                    
+                default:
+                    break
+                }
+            }
+        }
+        
+        return (winMessages, winningBets)
+    }
+    
+    /// Animate a come bet chip from the ComeBetControl to the target PointControl
+    private func animateComeBetToPoint(amount: Int, pointNumber: Int) {
+        guard let targetPointControl = pointStack.getPointControl(for: pointNumber) else {
+            // Fallback: just place the bet without animation
+            placeComeBetOnPoint(amount: amount, pointNumber: pointNumber)
+            return
+        }
+        
+        // Get source position (center of ComeBetControl's betView in view coordinates)
+        let sourcePosition = comeBetControl.getBetViewPosition(in: view)
+        
+        // Place the bet first so we can get the actual destination position
+        // This ensures the animation goes to the exact spot where the chip will be
+        placeComeBetOnPoint(amount: amount, pointNumber: pointNumber)
+        
+        // Force layout to ensure the come bet stack is positioned correctly
+        view.layoutIfNeeded()
+        
+        // Verify the bet was actually placed (might have been cleared if timing was off)
+        if !targetPointControl.hasComeBet {
+            // Bet wasn't placed - try again (shouldn't happen, but handle gracefully)
+            placeComeBetOnPoint(amount: amount, pointNumber: pointNumber)
+            view.layoutIfNeeded()
+            // If still no bet, just place it without animation
+            if !targetPointControl.hasComeBet {
+                comeBetControl.betAmount = 0
+                return
+            }
+        }
+        
+        // Get the actual destination position from the newly created come bet stack
+        let destinationPosition = targetPointControl.getComeBetPosition(in: view)
+        
+        // Ensure we have a valid destination (not .zero)
+        guard destinationPosition != .zero else {
+            // Invalid position - just place without animation
+            comeBetControl.betAmount = 0
+            return
+        }
+        
+        // Hide the come bet chip on the PointControl during animation
+        targetPointControl.hideComeBetChip()
+        
+        // Create animation chip using the same helper pattern as ChipAnimationHelper
+        let animationChip = SmallBetChip()
+        animationChip.translatesAutoresizingMaskIntoConstraints = true
+        animationChip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+        animationChip.amount = amount
+        animationChip.isHidden = false
+        animationChip.alpha = 1.0
+        view.addSubview(animationChip)
+        animationChip.center = sourcePosition
+        
+        // Hide the original bet chip on the ComeBetControl
+        comeBetControl.betView.alpha = 0
+        
+        // Simple, smooth animation to destination
+        let animator = UIViewPropertyAnimator(
+            duration: 0.45,
+            controlPoint1: CGPoint(x: 0.25, y: 0.1),
+            controlPoint2: CGPoint(x: 0.25, y: 1.0)
+        ) {
+            animationChip.center = destinationPosition
+        }
+        
+        animator.addCompletion { [weak self] _ in
+            guard let self = self else { return }
+            
+            animationChip.removeFromSuperview()
+            
+            // Clear the bet amount and restore alpha for future bets
+            self.comeBetControl.betAmount = 0
+            self.comeBetControl.betView.alpha = 1
+            
+            // Show the come bet chip on the PointControl (it was hidden during animation)
+            // Only show if the bet still exists (it might have been cleared if timing was off)
+            if targetPointControl.hasComeBet {
+                targetPointControl.showComeBetChip()
+            } else {
+                // Bet was cleared - re-place it (this shouldn't happen, but handle gracefully)
+                self.placeComeBetOnPoint(amount: amount, pointNumber: pointNumber)
+            }
+        }
+        
+        animator.startAnimation(afterDelay: 0.15)
+    }
+    
+    /// Place a come bet on a PointControl (called after animation completes)
+    private func placeComeBetOnPoint(amount: Int, pointNumber: Int) {
+        guard let targetPointControl = pointStack.getPointControl(for: pointNumber) else { return }
+        
+        targetPointControl.addComeBet(
+            amount: amount,
+            getSelectedChipValue: { [weak self] in
+                return self?.selectedChipValue ?? 5
+            },
+            getBalance: { [weak self] in
+                return self?.balance ?? 200
+            }
+        )
+    }
+    
+    // MARK: - Come Bet Animations
+    
+    /// Animate come bet win on a point number: winnings fly down, then all chips fly to balance
+    private func animateComeBetWin(pointControl: PointControl, comeBetAmount: Int, comeBetOdds: Int, comeBetWinnings: Int, oddsWinnings: Int) {
+        guard let balanceCenter = chipAnimator.getBalanceCenter(in: view) else {
+            // Fallback: just add to balance directly
+            balance += comeBetAmount + comeBetOdds + comeBetWinnings + oddsWinnings
+            pointControl.clearComeBet()
+            updateCurrentBet()
+            return
+        }
+        
+        let betPosition = pointControl.getComeBetPosition(in: view)
+        let totalWinnings = comeBetWinnings + oddsWinnings
+        
+        // Winnings chip position (offset above the bet)
+        let winningsTargetPosition = CGPoint(x: betPosition.x, y: betPosition.y - 30)
+        
+        // Step 1: Create winnings chip, animate from house to bet area
+        let winningsChip = SmallBetChip()
+        winningsChip.translatesAutoresizingMaskIntoConstraints = true
+        winningsChip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+        winningsChip.amount = totalWinnings
+        winningsChip.isHidden = false
+        view.addSubview(winningsChip)
+        winningsChip.center = CGPoint(x: view.bounds.midX, y: 0)
+        winningsChip.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+        
+        let animator1 = UIViewPropertyAnimator(
+            duration: 0.6,
+            controlPoint1: CGPoint(x: 0.85, y: 0),
+            controlPoint2: CGPoint(x: 0.15, y: 1)
+        ) {
+            winningsChip.transform = CGAffineTransform(scaleX: 1.3, y: 1.3)
+            winningsChip.center = winningsTargetPosition
+        }
+        
+        animator1.addCompletion { [weak self] _ in
+            guard let self = self else { return }
+            
+            // Step 2: Brief pause, then animate all chips to balance
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                guard let self = self else { return }
+                
+                // Create bet chip overlay (hide original)
+                let betChip = SmallBetChip()
+                betChip.translatesAutoresizingMaskIntoConstraints = true
+                betChip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+                betChip.amount = comeBetAmount
+                betChip.isHidden = false
+                self.view.addSubview(betChip)
+                betChip.center = betPosition
+                pointControl.hideComeBetChip()
+                
+                // Create odds chip overlay if odds exist
+                var oddsChip: SmallBetChip?
+                if comeBetOdds > 0 {
+                    let oddsPosition = pointControl.getComeBetOddsPosition(in: self.view)
+                    let chip = SmallBetChip()
+                    chip.translatesAutoresizingMaskIntoConstraints = true
+                    chip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+                    chip.amount = comeBetOdds
+                    chip.isHidden = false
+                    self.view.addSubview(chip)
+                    chip.center = oddsPosition
+                    pointControl.hideComeBetOddsChip()
+                    oddsChip = chip
+                }
+                
+                // Animate winnings chip to balance
+                let animWin = UIViewPropertyAnimator(
+                    duration: 0.5,
+                    controlPoint1: CGPoint(x: 0.85, y: 0),
+                    controlPoint2: CGPoint(x: 0.15, y: 1)
+                ) {
+                    winningsChip.center = balanceCenter
+                    winningsChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                }
+                animWin.addCompletion { [weak self] _ in
+                    self?.balance += totalWinnings
+                    self?.updateCurrentBet()
+                    winningsChip.removeFromSuperview()
+                }
+                
+                // Animate bet chip to balance
+                let animBet = UIViewPropertyAnimator(
+                    duration: 0.5,
+                    controlPoint1: CGPoint(x: 0.85, y: 0),
+                    controlPoint2: CGPoint(x: 0.15, y: 1)
+                ) {
+                    betChip.center = CGPoint(x: balanceCenter.x - 8, y: balanceCenter.y)
+                    betChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                }
+                animBet.addCompletion { [weak self] _ in
+                    self?.balance += comeBetAmount
+                    self?.updateCurrentBet()
+                    betChip.removeFromSuperview()
+                }
+                
+                animWin.startAnimation()
+                animBet.startAnimation(afterDelay: 0.08)
+                
+                // Animate odds chip to balance if present
+                if let oddsChip = oddsChip {
+                    let animOdds = UIViewPropertyAnimator(
+                        duration: 0.5,
+                        controlPoint1: CGPoint(x: 0.85, y: 0),
+                        controlPoint2: CGPoint(x: 0.15, y: 1)
+                    ) {
+                        oddsChip.center = CGPoint(x: balanceCenter.x + 8, y: balanceCenter.y)
+                        oddsChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                    }
+                    animOdds.addCompletion { [weak self] _ in
+                        self?.balance += comeBetOdds
+                        self?.updateCurrentBet()
+                        oddsChip.removeFromSuperview()
+                        
+                        // Clear come bet after all animations complete
+                        pointControl.clearComeBetSilently()
+                    }
+                    animOdds.startAnimation(afterDelay: 0.16)
+                } else {
+                    // No odds - clear come bet after bet chip animation
+                    animBet.addCompletion { _ in
+                        pointControl.clearComeBetSilently()
+                    }
+                }
+            }
+        }
+        
+        animator1.startAnimation(afterDelay: 0.3)
+    }
+    
+    /// Animate come bet loss on seven-out: chips fly away to house
+    private func animateComeBetLoss(pointControl: PointControl, comeBetAmount: Int, comeBetOdds: Int) {
+        let betPosition = pointControl.getComeBetPosition(in: view)
+        let housePosition = CGPoint(x: view.bounds.width / 2, y: 0)
+        
+        // Create bet chip overlay
+        let betChip = SmallBetChip()
+        betChip.translatesAutoresizingMaskIntoConstraints = true
+        betChip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+        betChip.amount = comeBetAmount
+        betChip.isHidden = false
+        view.addSubview(betChip)
+        betChip.center = betPosition
+        pointControl.hideComeBetChip()
+        
+        // Create odds chip overlay if odds exist
+        var oddsChip: SmallBetChip?
+        if comeBetOdds > 0 {
+            let oddsPosition = pointControl.getComeBetOddsPosition(in: view)
+            let chip = SmallBetChip()
+            chip.translatesAutoresizingMaskIntoConstraints = true
+            chip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+            chip.amount = comeBetOdds
+            chip.isHidden = false
+            view.addSubview(chip)
+            chip.center = oddsPosition
+            pointControl.hideComeBetOddsChip()
+            oddsChip = chip
+        }
+        
+        // Animate bet chip away with slight random delay for cascading effect
+        let delay1 = Double.random(in: 0...0.15)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + delay1) { [weak self] in
+            guard let self = self else { return }
+            UIView.animate(withDuration: 0.5, delay: 0, options: .curveEaseIn) {
+                betChip.center = housePosition
+                betChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+            } completion: { _ in
+                UIView.animate(withDuration: 0.2) {
+                    betChip.alpha = 0
+                } completion: { _ in
+                    betChip.removeFromSuperview()
+                }
+            }
+        }
+        
+        // Animate odds chip away if present
+        if let oddsChip = oddsChip {
+            let delay2 = Double.random(in: 0...0.15)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 + delay2) {
+                UIView.animate(withDuration: 0.5, delay: 0, options: .curveEaseIn) {
+                    oddsChip.center = housePosition
+                    oddsChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                } completion: { _ in
+                    UIView.animate(withDuration: 0.2) {
+                        oddsChip.alpha = 0
+                    } completion: { _ in
+                        oddsChip.removeFromSuperview()
+                    }
+                }
+            }
+        }
+        
+        // Clear come bet after animations are underway
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            pointControl.clearComeBetSilently()
+        }
+    }
+    
+    /// Animate pending come bet win on the come line: winnings fly down, then both fly to balance
+    private func animatePendingComeBetWin(betAmount: Int, winAmount: Int) {
+        guard let balanceCenter = chipAnimator.getBalanceCenter(in: view) else {
+            // Fallback: just add to balance
+            balance += betAmount + winAmount
+            comeBetControl.betAmount = 0
+            updateCurrentBet()
+            return
+        }
+        
+        let betPosition = comeBetControl.getBetViewPosition(in: view)
+        let winningsTargetPosition = CGPoint(x: betPosition.x - 35, y: betPosition.y)
+        
+        // Step 1: Create winnings chip, animate from house to bet area
+        let winningsChip = SmallBetChip()
+        winningsChip.translatesAutoresizingMaskIntoConstraints = true
+        winningsChip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+        winningsChip.amount = winAmount
+        winningsChip.isHidden = false
+        view.addSubview(winningsChip)
+        winningsChip.center = CGPoint(x: view.bounds.midX, y: 0)
+        winningsChip.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+        
+        let animator1 = UIViewPropertyAnimator(
+            duration: 0.6,
+            controlPoint1: CGPoint(x: 0.85, y: 0),
+            controlPoint2: CGPoint(x: 0.15, y: 1)
+        ) {
+            winningsChip.transform = CGAffineTransform(scaleX: 1.3, y: 1.3)
+            winningsChip.center = winningsTargetPosition
+        }
+        
+        animator1.addCompletion { [weak self] _ in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                guard let self = self else { return }
+                
+                // Create bet chip overlay (hide original)
+                let betChip = SmallBetChip()
+                betChip.translatesAutoresizingMaskIntoConstraints = true
+                betChip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+                betChip.amount = betAmount
+                betChip.isHidden = false
+                self.view.addSubview(betChip)
+                betChip.center = betPosition
+                self.comeBetControl.betView.alpha = 0
+                
+                // Animate winnings to balance
+                let animWin = UIViewPropertyAnimator(
+                    duration: 0.5,
+                    controlPoint1: CGPoint(x: 0.85, y: 0),
+                    controlPoint2: CGPoint(x: 0.15, y: 1)
+                ) {
+                    winningsChip.center = balanceCenter
+                    winningsChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                }
+                animWin.addCompletion { [weak self] _ in
+                    self?.balance += winAmount
+                    self?.updateCurrentBet()
+                    winningsChip.removeFromSuperview()
+                }
+                
+                // Animate bet chip to balance
+                let animBet = UIViewPropertyAnimator(
+                    duration: 0.5,
+                    controlPoint1: CGPoint(x: 0.85, y: 0),
+                    controlPoint2: CGPoint(x: 0.15, y: 1)
+                ) {
+                    betChip.center = CGPoint(x: balanceCenter.x - 8, y: balanceCenter.y)
+                    betChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                }
+                animBet.addCompletion { [weak self] _ in
+                    self?.balance += betAmount
+                    self?.updateCurrentBet()
+                    betChip.removeFromSuperview()
+                    self?.comeBetControl.betAmount = 0
+                    self?.comeBetControl.betView.alpha = 1
+                }
+                
+                animWin.startAnimation()
+                animBet.startAnimation(afterDelay: 0.08)
+            }
+        }
+        
+        animator1.startAnimation(afterDelay: 0.3)
+    }
+    
+    /// Animate pending come bet loss on the come line: chip flies away to house
+    private func animatePendingComeBetLoss(betAmount: Int) {
+        let betPosition = comeBetControl.getBetViewPosition(in: view)
+        let housePosition = CGPoint(x: view.bounds.width / 2, y: 0)
+        
+        // Create chip overlay (hide original)
+        let betChip = SmallBetChip()
+        betChip.translatesAutoresizingMaskIntoConstraints = true
+        betChip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+        betChip.amount = betAmount
+        betChip.isHidden = false
+        view.addSubview(betChip)
+        betChip.center = betPosition
+        comeBetControl.betView.alpha = 0
+        
+        // Animate chip flying away
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            
+            UIView.animate(withDuration: 0.5, delay: 0, options: .curveEaseIn) {
+                betChip.center = housePosition
+                betChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+            } completion: { _ in
+                UIView.animate(withDuration: 0.2) {
+                    betChip.alpha = 0
+                } completion: { [weak self] _ in
+                    betChip.removeFromSuperview()
+                    self?.comeBetControl.betAmount = 0
+                    self?.comeBetControl.betView.alpha = 1
+                }
+            }
+        }
+    }
+    
     private func handleOtherBets(_ total: Int, event: GameEvent) -> ([String], [WinningBet]) {
         var winMessages: [String] = []
         var winningBets: [WinningBet] = []
@@ -2807,6 +3558,7 @@ class CrapsGameplayViewController: UIViewController {
     
     /// Group winning bets by type and show separate containers
     /// - Pass Line + Odds: Combined into one container
+    /// - Come Bets: Combined into one container
     /// - Each Horn bet: Separate container
     /// - Each Hardway bet: Separate container
     /// - Each Make Em bet: Separate container
@@ -2815,6 +3567,7 @@ class CrapsGameplayViewController: UIViewController {
         // Group bets by type
         var passLineOddsBets: [WinningBet] = []
         var dontPassBets: [WinningBet] = []
+        var comeBetBets: [WinningBet] = []
         var hornBets: [WinningBet] = []
         var hardwayBets: [WinningBet] = []
         var makeEmBets: [WinningBet] = []
@@ -2828,6 +3581,25 @@ class CrapsGameplayViewController: UIViewController {
             // Check if it's don't pass
             else if bet.control === dontPassControl {
                 dontPassBets.append(bet)
+            }
+            // Check if it's a come bet (ComeBetControl or PointControl with come bet)
+            else if bet.control === comeBetControl {
+                comeBetBets.append(bet)
+            }
+            // Check if it's a PointControl - could be come bet win or place bet win
+            // Come bet wins on points: added in handleComeBets, use PointControl
+            // Place bet wins: added in handleOtherBets, also use PointControl
+            // Try to distinguish: if the PointControl currently has a come bet (hasComeBet), it's likely a come bet win
+            // Note: This check happens after the bet may have been cleared, so it's not 100% reliable
+            // but it's the best heuristic we have without additional metadata
+            else if bet.control is PointControl {
+                if let pointControl = bet.control as? PointControl, pointControl.hasComeBet {
+                    // Likely a come bet win
+                    comeBetBets.append(bet)
+                } else {
+                    // Likely a place bet win
+                    fieldPointBets.append(bet)
+                }
             }
             // Check if it's a Make Em bet (MultiBetControl)
             else if bet.control is MultiBetControl {
@@ -2852,8 +3624,8 @@ class CrapsGameplayViewController: UIViewController {
                     }
                 }
             }
-            // Check if it's field or point bet
-            else if bet.control === fieldControl || bet.control is PointControl {
+            // Check if it's field bet (not PointControl, since those are handled above)
+            else if bet.control === fieldControl {
                 fieldPointBets.append(bet)
             }
         }
@@ -2878,6 +3650,18 @@ class CrapsGameplayViewController: UIViewController {
             let hasBonus = dontPassBets.contains { $0.isBonus }
             let description = dontPassBets.first(where: { $0.isBonus })?.description ??
                              dontPassBets.first(where: { $0.description != nil })?.description
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.showBetResult(amount: totalWinnings, isWin: true, showBonus: hasBonus, description: description)
+            }
+            delay += 0.2
+        }
+        
+        // Show Come Bet wins combined
+        if !comeBetBets.isEmpty {
+            let totalWinnings = comeBetBets.reduce(0) { $0 + $1.winAmount }
+            let hasBonus = comeBetBets.contains { $0.isBonus }
+            let description = comeBetBets.first(where: { $0.isBonus })?.description ??
+                             comeBetBets.first(where: { $0.description != nil })?.description
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.showBetResult(amount: totalWinnings, isWin: true, showBonus: hasBonus, description: description)
             }
@@ -3168,7 +3952,9 @@ class CrapsGameplayViewController: UIViewController {
     /// Check if any betting control has a bet placed
     private func hasAnyBetPlaced() -> Bool {
         let allControls = getAllBettingControls()
-        return allControls.contains { $0.betAmount > 0 }
+        if allControls.contains(where: { $0.betAmount > 0 }) { return true }
+        if comeBetControl != nil && comeBetControl.betAmount > 0 { return true }
+        return false
     }
 
     // MARK: - Action Methods

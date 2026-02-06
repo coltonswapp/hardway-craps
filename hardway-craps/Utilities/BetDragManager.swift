@@ -23,17 +23,27 @@ protocol BetDropTarget: AnyObject {
     func restoreBetViewPosition()
 }
 
+/// Protocol for controls that can be the SOURCE of a bet drag (i.e. dragging a bet away from them)
+protocol BetDragSource: AnyObject {
+    var betAmount: Int { get set }
+    var betView: SmallBetChip! { get }
+    var canRemoveBet: (() -> Bool)? { get }
+    func removeBetSilently(_ amount: Int)
+    func getBetViewPosition(in view: UIView) -> CGPoint
+}
+
 class BetDragManager {
 
     static let shared = BetDragManager()
 
     private var draggedChip: SmallBetChip?
     private var dragValue: Int = 0
-    private var sourceControl: PlainControl?
+    private var sourceControl: BetDragSource?
     private var oddsSourceControl: BetDropTarget? // Track the control we're dragging odds from
     private var dropTargets: [BetDropTarget] = []
     private var currentDropTarget: BetDropTarget?
     private var originalBetViewPosition: CGPoint = .zero
+    private var originalOddsPosition: CGPoint = .zero // Track original odds position for snap-back
     private var currentLockedBetTarget: BetDropTarget?
     private var droppedOnLockedBet: BetDropTarget? // Track if we dropped on a locked bet to prevent restore
 
@@ -49,13 +59,29 @@ class BetDragManager {
     
     func setOddsSource(_ control: BetDropTarget) {
         oddsSourceControl = control
+        // Store original odds position for snap-back animation
+        // This is called after startDragging, so we need the view from the dragged chip
+        if let chip = draggedChip, let containerView = chip.superview {
+            // Get odds position from the control
+            if let oddsStack = control as? OddsBetStack {
+                originalOddsPosition = oddsStack.getOddsPosition(in: containerView)
+            } else if let comeControl = control as? ComeBetControl {
+                // ComeBetControl's getBetViewPosition returns oddsView position if odds exist
+                originalOddsPosition = comeControl.getBetViewPosition(in: containerView)
+            } else if let plainControl = control as? PlainControl, let oddsStack = plainControl.oddsBetStack {
+                originalOddsPosition = oddsStack.getOddsPosition(in: containerView)
+            } else {
+                // Fallback to bet view position
+                originalOddsPosition = control.getBetViewPosition(in: containerView)
+            }
+        }
     }
     
     func hasCurrentDropTarget() -> Bool {
         return currentDropTarget != nil
     }
 
-    func startDragging(value: Int, from point: CGPoint, in view: UIView, source: PlainControl? = nil) {
+    func startDragging(value: Int, from point: CGPoint, in view: UIView, source: BetDragSource? = nil) {
         dragValue = value
         sourceControl = source
         
@@ -183,7 +209,7 @@ class BetDragManager {
             // Determine if this is a bet move (has source) or new bet placement
             let isBetMove = source != nil
             // Check if dropping back on the same control (no-op, just restore visibility)
-            let isSameControl = source === target
+            let isSameControl = source != nil && (source as AnyObject) === (target as AnyObject)
             // Check if dropping odds back on the same control
             let isDroppingOddsBack = oddsSource === target
             // ChipSelector returns bets to balance ONLY if we're moving an existing bet (has source)
@@ -236,14 +262,14 @@ class BetDragManager {
                         // Only allow if bet can be removed from source (already checked above)
                         if canRemove {
                             target.addBet(valueToAdd)
-                            // Add animation manually
-                            if let plainTarget = target as? PlainControl {
-                                let originalTransform = plainTarget.betView.transform
+                            // Add bounce animation manually
+                            if let dragSource = target as? BetDragSource {
+                                let originalTransform = dragSource.betView.transform
                                 UIView.animate(withDuration: 0.05, delay: 0, options: [.curveEaseOut]) {
-                                    plainTarget.betView.transform = CGAffineTransform(scaleX: 1.15, y: 1.15)
+                                    dragSource.betView.transform = CGAffineTransform(scaleX: 1.15, y: 1.15)
                                 } completion: { _ in
                                     UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
-                                        plainTarget.betView.transform = originalTransform
+                                        dragSource.betView.transform = originalTransform
                                     }
                                 }
                                 HapticsHelper.lightHaptic()
@@ -338,8 +364,30 @@ class BetDragManager {
                 source.betView.alpha = 1
                 self.cleanup()
             }
+        } else if let oddsSource = oddsSourceControl {
+            // No valid drop target but odds were being dragged - restore odds visibility and snap back
+            // Note: oddsAmount was NOT reduced during drag (only alpha was set to 0), so we don't need to restore the amount
+            // This ensures every dragged bet is accounted for: either reaches destination or returns to source
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0.8, options: .curveEaseOut) {
+                chip.center = self.originalOddsPosition
+                chip.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+            } completion: { _ in
+                chip.removeFromSuperview()
+                // Restore odds visibility (oddsAmount was never reduced, so just restore alpha)
+                if let oddsStack = oddsSource as? OddsBetStack {
+                    oddsStack.oddsChip.alpha = 1
+                    oddsStack.oddsChip.isHidden = false
+                } else if let comeControl = oddsSource as? ComeBetControl {
+                    comeControl.ensureOddsVisible()
+                } else if let plainControl = oddsSource as? PlainControl, let oddsStack = plainControl.oddsBetStack {
+                    oddsStack.oddsChip.alpha = 1
+                    oddsStack.oddsChip.isHidden = false
+                }
+                self.cleanup()
+            }
         } else {
-            // Invalid drop with no source - just remove chip
+            // Invalid drop with no source and no odds source - just remove chip
+            // This should only happen for ChipSelector-originated drags where balance wasn't deducted yet
             UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseOut) {
                 chip.alpha = 0
                 chip.transform = .identity
@@ -384,5 +432,6 @@ class BetDragManager {
         sourceControl = nil
         currentDropTarget = nil
         originalBetViewPosition = .zero
+        originalOddsPosition = .zero
     }
 }

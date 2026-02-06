@@ -48,7 +48,9 @@ class PointControl: PlainControl {
     // Come bet with odds support (vertical layout, right-aligned)
     private var comeBetStack: OddsBetStack?
     private var betViewCenterXConstraint: NSLayoutConstraint!
+    private var betViewLeadingConstraint: NSLayoutConstraint?
     private var comeBetStackTrailingConstraint: NSLayoutConstraint?
+    private var comeBetStackCenterYConstraint: NSLayoutConstraint?
     
     var hasComeBet: Bool {
         return comeBetStack != nil && comeBetStack!.betAmount > 0
@@ -63,7 +65,7 @@ class PointControl: PlainControl {
     }
     
     // Callbacks for come bet
-    var onComeBetOddsPlaced: ((Int) -> Void)?
+    var onComeBetOddsPlaced: ((Int, Int, Int) -> Void)?  // (amount, previousOddsAmount, pointNumber)
     var onComeBetOddsRemoved: ((Int) -> Void)?
     
     /// Override to animate winnings slightly above the bet (instead of to the right)
@@ -154,11 +156,16 @@ class PointControl: PlainControl {
             comeBetStack?.onBetRemoved = { [weak self] _ in
                 // Come bet removal handled by clearComeBet
             }
-            comeBetStack?.onOddsPlaced = { [weak self] amount in
-                self?.onComeBetOddsPlaced?(amount)
+            comeBetStack?.onOddsPlaced = { [weak self] amount, previousOddsAmount in
+                guard let self = self else { return }
+                self.onComeBetOddsPlaced?(amount, previousOddsAmount, self.pointNumber)
+                // Slide stack up when odds are added
+                self.updateComeBetStackPosition()
             }
             comeBetStack?.onOddsRemoved = { [weak self] amount in
                 self?.onComeBetOddsRemoved?(amount)
+                // Slide stack back to center when odds are removed
+                self?.updateComeBetStackPosition()
             }
             
             setupComeBetConstraints()
@@ -183,16 +190,30 @@ class PointControl: PlainControl {
         
         stack.translatesAutoresizingMaskIntoConstraints = false
         
-        // Position come bet stack on the right side
-        comeBetStackTrailingConstraint = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
+        // Position come bet stack trailing edge on pointControl trailing edge (with small padding)
+        comeBetStackTrailingConstraint = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        
+        // Center vertically initially (will slide up when odds are added)
+        comeBetStackCenterYConstraint = stack.centerYAnchor.constraint(equalTo: betView.centerYAnchor, constant: 0)
         
         NSLayoutConstraint.activate([
             comeBetStackTrailingConstraint!,
-            stack.centerYAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+            comeBetStackCenterYConstraint!
         ])
         
-        // Shift place bet to the left
+        // Shift place bet to align leading edge with pointControl leading edge
         animatePlaceBetShift(left: true)
+    }
+    
+    func updateComeBetStackPosition() {
+        guard let constraint = comeBetStackCenterYConstraint else { return }
+        let hasOdds = (comeBetStack?.oddsAmount ?? 0) > 0
+        let targetConstant: CGFloat = hasOdds ? -8 : 0
+        
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
+            constraint.constant = targetConstant
+            self.layoutIfNeeded()
+        }
     }
     
     private func restorePlaceBetPosition() {
@@ -200,11 +221,94 @@ class PointControl: PlainControl {
     }
     
     private func animatePlaceBetShift(left: Bool) {
-        let targetConstant: CGFloat = left ? -40 : 0  // Shift left by 40pt when come bet exists
-        
-        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
-            self.betViewCenterXConstraint.constant = targetConstant
-            self.layoutIfNeeded()
+        if left {
+            // When come bet is added: align place bet leading edge with pointControl leading edge
+            // SmallBetChip is 30pt wide, so centerX should be at leading + 15pt
+            // Current centerX is at pointControl.centerX (which is leading + 30pt for 60pt wide control)
+            // So we need to shift: (leading + 15) - (leading + 30) = -15pt
+            let chipHalfWidth: CGFloat = 15  // SmallBetChip is 30pt wide, half is 15pt
+            let pointControlHalfWidth: CGFloat = 30  // PointControl is 60pt wide, half is 30pt
+            let shiftAmount = chipHalfWidth - pointControlHalfWidth  // -15pt
+            
+            // Deactivate centerX constraint and activate leading constraint
+            betViewCenterXConstraint.isActive = false
+            betViewLeadingConstraint = betView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0)
+            betViewLeadingConstraint?.isActive = true
+            
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
+                self.layoutIfNeeded()
+            }
+        } else {
+            // When come bet is removed: restore place bet to center
+            betViewLeadingConstraint?.isActive = false
+            betViewLeadingConstraint = nil
+            betViewCenterXConstraint.isActive = true
+            
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
+                self.layoutIfNeeded()
+            }
         }
+    }
+    
+    // MARK: - Convenience Methods
+    
+    /// Add odds to the come bet (convenience method for testing)
+    func addComeBetOdds(amount: Int) {
+        comeBetStack?.addOddsWithAnimation(amount)
+    }
+    
+    /// Set the come bet odds amount directly (used for enforcing maximum odds)
+    func setComeBetOddsAmount(_ amount: Int) {
+        comeBetStack?.oddsAmount = amount
+    }
+    
+    /// Get the come bet chip position in the given coordinate space
+    func getComeBetPosition(in view: UIView) -> CGPoint {
+        guard let stack = comeBetStack else { return .zero }
+        return stack.getBetPosition(in: view)
+    }
+    
+    /// Get the come bet odds chip position in the given coordinate space
+    func getComeBetOddsPosition(in view: UIView) -> CGPoint {
+        guard let stack = comeBetStack else { return .zero }
+        return stack.getOddsPosition(in: view)
+    }
+    
+    /// Hide come bet chip (for animation overlay)
+    func hideComeBetChip() {
+        comeBetStack?.betChip.alpha = 0
+    }
+    
+    /// Show come bet chip (after animation completes)
+    func showComeBetChip() {
+        comeBetStack?.betChip.alpha = 1
+    }
+    
+    /// Hide come bet odds chip (for animation overlay)
+    func hideComeBetOddsChip() {
+        comeBetStack?.oddsChip.alpha = 0
+    }
+    
+    /// Clear come bet without triggering odds return callback (for animated loss)
+    func clearComeBetSilently() {
+        comeBetStack?.removeFromSuperview()
+        comeBetStack = nil
+        restorePlaceBetPosition()
+    }
+    
+    // MARK: - Touch Handling
+    
+    /// Override hitTest to ensure come bet stack receives touches even when it extends outside bounds
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // First check if come bet stack can handle the touch
+        if let stack = comeBetStack {
+            let stackPoint = convert(point, to: stack)
+            if let hitView = stack.hitTest(stackPoint, with: event) {
+                return hitView
+            }
+        }
+        
+        // Default behavior for other touches
+        return super.hitTest(point, with: event)
     }
 }

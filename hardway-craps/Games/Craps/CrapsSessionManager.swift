@@ -205,6 +205,9 @@ final class CrapsSessionManager {
         case .dontPass:
             gameplayMetrics.dontPassBetCount += 1
             gameplayMetrics.totalDontPassAmount += amount
+        case .comeBet:
+            gameplayMetrics.comeBetCount += 1
+            gameplayMetrics.totalComeBetAmount += amount
         }
 
         // Track largest bet
@@ -468,4 +471,5 @@ enum BetType {
     case horn
     case field
     case dontPass
+    case comeBet
 }
