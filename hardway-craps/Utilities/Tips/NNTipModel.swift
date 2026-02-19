@@ -116,7 +116,7 @@ enum CrapsTips {
     static let dragChipTip = NNTipModel(
         id: "CrapsDragChipTip",
         title: "Drag to Remove",
-        message: "Tap and drag a chip back to your chip stack to remove it from any bet. Some bets can only be removed when puck if OFF.",
+        message: "Tap and drag a chip back to your chip stack to remove it from any bet. Some bets can only be removed when puck is OFF.",
         systemImageName: "hand.draw.fill"
     )
     

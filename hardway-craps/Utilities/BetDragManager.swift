@@ -84,32 +84,35 @@ class BetDragManager {
     func startDragging(value: Int, from point: CGPoint, in view: UIView, source: BetDragSource? = nil) {
         dragValue = value
         sourceControl = source
-        
+
         // Store original betView position for snap-back animation
         if let source = source {
             originalBetViewPosition = source.getBetViewPosition(in: view)
         }
-        
+
         // Offset chip above finger for visibility
         let chipPosition = CGPoint(x: point.x, y: point.y - 40)
 
         let chip = SmallBetChip()
         chip.amount = value
-        
+
         // Enable manual positioning for dragged chip (disable Auto Layout)
         chip.translatesAutoresizingMaskIntoConstraints = true
-        
+
+        // Match SmallBetChip's scaling behavior - 25% larger on iPad
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let chipSize: CGFloat = isIPad ? 30 * 1.25 : 30
+
         // Set frame first to avoid flashing to origin
-        let chipSize: CGFloat = 30
         chip.frame = CGRect(
             x: chipPosition.x - chipSize / 2,
             y: chipPosition.y - chipSize / 2,
             width: chipSize,
             height: chipSize
         )
-        
+
         chip.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
-        chip.alpha = 0.9
+        chip.alpha = 1.0
         chip.isHidden = false
 
         view.addSubview(chip)
@@ -127,7 +130,7 @@ class BetDragManager {
         var chipPosition = CGPoint(x: point.x, y: point.y - 40)
         
         // Normal drag appearance (bet removal prevention is handled in PlainControl.handleBetViewPan)
-        chip.alpha = 0.9
+        chip.alpha = 1.0
         chip.transform = CGAffineTransform(scaleX: 1.3, y: 1.3)
         
         chip.center = chipPosition

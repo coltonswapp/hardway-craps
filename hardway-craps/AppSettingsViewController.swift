@@ -62,12 +62,14 @@ final class AppSettingsViewController: UITableViewController {
         case resetTips
         case clearSessions
         case playground
+        case chipStack
 
         var title: String {
             switch self {
             case .resetTips: return "Reset All Tips"
             case .clearSessions: return "Clear All Sessions"
             case .playground: return "Odds Control Playground"
+            case .chipStack: return "Chip Stack Playground"
             }
         }
 
@@ -76,6 +78,7 @@ final class AppSettingsViewController: UITableViewController {
             case .resetTips: return "arrow.clockwise"
             case .clearSessions: return "trash"
             case .playground: return "gamecontroller"
+            case .chipStack: return "circle.grid.3x3.fill"
             }
         }
 
@@ -84,6 +87,7 @@ final class AppSettingsViewController: UITableViewController {
             case .resetTips: return false
             case .clearSessions: return true
             case .playground: return false
+            case .chipStack: return false
             }
         }
     }
@@ -466,6 +470,11 @@ final class AppSettingsViewController: UITableViewController {
         case .playground:
             let playgroundVC = PlaygroundViewController()
             let nav = UINavigationController(rootViewController: playgroundVC)
+            nav.isModalInPresentation = true
+            present(nav, animated: true)
+        case .chipStack:
+            let chipStackVC = ChipStackPlayground()
+            let nav = UINavigationController(rootViewController: chipStackVC)
             nav.isModalInPresentation = true
             present(nav, animated: true)
         }

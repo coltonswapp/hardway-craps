@@ -44,14 +44,18 @@ class Puck: UIView {
 
     private func setupView() {
         translatesAutoresizingMaskIntoConstraints = false
-        layer.cornerRadius = 20
+        
+        // Scale puck size 25% bigger on iPad
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let puckSize: CGFloat = isIPad ? 50 : 40  // 25% bigger: 40 * 1.25 = 50
+        layer.cornerRadius = puckSize / 2
 
         addSubview(onLabel)
         addSubview(offLabel)
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 40),
-            heightAnchor.constraint(equalToConstant: 40),
+            widthAnchor.constraint(equalToConstant: puckSize),
+            heightAnchor.constraint(equalToConstant: puckSize),
 
             onLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             onLabel.centerYAnchor.constraint(equalTo: centerYAnchor),

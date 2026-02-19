@@ -260,6 +260,46 @@ extension UILabel {
 
 }
 
+// MARK: - UIView Extension
+
+extension UIView {
+
+    func playShimmer() {
+        let shimmer = CAGradientLayer()
+        shimmer.colors = [
+            UIColor.clear.cgColor,
+            UIColor.white.withAlphaComponent(0.4).cgColor,
+            UIColor.white.withAlphaComponent(0.4).cgColor,
+            UIColor.clear.cgColor
+        ]
+        shimmer.locations = [0, 0.3, 0.7, 1]
+
+        let angle = 10 * CGFloat.pi / 180
+        shimmer.startPoint = CGPoint(x: 0.5 - cos(angle) * 0.5, y: 0.5 - sin(angle) * 0.5)
+        shimmer.endPoint   = CGPoint(x: 0.5 + cos(angle) * 0.5, y: 0.5 + sin(angle) * 0.5)
+        shimmer.frame = bounds
+        shimmer.cornerRadius = layer.cornerRadius
+        shimmer.masksToBounds = true
+
+        layer.addSublayer(shimmer)
+
+        let animation = CABasicAnimation(keyPath: "locations")
+        animation.fromValue = [-0.8, -0.6, -0.4, -0.2]
+        animation.toValue   = [1.2, 1.4, 1.6, 1.8]
+        animation.duration  = 0.75
+        animation.repeatCount = 1
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { shimmer.removeFromSuperlayer() }
+        shimmer.add(animation, forKey: "shimmer")
+        CATransaction.commit()
+    }
+
+}
+
 // MARK: - Helper Extensions
 
 private extension NSTextAlignment {

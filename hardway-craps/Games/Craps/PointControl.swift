@@ -13,7 +13,8 @@ class PointControl: PlainControl {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 24, weight: .medium)
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        label.font = .systemFont(ofSize: isIPad ? 34 : 24, weight: .medium)
         label.textColor = HardwayColors.label
         return label
     }()
@@ -22,13 +23,17 @@ class PointControl: PlainControl {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 12, weight: .regular)
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        label.font = .systemFont(ofSize: isIPad ? 18 : 12, weight: .regular)
         label.textColor = HardwayColors.label.withAlphaComponent(0.6)
         return label
     }()
 
     let pointNumber: Int
     let odds: String
+    
+    /// PointControls need flexible height to grow inside the PointStack
+    override var wantsDefaultHeightConstraint: Bool { return false }
 
     var oddsMultiplier: Double {
         switch pointNumber {
@@ -45,11 +50,11 @@ class PointControl: PlainControl {
 
     var isOn: Bool = false
     
-    // Come bet with odds support (vertical layout, right-aligned)
+    // Come bet with odds support
     private var comeBetStack: OddsBetStack?
     private var betViewCenterXConstraint: NSLayoutConstraint!
-    private var betViewLeadingConstraint: NSLayoutConstraint?
-    private var comeBetStackTrailingConstraint: NSLayoutConstraint?
+    private var betViewLeftHalfConstraint: NSLayoutConstraint?
+    private var comeBetStackCenterXConstraint: NSLayoutConstraint?
     private var comeBetStackCenterYConstraint: NSLayoutConstraint?
     
     var hasComeBet: Bool {
@@ -95,14 +100,10 @@ class PointControl: PlainControl {
 
         super.init(title: nil)
         
-        // Remove PlainControl's default 50pt height constraint
-        var heightConstraintsToRemove: [NSLayoutConstraint] = []
-        for constraint in constraints {
-            if constraint.firstAttribute == .height && constraint.firstItem === self && constraint.constant == 50 {
-                heightConstraintsToRemove.append(constraint)
-            }
-        }
-        NSLayoutConstraint.deactivate(heightConstraintsToRemove)
+        // PlainControl now skips the height constraint for PointControl subclass,
+        // so no removal needed. Set low priorities to allow vertical growth.
+        setContentHuggingPriority(.fittingSizeLevel, for: .vertical)
+        setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         
         setupPointView()
     }
@@ -114,6 +115,10 @@ class PointControl: PlainControl {
     private func setupPointView() {
         numberLabel.text = "\(pointNumber)"
         oddsLabel.text = odds
+
+        // Style the control to match SmallControl
+        backgroundColor = HardwayColors.surfaceGray
+        layer.cornerRadius = 16
 
         addSubview(numberLabel)
         addSubview(oddsLabel)
@@ -180,9 +185,11 @@ class PointControl: PlainControl {
         if oddsToReturn > 0 {
             onComeBetOddsRemoved?(oddsToReturn)
         }
+        comeBetStackCenterXConstraint?.isActive = false
+        comeBetStackCenterXConstraint = nil
         comeBetStack?.removeFromSuperview()
         comeBetStack = nil
-        restorePlaceBetPosition()
+        restorePlaceBetToCenter()
     }
     
     private func setupComeBetConstraints() {
@@ -190,19 +197,12 @@ class PointControl: PlainControl {
         
         stack.translatesAutoresizingMaskIntoConstraints = false
         
-        // Position come bet stack trailing edge on pointControl trailing edge (with small padding)
-        comeBetStackTrailingConstraint = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
-        
-        // Center vertically initially (will slide up when odds are added)
+        // Center vertically with betView (will slide up when odds are added)
         comeBetStackCenterYConstraint = stack.centerYAnchor.constraint(equalTo: betView.centerYAnchor, constant: 0)
+        comeBetStackCenterYConstraint?.isActive = true
         
-        NSLayoutConstraint.activate([
-            comeBetStackTrailingConstraint!,
-            comeBetStackCenterYConstraint!
-        ])
-        
-        // Shift place bet to align leading edge with pointControl leading edge
-        animatePlaceBetShift(left: true)
+        // Position bets using proportional layout
+        updateBetLayout(animated: true)
     }
     
     func updateComeBetStackPosition() {
@@ -216,37 +216,70 @@ class PointControl: PlainControl {
         }
     }
     
-    private func restorePlaceBetPosition() {
-        animatePlaceBetShift(left: false)
+    private func restorePlaceBetToCenter() {
+        betViewLeftHalfConstraint?.isActive = false
+        betViewCenterXConstraint.isActive = true
+        
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
+            self.layoutIfNeeded()
+        }
     }
     
-    private func animatePlaceBetShift(left: Bool) {
-        if left {
-            // When come bet is added: align place bet leading edge with pointControl leading edge
-            // SmallBetChip is 30pt wide, so centerX should be at leading + 15pt
-            // Current centerX is at pointControl.centerX (which is leading + 30pt for 60pt wide control)
-            // So we need to shift: (leading + 15) - (leading + 30) = -15pt
-            let chipHalfWidth: CGFloat = 15  // SmallBetChip is 30pt wide, half is 15pt
-            let pointControlHalfWidth: CGFloat = 30  // PointControl is 60pt wide, half is 30pt
-            let shiftAmount = chipHalfWidth - pointControlHalfWidth  // -15pt
+    /// Updates the horizontal positions of the place bet and come bet based on which bets are present.
+    /// - Place bet only: centered
+    /// - Both bets: split the space evenly (place bet in left half, come bet in right half)
+    /// - Come bet only: slightly off center favoring the right side
+    private func updateBetLayout(animated: Bool = true) {
+        guard let stack = comeBetStack else { return }
+        
+        // Deactivate current horizontal positioning constraints
+        betViewCenterXConstraint.isActive = false
+        betViewLeftHalfConstraint?.isActive = false
+        comeBetStackCenterXConstraint?.isActive = false
+        
+        let hasPlaceBet = betView.amount > 0
+        
+        if hasPlaceBet {
+            // Both bets present — split the space evenly
+            // Place bet centered in left half (centerX × 0.5 → 25% of width)
+            if betViewLeftHalfConstraint == nil {
+                betViewLeftHalfConstraint = NSLayoutConstraint(
+                    item: betView!, attribute: .centerX,
+                    relatedBy: .equal,
+                    toItem: self, attribute: .centerX,
+                    multiplier: 0.5, constant: 0
+                )
+            }
+            betViewLeftHalfConstraint?.isActive = true
             
-            // Deactivate centerX constraint and activate leading constraint
-            betViewCenterXConstraint.isActive = false
-            betViewLeadingConstraint = betView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0)
-            betViewLeadingConstraint?.isActive = true
+            // Come bet centered in right half (centerX × 1.5 → 75% of width)
+            comeBetStackCenterXConstraint = NSLayoutConstraint(
+                item: stack, attribute: .centerX,
+                relatedBy: .equal,
+                toItem: self, attribute: .centerX,
+                multiplier: 1.5, constant: 0
+            )
+            comeBetStackCenterXConstraint?.isActive = true
+        } else {
+            // Come bet only — slightly off center favoring the right side
+            betViewCenterXConstraint.isActive = true  // betView is hidden anyway
             
+            // Come bet at 60% of width (centerX × 1.2)
+            comeBetStackCenterXConstraint = NSLayoutConstraint(
+                item: stack, attribute: .centerX,
+                relatedBy: .equal,
+                toItem: self, attribute: .centerX,
+                multiplier: 1.2, constant: 0
+            )
+            comeBetStackCenterXConstraint?.isActive = true
+        }
+        
+        if animated {
             UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
                 self.layoutIfNeeded()
             }
         } else {
-            // When come bet is removed: restore place bet to center
-            betViewLeadingConstraint?.isActive = false
-            betViewLeadingConstraint = nil
-            betViewCenterXConstraint.isActive = true
-            
-            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
-                self.layoutIfNeeded()
-            }
+            layoutIfNeeded()
         }
     }
     
@@ -291,9 +324,46 @@ class PointControl: PlainControl {
     
     /// Clear come bet without triggering odds return callback (for animated loss)
     func clearComeBetSilently() {
+        comeBetStackCenterXConstraint?.isActive = false
+        comeBetStackCenterXConstraint = nil
         comeBetStack?.removeFromSuperview()
         comeBetStack = nil
-        restorePlaceBetPosition()
+        restorePlaceBetToCenter()
+    }
+    
+    // MARK: - Place Bet Change Detection
+    
+    /// When the place bet changes while a come bet coexists, re-evaluate the proportional layout
+    /// so both bets split the space correctly (or the come bet repositions if the place bet is removed).
+    
+    override func addBet(_ amount: Int) {
+        super.addBet(amount)
+        if comeBetStack != nil { updateBetLayout() }
+    }
+    
+    override func addBetWithAnimation(_ amount: Int) {
+        super.addBetWithAnimation(amount)
+        if comeBetStack != nil { updateBetLayout() }
+    }
+    
+    override func removeBet(_ amount: Int) {
+        super.removeBet(amount)
+        if comeBetStack != nil { updateBetLayout() }
+    }
+    
+    override func removeBetSilently(_ amount: Int) {
+        super.removeBetSilently(amount)
+        if comeBetStack != nil { updateBetLayout() }
+    }
+    
+    override func setDirectBet(_ amount: Int) {
+        super.setDirectBet(amount)
+        if comeBetStack != nil { updateBetLayout() }
+    }
+    
+    override func clearAll() {
+        super.clearAll()
+        if comeBetStack != nil { updateBetLayout() }
     }
     
     // MARK: - Touch Handling

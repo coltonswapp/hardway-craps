@@ -53,7 +53,7 @@ class ChipSelector: UIView, BetDropTarget {
     private var indicatorCenterXConstraint: NSLayoutConstraint?
     private var hasInitializedIndicator = false
 
-    let chipValues: [Int]
+    private(set) var chipValues: [Int]
     let chipSize: CGFloat
 
     init(chipValues: [Int] = [1, 5, 25, 50, 100], chipSize: CGFloat = 60) {
@@ -80,7 +80,7 @@ class ChipSelector: UIView, BetDropTarget {
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: topAnchor),
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            // Remove trailing constraint to let chips overlap naturally
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -13),
 
             selectionIndicator.widthAnchor.constraint(equalToConstant: 5),
@@ -119,11 +119,29 @@ class ChipSelector: UIView, BetDropTarget {
         }
     }
 
+    override var intrinsicContentSize: CGSize {
+        // Calculate the width based on chip size and overlap
+        // Formula: (chipSize * numberOfChips) - (overlap * (numberOfChips - 1))
+        let numberOfChips = CGFloat(chipValues.count)
+        let overlap: CGFloat = 22  // Matches the negative spacing
+        let width = (chipSize * numberOfChips) - (overlap * (numberOfChips - 1))
+        let height = chipSize + 13  // chipSize + indicator spacing
+        return CGSize(width: width, height: height)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        
-        // Try to initialize indicator if not already done
-        tryInitializeIndicator()
+
+        // Update indicator position whenever layout changes (including rotation)
+        if hasInitializedIndicator {
+            // Already initialized - just update position for current layout
+            if let index = chipControls.firstIndex(where: { $0.value == selectedValue }) {
+                moveIndicatorToChip(at: index, animated: false)
+            }
+        } else {
+            // First time - try to initialize
+            tryInitializeIndicator()
+        }
     }
     
     private func tryInitializeIndicator() {
@@ -210,7 +228,7 @@ class ChipSelector: UIView, BetDropTarget {
                 chip.isUserInteractionEnabled = true
             }
         }
-        
+
         // If current selected chip is no longer available, auto-select highest available chip
         if selectedValue > balance {
             // Find the highest available chip value
@@ -221,9 +239,81 @@ class ChipSelector: UIView, BetDropTarget {
             }
         }
     }
-    
+
+    /// Single call-site for balance changes. Updates chip availability and transitions
+    /// the chip set when balance crosses the $2K threshold.
+    func updateBalance(_ balance: Int) {
+        updateAvailableChips(balance: balance)
+
+        let newValues = balance >= 2000 ? [5, 25, 50, 100, 500] : [1, 5, 25, 50, 100]
+        transitionToChipValues(newValues, animated: true)
+    }
+
+    // MARK: - Chip Set Transitions
+
+    /// Replaces the displayed chip set, preserving the current selection where possible.
+    /// When a brand-new chip denomination appears on the right (the "unlocked" case),
+    /// a shimmer sweeps across it to draw the user's attention.
+    func transitionToChipValues(_ newValues: [Int], animated: Bool) {
+        guard newValues != chipValues else { return }
+
+        // Determine if a new chip is being introduced on the right end
+        let newChipValue: Int? = {
+            guard animated else { return nil }
+            let addedValues = Set(newValues).subtracting(Set(chipValues))
+            return addedValues.count == 1 ? addedValues.first : nil
+        }()
+
+        swapChips(to: newValues)
+
+        if let newValue = newChipValue,
+           let chip = chipControls.first(where: { $0.value == newValue }) {
+            // Ensure chip is laid out before playing shimmer
+            chip.layoutIfNeeded()
+            chip.playShimmer()
+        }
+    }
+
+
+    // MARK: In-place chip swap (no animation)
+
+    private func swapChips(to newValues: [Int]) {
+        // Preserve the current selection if the value still exists in the new set
+        let preservedSelection = newValues.contains(selectedValue) ? selectedValue : nil
+
+        chipValues = newValues
+
+        // Remove existing chips
+        chipControls.forEach { $0.removeFromSuperview() }
+        chipControls = []
+        stackView.arrangedSubviews.forEach { stackView.removeArrangedSubview($0); $0.removeFromSuperview() }
+
+        let colorSet = ChipColorSet.current
+        for (index, value) in newValues.enumerated() {
+            let chip = ProgrammaticChipView(value: value, size: chipSize, colorSet: colorSet)
+            chip.tag = index
+            chip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+            chip.setContentHuggingPriority(.required, for: .horizontal)
+            chip.setContentHuggingPriority(.required, for: .vertical)
+            chip.setContentCompressionResistancePriority(.required, for: .horizontal)
+            chip.setContentCompressionResistancePriority(.required, for: .vertical)
+            chip.layer.zPosition = CGFloat(newValues.count - 1 - index)
+            chipControls.append(chip)
+            stackView.addArrangedSubview(chip)
+        }
+
+        hasInitializedIndicator = false
+        if let value = preservedSelection {
+            selectedValue = value
+        } else if let first = chipControls.first {
+            // Previously selected value no longer exists; fall back to the first chip
+            selectedValue = first.value
+        }
+        initializeIndicatorPosition()
+    }
+
     // MARK: - BetDropTarget
-    
+
     func addBet(_ amount: Int) {
         // Not used for ChipSelector - we return bets to balance instead
     }

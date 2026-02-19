@@ -43,6 +43,7 @@ final class BlackjackGameplayViewController: UIViewController {
     private var handsScrollView: UIScrollView!
     private var handsContentStackView: UIStackView!
     private var handsPageControl: UIPageControl!
+    private var playerHandWidthConstraint: NSLayoutConstraint!
 
     // MARK: - Managers
 
@@ -183,14 +184,10 @@ final class BlackjackGameplayViewController: UIViewController {
         return chipSelector?.selectedValue ?? 5
     }
 
-    // Peek amount for split hands - relative to screen width (20% on each side)
-    private func getPeekAmount() -> CGFloat {
-        return view.bounds.width * 0.2
-    }
-
-    private func getTotalPeekAmount() -> CGFloat {
-        return getPeekAmount() * 2 // Both sides
-    }
+    /// Spacing between split hands when displayed side by side
+    private let handSpacing: CGFloat = 24
+    /// Width per hand when split - fits 4-6 cards, allows scroll when content overflows
+    private let splitHandWidth: CGFloat = 280
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -550,29 +547,22 @@ final class BlackjackGameplayViewController: UIViewController {
         // Create the scroll view for hands
         handsScrollView = UIScrollView()
         handsScrollView.translatesAutoresizingMaskIntoConstraints = false
-        handsScrollView.isPagingEnabled = false // We'll implement custom paging in scrollViewWillEndDragging
-        handsScrollView.showsHorizontalScrollIndicator = false
+        handsScrollView.showsHorizontalScrollIndicator = true  // Show when content overflows (many cards)
         handsScrollView.showsVerticalScrollIndicator = false
         handsScrollView.alwaysBounceVertical = false
         handsScrollView.alwaysBounceHorizontal = true
         handsScrollView.bounces = true
-        handsScrollView.isDirectionalLockEnabled = true  // Lock to horizontal scrolling only
-        handsScrollView.contentInsetAdjustmentBehavior = .never  // Prevent iOS from adjusting insets
-        handsScrollView.clipsToBounds = false  // Allow content to show beyond scroll view bounds
-        handsScrollView.isScrollEnabled = false // Will be enabled when split
-        handsScrollView.delegate = self
-        handsScrollView.decelerationRate = .fast // Faster deceleration for snappier paging
-        // Add initial content insets to center single hand (will be updated when split)
-        handsScrollView.contentInset = UIEdgeInsets(top: 0, left: getPeekAmount(), bottom: 0, right: getPeekAmount())
+        handsScrollView.isDirectionalLockEnabled = true
+        handsScrollView.contentInsetAdjustmentBehavior = .never
+        handsScrollView.isScrollEnabled = false  // Enabled when split
         view.addSubview(handsScrollView)
         
-        // Create the content stack view
         handsContentStackView = UIStackView()
         handsContentStackView.translatesAutoresizingMaskIntoConstraints = false
         handsContentStackView.axis = .horizontal
         handsContentStackView.alignment = .bottom
-        handsContentStackView.distribution = .fillEqually
-        handsContentStackView.spacing = 16  // Add spacing between hands so second hand is more visible
+        handsContentStackView.distribution = .fill
+        handsContentStackView.spacing = handSpacing
         handsScrollView.addSubview(handsContentStackView)
         
         // Add player hand view to the stack
@@ -624,6 +614,8 @@ final class BlackjackGameplayViewController: UIViewController {
         handsPageControl.addTarget(self, action: #selector(pageControlValueChanged(_:)), for: .valueChanged)
         view.addSubview(handsPageControl)
 
+        playerHandWidthConstraint = playerHandView.widthAnchor.constraint(equalTo: handsScrollView.widthAnchor)
+
         NSLayoutConstraint.activate([
             // Scroll view constraints - edge to edge for better split hand visibility
             handsScrollView.topAnchor.constraint(equalTo: bonusStackView.bottomAnchor, constant: 16),
@@ -631,20 +623,17 @@ final class BlackjackGameplayViewController: UIViewController {
             handsScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             handsScrollView.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -24),
 
-            // Content stack view constraints (fills scroll view height, width determined by number of hands)
-            handsContentStackView.topAnchor.constraint(equalTo: handsScrollView.topAnchor),
-            handsContentStackView.bottomAnchor.constraint(equalTo: handsScrollView.bottomAnchor),
-            handsContentStackView.leadingAnchor.constraint(equalTo: handsScrollView.leadingAnchor),
-            handsContentStackView.trailingAnchor.constraint(equalTo: handsScrollView.trailingAnchor),
-            handsContentStackView.heightAnchor.constraint(equalTo: handsScrollView.heightAnchor),
-
-            // Each hand should be slightly less than scroll view width to show peeking
-            // Using multiplier 0.6 (each hand is 60% of screen, leaving 20% peek on each side)
-            playerHandView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
+            // Content stack view: pin to content layout guide (content size = stack width when split)
+            handsContentStackView.topAnchor.constraint(equalTo: handsScrollView.contentLayoutGuide.topAnchor),
+            handsContentStackView.bottomAnchor.constraint(equalTo: handsScrollView.contentLayoutGuide.bottomAnchor),
+            handsContentStackView.leadingAnchor.constraint(equalTo: handsScrollView.contentLayoutGuide.leadingAnchor),
+            handsContentStackView.trailingAnchor.constraint(equalTo: handsScrollView.contentLayoutGuide.trailingAnchor),
+            handsContentStackView.heightAnchor.constraint(equalTo: handsScrollView.frameLayoutGuide.heightAnchor),
 
             // Page control constraints - positioned at bottom of scroll view
             handsPageControl.centerXAnchor.constraint(equalTo: handsScrollView.centerXAnchor),
-            handsPageControl.topAnchor.constraint(equalTo: handsScrollView.bottomAnchor, constant: 0)
+            handsPageControl.topAnchor.constraint(equalTo: handsScrollView.bottomAnchor, constant: 0),
+            playerHandWidthConstraint
         ])
     }
     
@@ -694,15 +683,27 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     
-    private func scrollToHand(_ handIndex: Int, animated: Bool) {
-        // Calculate the width of each hand plus spacing
-        let handWidth = handsScrollView.bounds.width - 160 // Each hand is 160pt narrower than scroll view
-        let spacing = handsContentStackView.spacing
-        let pageWidth = handWidth + spacing
+    private func restoreSingleHandLayout(animated: Bool = false) {
+        playerHandWidthConstraint.isActive = false
+        playerHandWidthConstraint = playerHandView.widthAnchor.constraint(equalTo: handsScrollView.widthAnchor)
+        playerHandWidthConstraint.isActive = true
 
-        // Calculate offset (accounting for content inset)
-        let offset = CGPoint(x: pageWidth * CGFloat(handIndex) - handsScrollView.contentInset.left, y: 0)
-        handsScrollView.setContentOffset(offset, animated: animated)
+        if animated {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
+                self.view.layoutIfNeeded()
+            }
+        }
+    }
+
+    private func scrollToHand(_ handIndex: Int, animated: Bool) {
+        guard isSplit else {
+            handsScrollView.setContentOffset(.zero, animated: animated)
+            return
+        }
+        let targetX = CGFloat(handIndex) * (splitHandWidth + handSpacing)
+        let maxX = max(0, handsScrollView.contentSize.width - handsScrollView.bounds.width)
+        let clampedX = min(targetX, maxX)
+        handsScrollView.setContentOffset(CGPoint(x: clampedX, y: 0), animated: animated)
     }
     
     private func setupActionButtons() {
@@ -1113,6 +1114,7 @@ final class BlackjackGameplayViewController: UIViewController {
             handsContentStackView.removeArrangedSubview(splitHand)
             splitHand.removeFromSuperview()
             splitHandView = nil
+            restoreSingleHandLayout()
         }
 
         // Hide page control and disable scrolling
@@ -1608,14 +1610,13 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     private func animateSplitHandIn(splitHand: PlayerHandView) {
-        // Add split hand to the content stack view
         handsContentStackView.addArrangedSubview(splitHand)
 
-        // Add width constraint to match first hand (60% of screen, leaving 20% peek on each side)
-        splitHand.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6).isActive = true
-
-        // Update content insets to center hands (20% on each side for peeking)
-        handsScrollView.contentInset = UIEdgeInsets(top: 0, left: getPeekAmount(), bottom: 0, right: getPeekAmount())
+        // Switch to side-by-side layout: each hand = splitHandWidth (fits 4-6 cards, scroll when overflow)
+        playerHandWidthConstraint.isActive = false
+        playerHandWidthConstraint = playerHandView.widthAnchor.constraint(equalToConstant: splitHandWidth)
+        playerHandWidthConstraint.isActive = true
+        splitHand.widthAnchor.constraint(equalToConstant: splitHandWidth).isActive = true
 
         // Enable scrolling now that we have two hands
         handsScrollView.isScrollEnabled = true
@@ -2250,32 +2251,21 @@ final class BlackjackGameplayViewController: UIViewController {
                 splitHand.betControl.betAmount = 0
             }
 
-            // Animate split hand out
+            // Animate split hand out, then restore layout in completion
             UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.5, options: [.curveEaseInOut]) {
                 splitHand.alpha = 0
             } completion: { [weak self] _ in
                 guard let self = self else { return }
-                // Remove split hand from stack view
                 self.handsContentStackView.removeArrangedSubview(splitHand)
                 splitHand.removeFromSuperview()
+                self.handsScrollView.setContentOffset(.zero, animated: false)
+                self.handsScrollView.isScrollEnabled = false
+                self.handsPageControl.isHidden = true
+                self.gameStateManager.resetSplitState()
+                self.splitHandView = nil
+                self.restoreSingleHandLayout(animated: true)
             }
         }
-
-        // Scroll back to first hand
-        scrollToHand(0, animated: true)
-
-        // Disable scrolling when back to single hand
-        handsScrollView.isScrollEnabled = false
-
-        // Hide page control
-        handsPageControl.isHidden = true
-
-        // Clear split state
-        gameStateManager.resetSplitState()
-        splitHandView = nil
-
-        // Force layout update
-        view.layoutIfNeeded()
     }
     
     private func discardHandsToTopLeft(completion: (() -> Void)? = nil) {
@@ -3373,84 +3363,6 @@ extension UIButton {
 
 extension BlackjackGameplayViewController: ChipSelectorDelegate {
     func chipSelector(_ selector: ChipSelector, didSelectChipWithValue value: Int) {
-    }
-}
-
-extension BlackjackGameplayViewController: UIScrollViewDelegate {
-    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        guard scrollView === handsScrollView, isSplit else { return }
-
-        // Calculate the width of each hand plus spacing
-        let handWidth = scrollView.bounds.width - getTotalPeekAmount()
-        let spacing = handsContentStackView.spacing
-        let pageWidth = handWidth + spacing
-
-        // Account for content inset when calculating target page
-        let adjustedOffset = targetContentOffset.pointee.x + scrollView.contentInset.left
-
-        // Determine which page to snap to
-        let targetPage: Int
-        if velocity.x > 0.5 {
-            // Swiping right with momentum - go to next page
-            targetPage = min(1, activeHandIndex + 1)
-        } else if velocity.x < -0.5 {
-            // Swiping left with momentum - go to previous page
-            targetPage = max(0, activeHandIndex - 1)
-        } else {
-            // Low velocity - snap to nearest page
-            targetPage = Int(round(adjustedOffset / pageWidth))
-        }
-
-        // Calculate the target offset
-        let targetOffset = pageWidth * CGFloat(targetPage) - scrollView.contentInset.left
-        targetContentOffset.pointee.x = targetOffset
-
-        // Update active hand index
-        if targetPage != activeHandIndex {
-            activeHandIndex = targetPage
-            handsPageControl.currentPage = targetPage
-            updateControls()
-        }
-    }
-
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        guard scrollView === handsScrollView, isSplit else { return }
-
-        // Calculate the width of each hand plus spacing
-        let handWidth = scrollView.bounds.width - getTotalPeekAmount()
-        let spacing = handsContentStackView.spacing
-        let pageWidth = handWidth + spacing
-
-        // Account for content inset when calculating current page
-        let adjustedOffset = scrollView.contentOffset.x + scrollView.contentInset.left
-        let currentPage = Int(round(adjustedOffset / pageWidth))
-
-        // Update active hand index if changed
-        if currentPage != activeHandIndex {
-            activeHandIndex = currentPage
-            handsPageControl.currentPage = currentPage
-            updateControls()
-        }
-    }
-
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        guard scrollView === handsScrollView, isSplit else { return }
-
-        // Calculate the width of each hand plus spacing
-        let handWidth = scrollView.bounds.width - getTotalPeekAmount()
-        let spacing = handsContentStackView.spacing
-        let pageWidth = handWidth + spacing
-
-        // Account for content inset when calculating current page
-        let adjustedOffset = scrollView.contentOffset.x + scrollView.contentInset.left
-        let currentPage = Int(round(adjustedOffset / pageWidth))
-
-        // Update active hand index if changed
-        if currentPage != activeHandIndex {
-            activeHandIndex = currentPage
-            handsPageControl.currentPage = currentPage
-            updateControls()
-        }
     }
 }
 

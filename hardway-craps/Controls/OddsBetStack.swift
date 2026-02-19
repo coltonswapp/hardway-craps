@@ -585,7 +585,10 @@ class OddsBetStack: UIView {
     
     func addOdds(_ amount: Int) {
         guard !isDraggingOdds else { return }
-        
+
+        // CRITICAL: Only allow odds when bet is locked (i.e., point is set)
+        guard isLocked else { return }
+
         if isLocked {
             let wasEmpty = oddsAmount == 0
             let previousOddsAmount = oddsAmount  // Capture previous amount BEFORE adding
@@ -626,7 +629,10 @@ class OddsBetStack: UIView {
     
     func addOddsWithAnimation(_ amount: Int) {
         guard !isDraggingOdds else { return }
-        
+
+        // CRITICAL: Only allow odds when bet is locked (i.e., point is set)
+        guard isLocked else { return }
+
         let wasEmpty = oddsAmount == 0
         let previousOddsAmount = oddsAmount  // Capture previous amount BEFORE adding
         oddsChip.addToBet(amount)

@@ -26,7 +26,9 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 18, weight: .regular)
+        // iPhone: 18pt, iPad: 22.5pt
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        label.font = .systemFont(ofSize: isIPad ? 22.5 : 18, weight: .regular)
         return label
     }()
 
@@ -115,6 +117,9 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         }
     }
 
+    /// Override in subclasses that need flexible vertical height (e.g. PointControl)
+    var wantsDefaultHeightConstraint: Bool { return true }
+    
     var getSelectedChipValue: (() -> Int)?
     var getBalance: (() -> Int)?
     var onBetPlaced: ((Int) -> Void)?
@@ -241,16 +246,23 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         // Ensure betView stays on top
         bringSubviewToFront(betView)
 
-        let heightConstraint = heightAnchor.constraint(equalToConstant: 50)
-        heightConstraint.priority = .defaultHigh
+        // Add the default height constraint (subclasses that want flexible
+        // height can override wantsDefaultHeightConstraint to return false)
+        if wantsDefaultHeightConstraint {
+            // iPhone: 50pt, iPad: 65pt
+            let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+            let height: CGFloat = isIPad ? 65 : 50
+            let heightConstraint = heightAnchor.constraint(equalToConstant: height)
+            heightConstraint.priority = .defaultHigh
+            NSLayoutConstraint.activate([heightConstraint])
+        }
         
         // Create constraints for title alignment
         titleCenterXConstraint = titleLabel.centerXAnchor.constraint(equalTo: centerXAnchor)
         titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
         
         NSLayoutConstraint.activate([
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightConstraint
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
         
         // Set initial alignment
@@ -312,6 +324,12 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
     /// Update title alignment based on whether any bets exist (including odds)
     /// If any bet is present, align left; otherwise, align centered
     private func updateTitleAlignment() {
+        // On iPad, don't animate title - there's plenty of space
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            titleAlignment = .centered
+            return
+        }
+        
         // Only shift title alignment when using OddsBetStack (for pass line/don't pass with odds)
         // Other controls like field should keep centered alignment
         guard oddsBetStack != nil else {
@@ -413,7 +431,7 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
             // NOTE: handleTap() is called when tapping the control title area (not the chip)
             // The chip has its own tap handler in OddsBetStack.handleTap() which always adds odds
             if stack.hasLockedBet() {
-                // Locked: any tap adds odds
+                // Locked: any tap adds odds (only if point is set)
                 stack.addOddsWithAnimation(value)
             } else {
                 // Not locked: tapping control title adds to bet (chip taps are handled separately)

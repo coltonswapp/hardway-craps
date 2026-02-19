@@ -24,31 +24,35 @@ class CrapsGameplayViewController: UIViewController {
         return AppSettingsViewController.startingBankroll
     }
 
-    private var chipSelector: ChipSelector!
-    private var passLineControl: PlainControl!
-    private var passLineControlWidthConstraint: NSLayoutConstraint!
-    private var fieldControl: PlainControl!
-    private var comeBetControl: ComeBetControl!
-    private var dontPassControl: DontPassControl!
-    private var dontPassControlWidthConstraint: NSLayoutConstraint!
-    private var pointStack: PointStack!
-    private var flipDiceContainer: FlipDiceContainer!
+    var chipSelector: ChipSelector!
+    var passLineControl: PlainControl!
+    var passLineControlWidthConstraint: NSLayoutConstraint!
+    var fieldControl: PlainControl!
+    var comeBetControl: ComeBetControl!
+    var dontPassControl: DontPassControl!
+    var dontPassControlWidthConstraint: NSLayoutConstraint!
+    var pointStack: PointStack!
+    var gameContainerView: UIView!
+    // Spacing constraints for controls inside gameContainerView (adjustable per layout mode)
+    var gameContainerSpacingConstraints: [NSLayoutConstraint] = []
+    var flipDiceContainer: FlipDiceContainer!
     private var balanceView: BalanceView!
-    private var instructionLabel: InstructionLabel!
+    var instructionLabel: InstructionLabel!
     private var hardwayView: QuadBetView?
     private var makeEmView: UIView?
     private var hornView: QuadBetView?
     private var actionsView: UIView!
-    private var scrollContentView: UIView!
+    var scrollContentView: UIView!
     private var scrollContentWidthConstraint: NSLayoutConstraint?
+    private var activeBetViewConstraints: [NSLayoutConstraint] = []
     private var previousBonusBetSettings: (hardways: Bool, makeEm: Bool, horn: Bool)?
-    private var betsScrollView: UIScrollView!
-    private var pageControl: UIPageControl!
-    private var betsContainerView: UIView!
-    private var bottomStackView: UIStackView!
-    private var topStackView: UIStackView!
-    private var currentBetView: CurrentBetView!
-    private var topStackTopConstraint: NSLayoutConstraint!
+    var betsScrollView: UIScrollView!
+    var pageControl: UIPageControl!
+    var betsContainerView: UIView!
+    var bottomStackView: UIStackView!
+    var topStackView: UIStackView!
+    var currentBetView: CurrentBetView!
+    var topStackTopConstraint: NSLayoutConstraint!
 
     // Track which line control (Pass or Don't Pass) was last used for rebet
     private var lastLineControlUsed: PlainControl?
@@ -116,7 +120,7 @@ class CrapsGameplayViewController: UIViewController {
         }
         set {
             balanceView?.balance = newValue
-            chipSelector?.updateAvailableChips(balance: newValue)
+            chipSelector?.updateBalance(newValue)
             sessionManager?.currentBalance = newValue
         }
     }
@@ -207,10 +211,14 @@ class CrapsGameplayViewController: UIViewController {
         // 9. Setup ComeBetControl (between Field and PassLine/DontPass)
         setupComeBetControl()
 
+        // 10. Setup game container view (holds all gameplay controls with internal constraints)
+        setupGameContainerView()
+
         setupDebugMenu()
 
-        view.bringSubviewToFront(bottomStackView)
+        // Z-order: dice at back, then bottom bar (balance + chips) on top of dice, then top bar on top
         view.bringSubviewToFront(flipDiceContainer)
+        view.bringSubviewToFront(bottomStackView)
         view.bringSubviewToFront(topStackView)
 
         // Set balance from session manager (after UI is set up)
@@ -218,13 +226,16 @@ class CrapsGameplayViewController: UIViewController {
         // For resuming sessions, this restores the saved balance
         balance = sessionManager.currentBalance
 
-        // Initialize chip availability based on starting balance
-        chipSelector.updateAvailableChips(balance: balance)
+        // Initialize chip availability and set based on starting balance
+        chipSelector.updateBalance(balance)
 
         // Set UI references for game state manager (after UI is set up)
         gameStateManager.setUIReferences(flipDiceContainer: flipDiceContainer, passLineControl: passLineControl, dontPassControl: dontPassControl, hasAnyBet: { [weak self] in
             self?.hasAnyBetPlaced() ?? false
         })
+        
+        // Apply initial layout based on device and orientation
+        applyLayout(for: currentLayoutMode)
     }
 
     // MARK: - Manager Setup
@@ -322,13 +333,39 @@ class CrapsGameplayViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         
-        // Update pass line and don't pass control widths when view size changes
-        let availableWidth = view.bounds.width - 32
-        let spacing: CGFloat = 12 // Spacing between the two controls
-        let controlWidth = (availableWidth - spacing) / 2
+        // Control widths are now handled internally by gameContainerView
         
-        passLineControlWidthConstraint?.constant = controlWidth
-        dontPassControlWidthConstraint?.constant = controlWidth
+        // DEBUG: Print layout information
+        if let gameContainer = gameContainerView, let pointStack = pointStack {
+            print("=== LAYOUT DEBUG ===")
+            print("Layout Mode: \(currentLayoutMode)")
+            print("gameContainerView frame: \(gameContainer.frame)")
+            print("gameContainerView bounds: \(gameContainer.bounds)")
+            print("pointStack frame: \(pointStack.frame)")
+            print("pointStack bounds: \(pointStack.bounds)")
+            print("pointStack contentHuggingPriority (vertical): \(pointStack.contentHuggingPriority(for: .vertical).rawValue)")
+            print("pointStack compressionResistancePriority (vertical): \(pointStack.contentCompressionResistancePriority(for: .vertical).rawValue)")
+            print("comeBetControl frame: \(comeBetControl.frame)")
+            print("fieldControl frame: \(fieldControl.frame)")
+            print("passLineControl frame: \(passLineControl.frame)")
+            print("dontPassControl frame: \(dontPassControl.frame)")
+            
+            // Check constraints
+            let pointStackConstraints = pointStack.constraintsAffectingLayout(for: .vertical)
+            print("pointStack vertical constraints count: \(pointStackConstraints.count)")
+            for constraint in pointStackConstraints {
+                print("  - \(constraint.description) priority: \(constraint.priority.rawValue)")
+            }
+            
+            let containerConstraints = gameContainer.constraintsAffectingLayout(for: .vertical)
+            print("gameContainerView vertical constraints count: \(containerConstraints.count)")
+            for constraint in containerConstraints {
+                if constraint.firstItem === pointStack || constraint.secondItem === pointStack {
+                    print("  - PointStack related: \(constraint.description) priority: \(constraint.priority.rawValue)")
+                }
+            }
+            print("===================")
+        }
         
         // Initialize chip selector indicator position after layout
         // Force chipSelector to layout its subviews first, then initialize indicator
@@ -339,6 +376,19 @@ class CrapsGameplayViewController: UIViewController {
             }
         }
     }
+    
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        
+        let newMode: LayoutMode = size.width > size.height ? .iPadLandscape : .iPadPortrait
+        
+        coordinator.animate(alongsideTransition: { _ in
+            self.applyLayout(for: newMode)
+            self.view.layoutIfNeeded()
+        })
+    }
+    
     
 
     private func recordBalanceSnapshot() {
@@ -438,7 +488,7 @@ class CrapsGameplayViewController: UIViewController {
             if newSettings.hardwaysEnabled != oldSettings.hardwaysEnabled ||
                newSettings.makeEmEnabled != oldSettings.makeEmEnabled ||
                newSettings.hornEnabled != oldSettings.hornEnabled {
-                self.rebuildBetViews()
+                self.rebuildBetViews(for: self.currentLayoutMode)
             }
         }
 
@@ -544,19 +594,13 @@ class CrapsGameplayViewController: UIViewController {
             self.updateCurrentBet()
         }
 
-        view.addSubview(pointStack)
+        // Control will be added to gameContainerView in setupGameContainerView()
         
-        // Set content hugging priority low to allow pointStack to expand and fill available space
-        pointStack.setContentHuggingPriority(.defaultLow, for: .vertical)
-        // Set compression resistance to default so it can expand but won't compress unnecessarily
-        pointStack.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
-
-        NSLayoutConstraint.activate([
-            pointStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            pointStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            pointStack.topAnchor.constraint(equalTo: betsContainerView.bottomAnchor, constant: 12)
-            // Note: bottom constraint to fieldControl will be set in setupFieldControl()
-        ])
+        // Set content hugging priority very low to allow pointStack to expand and fill available space
+        // Use .fittingSizeLevel (50) instead of .defaultLow (250) to allow more growth
+        pointStack.setContentHuggingPriority(.fittingSizeLevel, for: .vertical)
+        // Set compression resistance to low so it can expand to fill available space
+        pointStack.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
     }
 
     func setupPassLineControls() {
@@ -693,24 +737,8 @@ class CrapsGameplayViewController: UIViewController {
             NNTipManager.shared.dismissTip(CrapsTips.dragChipTip, afterDelay: 1.0)
         }
         
-        // Add control to view
-        view.addSubview(passLineControl)
-        
-        // Calculate available width (will be updated in viewDidLayoutSubviews if needed)
-        let availableWidth = view.bounds.width > 0 ? view.bounds.width - 32 : UIScreen.main.bounds.width - 32
-        let spacing: CGFloat = 12 // Spacing between pass line and don't pass
-        let controlWidth = (availableWidth - spacing) / 2
-        
-        // Create width constraint
-        passLineControlWidthConstraint = passLineControl.widthAnchor.constraint(equalToConstant: controlWidth)
-        
-        NSLayoutConstraint.activate([
-            // Pass line control constraints - positioned on the left
-            passLineControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            passLineControl.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -24),
-            passLineControl.heightAnchor.constraint(equalToConstant: 50),
-            passLineControlWidthConstraint
-        ])
+        // Control will be added to gameContainerView in setupGameContainerView()
+        // Width constraints will be set up in setupGameContainerView()
         
         // Initially update visibility/disabled state
         updatePassLineOddsVisibility()
@@ -810,13 +838,7 @@ class CrapsGameplayViewController: UIViewController {
             NNTipManager.shared.dismissTip(CrapsTips.dragChipTip, afterDelay: 1.0)
         }
 
-        view.addSubview(fieldControl)
-        NSLayoutConstraint.activate([
-            fieldControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            fieldControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            // Bottom connects to passLine; top connects to comeBetControl (set in setupComeBetControl)
-            fieldControl.bottomAnchor.constraint(equalTo: passLineControl.topAnchor, constant: -12)
-        ])
+        // Control will be added to gameContainerView in setupGameContainerView()
     }
     
     func setupComeBetControl() {
@@ -851,16 +873,7 @@ class CrapsGameplayViewController: UIViewController {
         comeBetControl.isUserInteractionEnabled = false
         comeBetControl.alpha = 0.5
         
-        view.addSubview(comeBetControl)
-        
-        NSLayoutConstraint.activate([
-            comeBetControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            comeBetControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            comeBetControl.heightAnchor.constraint(equalToConstant: 50),
-            // Position between pointStack and field
-            pointStack.bottomAnchor.constraint(equalTo: comeBetControl.topAnchor, constant: -24),
-            comeBetControl.bottomAnchor.constraint(equalTo: fieldControl.topAnchor, constant: -12)
-        ])
+        // Control will be added to gameContainerView in setupGameContainerView()
     }
 
     func setupDontPassControl() {
@@ -997,23 +1010,110 @@ class CrapsGameplayViewController: UIViewController {
             NNTipManager.shared.dismissTip(CrapsTips.dragChipTip, afterDelay: 1.0)
         }
 
-        view.addSubview(dontPassControl)
+        // Control will be added to gameContainerView in setupGameContainerView()
+        // Width constraints will be set up in setupGameContainerView()
+    }
+    
+    func setupGameContainerView() {
+        // Create container view that holds all gameplay controls
+        gameContainerView = UIView()
+        gameContainerView.translatesAutoresizingMaskIntoConstraints = false
         
-        // Calculate available width (will be updated in viewDidLayoutSubviews if needed)
-        let availableWidth = view.bounds.width > 0 ? view.bounds.width - 32 : UIScreen.main.bounds.width - 32
-        let spacing: CGFloat = 12 // Spacing between pass line and don't pass
-        let controlWidth = (availableWidth - spacing) / 2
+        // Add all controls to the container
+        gameContainerView.addSubview(pointStack)
+        gameContainerView.addSubview(comeBetControl)
+        gameContainerView.addSubview(fieldControl)
+        gameContainerView.addSubview(passLineControl)
+        gameContainerView.addSubview(dontPassControl)
         
-        // Create width constraint
-        dontPassControlWidthConstraint = dontPassControl.widthAnchor.constraint(equalToConstant: controlWidth)
+        // Calculate spacing for pass/don't pass controls
+        let spacing: CGFloat = 12
         
-        NSLayoutConstraint.activate([
-            // Don't pass control constraints - positioned next to pass line on the right
-            dontPassControl.leadingAnchor.constraint(equalTo: passLineControl.trailingAnchor, constant: spacing),
-            dontPassControl.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -24),
-            dontPassControl.heightAnchor.constraint(equalToConstant: 50),
-            dontPassControlWidthConstraint
-        ])
+        // Create equal width constraint for pass/don't pass (store reference for compatibility)
+        passLineControlWidthConstraint = passLineControl.widthAnchor.constraint(equalTo: dontPassControl.widthAnchor)
+        dontPassControlWidthConstraint = dontPassControl.widthAnchor.constraint(equalTo: passLineControl.widthAnchor)
+        
+        // Set content hugging priorities BEFORE activating constraints
+        // Fixed-height controls get high priority to maintain their size
+        comeBetControl.setContentHuggingPriority(.required, for: .vertical)
+        comeBetControl.setContentCompressionResistancePriority(.required, for: .vertical)
+        fieldControl.setContentHuggingPriority(.required, for: .vertical)
+        fieldControl.setContentCompressionResistancePriority(.required, for: .vertical)
+        passLineControl.setContentHuggingPriority(.required, for: .vertical)
+        passLineControl.setContentCompressionResistancePriority(.required, for: .vertical)
+        dontPassControl.setContentHuggingPriority(.required, for: .vertical)
+        dontPassControl.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        // Create spacing constraints (adjustable per layout mode)
+        // Increased spacing between pointStack and other controls
+        let pointToComeBetSpacing = pointStack.bottomAnchor.constraint(equalTo: comeBetControl.topAnchor, constant: -60)
+        let comeBetToFieldSpacing = comeBetControl.bottomAnchor.constraint(equalTo: fieldControl.topAnchor, constant: -20)
+        let fieldToPassLineSpacing = fieldControl.bottomAnchor.constraint(equalTo: passLineControl.topAnchor, constant: -20)
+        gameContainerSpacingConstraints = [pointToComeBetSpacing, comeBetToFieldSpacing, fieldToPassLineSpacing]
+        
+        // Set up internal constraints
+        let constraints: [NSLayoutConstraint] = [
+            // Point stack - fills remaining space at top
+            pointStack.topAnchor.constraint(equalTo: gameContainerView.topAnchor),
+            pointStack.leadingAnchor.constraint(equalTo: gameContainerView.leadingAnchor, constant: 16),
+            pointStack.trailingAnchor.constraint(equalTo: gameContainerView.trailingAnchor, constant: -16),
+            pointToComeBetSpacing,
+            pointStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            
+            // Come bet control - full width
+            comeBetControl.leadingAnchor.constraint(equalTo: gameContainerView.leadingAnchor, constant: 16),
+            comeBetControl.trailingAnchor.constraint(equalTo: gameContainerView.trailingAnchor, constant: -16),
+            comeBetToFieldSpacing,
+
+            // Field control - full width
+            fieldControl.leadingAnchor.constraint(equalTo: gameContainerView.leadingAnchor, constant: 16),
+            fieldControl.trailingAnchor.constraint(equalTo: gameContainerView.trailingAnchor, constant: -16),
+            fieldToPassLineSpacing,
+
+            // Pass line control - 50% width (via equal width with don't pass), bottom-left
+            passLineControl.leadingAnchor.constraint(equalTo: gameContainerView.leadingAnchor, constant: 16),
+            passLineControl.bottomAnchor.constraint(equalTo: gameContainerView.bottomAnchor),
+            passLineControl.trailingAnchor.constraint(equalTo: dontPassControl.leadingAnchor, constant: -spacing),
+            passLineControlWidthConstraint!,
+
+            // Don't pass control - 50% width (via equal width with pass line), bottom-right
+            dontPassControl.trailingAnchor.constraint(equalTo: gameContainerView.trailingAnchor, constant: -16),
+            dontPassControl.bottomAnchor.constraint(equalTo: gameContainerView.bottomAnchor),
+            dontPassControl.bottomAnchor.constraint(equalTo: passLineControl.bottomAnchor),
+            
+//            gameContainerView.topAnchor.constraint(equalTo: topStackView.bottomAnchor, constant: 24)
+        ]
+        
+        NSLayoutConstraint.activate(constraints)
+        
+        // Add container to view - positioning constraints will be set in applyLayout()
+        view.addSubview(gameContainerView)
+    }
+    
+    /// Updates the internal spacing inside gameContainerView based on layout mode.
+    /// In landscape there is less vertical space, so spacing adjusts to give pointStack more room.
+    func updateGameContainerHeights(for mode: LayoutMode) {
+        let spacing: CGFloat
+        let pointStackSpacing: CGFloat  // Larger spacing for pointStack
+
+        switch mode {
+        case .iPhonePortrait:
+            spacing = 4
+            pointStackSpacing = 20  // More space between pointStack and controls
+        case .iPadPortrait:
+            spacing = 12
+            pointStackSpacing = 44  // More space between pointStack and controls
+        case .iPadLandscape:
+            spacing = 12
+            pointStackSpacing = 44
+        }
+
+        // Update spacing constraints - first one is pointToComeBetSpacing (larger), rest use regular spacing
+        if gameContainerSpacingConstraints.count >= 3 {
+            gameContainerSpacingConstraints[0].constant = -pointStackSpacing  // pointToComeBetSpacing
+            gameContainerSpacingConstraints[1].constant = -spacing  // comeBetToFieldSpacing
+            gameContainerSpacingConstraints[2].constant = -spacing  // fieldToPassLineSpacing
+        }
     }
 
     func setupBalanceView() {
@@ -1036,7 +1136,7 @@ class CrapsGameplayViewController: UIViewController {
             }
         }
     }
-    
+
     func setupBottomStackView() {
         // Create stack view with BalanceView on top and ChipSelector below
         bottomStackView = UIStackView()
@@ -1056,16 +1156,7 @@ class CrapsGameplayViewController: UIViewController {
         bottomStackView.setContentHuggingPriority(.required, for: .vertical)
         bottomStackView.setContentCompressionResistancePriority(.required, for: .vertical)
         
-        // Height: chips are 70pt, plus 13pt for selection indicator below
-        let chipSelectorHeight: CGFloat = 60
-        
-        NSLayoutConstraint.activate([
-            bottomStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            bottomStackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
-            bottomStackView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6, constant: -16),
-            chipSelector.heightAnchor.constraint(equalToConstant: chipSelectorHeight),
-            chipSelector.widthAnchor.constraint(equalTo: bottomStackView.widthAnchor)
-        ])
+        // Constraints will be activated in applyLayout()
     }
 
     func setupFlipDice() {
@@ -1074,13 +1165,7 @@ class CrapsGameplayViewController: UIViewController {
 
         view.addSubview(flipDiceContainer)
 
-        NSLayoutConstraint.activate([
-            flipDiceContainer.leadingAnchor.constraint(equalTo: bottomStackView.trailingAnchor, constant: 16),
-            flipDiceContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            flipDiceContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 0),
-            flipDiceContainer.heightAnchor.constraint(equalToConstant: 80),
-            flipDiceContainer.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.4, constant: -16)
-        ])
+        // Constraints will be activated in applyLayout()
 
         flipDiceContainer.onRollStarted = { [weak self] in
             // Do something when roll starts
@@ -1158,59 +1243,37 @@ class CrapsGameplayViewController: UIViewController {
         // Add container view to main view
         view.addSubview(betsContainerView)
         
-        // Layout constraints
-        NSLayoutConstraint.activate([
-            // Container view constraints - positioned below top stack view
-            betsContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            betsContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            betsContainerView.topAnchor.constraint(equalTo: topStackView.bottomAnchor, constant: 12),
-            // Note: bottom constraint to pointStack will be set in setupPointStack()
-            
-            // Scroll view constraints (within container)
-            betsScrollView.leadingAnchor.constraint(equalTo: betsContainerView.leadingAnchor),
-            betsScrollView.trailingAnchor.constraint(equalTo: betsContainerView.trailingAnchor),
-            betsScrollView.topAnchor.constraint(equalTo: betsContainerView.topAnchor),
-            betsScrollView.bottomAnchor.constraint(equalTo: pageControl.topAnchor, constant: -8),
-            betsScrollView.heightAnchor.constraint(equalToConstant: 148), // Title (20) + spacing (12) + 2 rows * 50 + 16 spacing
-            
-            // Page control constraints (within container)
-            pageControl.centerXAnchor.constraint(equalTo: betsContainerView.centerXAnchor),
-            pageControl.bottomAnchor.constraint(equalTo: betsContainerView.bottomAnchor),
-            pageControl.heightAnchor.constraint(equalToConstant: 20),
-            
-            // Scroll content view constraints
-            scrollContentView.leadingAnchor.constraint(equalTo: betsScrollView.contentLayoutGuide.leadingAnchor),
-            scrollContentView.trailingAnchor.constraint(equalTo: betsScrollView.contentLayoutGuide.trailingAnchor),
-            scrollContentView.topAnchor.constraint(equalTo: betsScrollView.contentLayoutGuide.topAnchor),
-            scrollContentView.bottomAnchor.constraint(equalTo: betsScrollView.contentLayoutGuide.bottomAnchor),
-            scrollContentView.heightAnchor.constraint(equalTo: betsScrollView.heightAnchor)
-        ])
-
-        // Store width constraint for later updates
+        // Constraints will be activated in applyLayout()
+        // Store width constraint for later updates (will be configured per layout mode)
         scrollContentWidthConstraint = scrollContentView.widthAnchor.constraint(equalTo: betsScrollView.widthAnchor, multiplier: 1)
-        scrollContentWidthConstraint?.isActive = true
-
-        // Build initial bet views based on settings
-        rebuildBetViews()
     }
 
-    private func rebuildBetViews() {
+    func rebuildBetViews(for layoutMode: LayoutMode) {
         // Get settings
         let settings = settingsManager.currentSettings
 
         // Check if bonus bet settings actually changed
         let currentSettings = (hardways: settings.hardwaysEnabled, makeEm: settings.makeEmEnabled, horn: settings.hornEnabled)
-        if let previous = previousBonusBetSettings,
-           previous == currentSettings {
-            // Settings haven't changed, no need to rebuild
-            return
-        }
-
+        let settingsChanged = previousBonusBetSettings.map { $0 != currentSettings } ?? true
+        
         // Update previous settings
         previousBonusBetSettings = currentSettings
-
-        // Remove all existing bet views from scroll content view
+        
+        // Deactivate any constraints from a previous rebuildBetViews call
+        NSLayoutConstraint.deactivate(activeBetViewConstraints)
+        activeBetViewConstraints = []
+        
+        // Clear content from scroll view
         scrollContentView.subviews.forEach { $0.removeFromSuperview() }
+        
+        // Remove dynamically-added subviews from betsContainerView,
+        // but NEVER remove betsScrollView or pageControl (they must stay for cached constraints)
+        for subview in betsContainerView.subviews {
+            if subview === betsScrollView || subview === pageControl {
+                continue  // Always keep these as subviews
+            }
+            subview.removeFromSuperview()
+        }
 
         // Clear references
         hardwayView = nil
@@ -1219,7 +1282,13 @@ class CrapsGameplayViewController: UIViewController {
 
         var betViews: [UIView] = []
 
-        // Add enabled bonus bet views
+        // Add enabled bonus bet views in the correct order: make em, hardways, horn, actions
+        if settings.makeEmEnabled {
+            let makeEm = createMakeEmView()
+            makeEmView = makeEm
+            betViews.append(makeEm)
+        }
+
         if settings.hardwaysEnabled {
             let hardway = createBetView(title: "Hardways", controls: [
                 (dieValue1: 3, dieValue2: 3, odds: "9:1"),
@@ -1229,12 +1298,6 @@ class CrapsGameplayViewController: UIViewController {
             ], isPerpetual: true, betType: .hardway)
             hardwayView = hardway
             betViews.append(hardway)
-        }
-
-        if settings.makeEmEnabled {
-            let makeEm = createMakeEmView()
-            makeEmView = makeEm
-            betViews.append(makeEm)
         }
 
         if settings.hornEnabled {
@@ -1248,46 +1311,174 @@ class CrapsGameplayViewController: UIViewController {
             betViews.append(horn)
         }
 
-        // Always add actions view last
-        betViews.append(actionsView)
-
-        // Update page control
-        pageControl.numberOfPages = betViews.count
-
-        // Update scroll content width multiplier
-        scrollContentWidthConstraint?.isActive = false
-        scrollContentWidthConstraint = scrollContentView.widthAnchor.constraint(
-            equalTo: betsScrollView.widthAnchor,
-            multiplier: CGFloat(betViews.count)
-        )
-        scrollContentWidthConstraint?.isActive = true
-
-        // Add views to scroll content and set up constraints
-        var previousView: UIView?
+        // Separate actions view (always visible in landscape, included in scroll for other modes)
+        var actionsViewSeparate: UIView? = nil
+        
         var constraints: [NSLayoutConstraint] = []
+        
+        switch layoutMode {
+        case .iPhonePortrait:
+            // iPhone: Use scroll view with horizontal paging
+            betsScrollView.isHidden = false
+            pageControl.isHidden = false
+            
+            // Include actions in scroll
+            betViews.append(actionsView)
+            
+            // Build pages (1 item per page)
+            let pages = betViews.map { $0 }
+            pageControl.numberOfPages = pages.count
+            
+            // Update scroll content width
+            scrollContentWidthConstraint?.isActive = false
+            scrollContentWidthConstraint = scrollContentView.widthAnchor.constraint(
+                equalTo: betsScrollView.widthAnchor,
+                multiplier: CGFloat(pages.count)
+            )
+            scrollContentWidthConstraint?.isActive = true
+            
+            // Add pages to scroll content
+            var previousPage: UIView?
+            for (index, page) in pages.enumerated() {
+                scrollContentView.addSubview(page)
+                page.translatesAutoresizingMaskIntoConstraints = false
+                
+                if let previous = previousPage {
+                    constraints.append(page.leadingAnchor.constraint(equalTo: previous.trailingAnchor, constant: 48))
+                } else {
+                    constraints.append(page.leadingAnchor.constraint(equalTo: scrollContentView.leadingAnchor, constant: 24))
+                }
+                
+                constraints.append(contentsOf: [
+                    page.widthAnchor.constraint(equalTo: betsScrollView.widthAnchor, constant: -48),
+                    page.topAnchor.constraint(equalTo: scrollContentView.topAnchor),
+                    page.bottomAnchor.constraint(equalTo: scrollContentView.bottomAnchor)
+                ])
+                
+                previousPage = page
+            }
+            
+        case .iPadPortrait:
+            // iPad Portrait: 2x2 grid - Top row: Hardways + Make Em, Bottom row: Horn + Actions
+            betsScrollView.isHidden = true
+            pageControl.isHidden = true
 
-        for (index, betView) in betViews.enumerated() {
-            scrollContentView.addSubview(betView)
-            betView.translatesAutoresizingMaskIntoConstraints = false
+            // Create 2x2 grid
+            let gridStack = UIStackView()
+            gridStack.translatesAutoresizingMaskIntoConstraints = false
+            gridStack.axis = .vertical
+            gridStack.distribution = .fillEqually
+            gridStack.alignment = .fill
+            gridStack.spacing = 16
 
-            if let previous = previousView {
-                // Position after previous view
-                constraints.append(betView.leadingAnchor.constraint(equalTo: previous.trailingAnchor, constant: 48))
-            } else {
-                // First view - position at leading edge
-                constraints.append(betView.leadingAnchor.constraint(equalTo: scrollContentView.leadingAnchor, constant: 24))
+            // Build top row: Hardways (left) + Make Em (right)
+            var row1Views: [UIView] = []
+            if let hardway = hardwayView {
+                row1Views.append(hardway)
+            }
+            if let makeEm = makeEmView {
+                row1Views.append(makeEm)
             }
 
-            constraints.append(contentsOf: [
-                betView.widthAnchor.constraint(equalTo: betsScrollView.widthAnchor, constant: -48),
-                betView.topAnchor.constraint(equalTo: scrollContentView.topAnchor),
-                betView.bottomAnchor.constraint(equalTo: scrollContentView.bottomAnchor)
-            ])
+            // Build bottom row: Horn (left) + Actions (right)
+            var row2Views: [UIView] = []
+            if let horn = hornView {
+                row2Views.append(horn)
+            }
+            row2Views.append(actionsView)
 
-            previousView = betView
+            // Create row stacks
+            if !row1Views.isEmpty {
+                let row1 = UIStackView(arrangedSubviews: row1Views)
+                row1.translatesAutoresizingMaskIntoConstraints = false
+                row1.axis = .horizontal
+                row1.distribution = .fillEqually
+                row1.spacing = 16
+                gridStack.addArrangedSubview(row1)
+            }
+
+            if !row2Views.isEmpty {
+                let row2 = UIStackView(arrangedSubviews: row2Views)
+                row2.translatesAutoresizingMaskIntoConstraints = false
+                row2.axis = .horizontal
+                row2.distribution = .fillEqually
+                row2.spacing = 16
+                gridStack.addArrangedSubview(row2)
+            }
+
+            betsContainerView.addSubview(gridStack)
+
+            constraints.append(contentsOf: [
+                gridStack.topAnchor.constraint(equalTo: betsContainerView.topAnchor),
+                gridStack.leadingAnchor.constraint(equalTo: betsContainerView.leadingAnchor),
+                gridStack.trailingAnchor.constraint(equalTo: betsContainerView.trailingAnchor),
+                gridStack.bottomAnchor.constraint(equalTo: betsContainerView.bottomAnchor)
+            ])
+            
+        case .iPadLandscape:
+            // iPad Landscape: Vertical column with Make Em and Actions side-by-side at bottom
+            betsScrollView.isHidden = true
+            pageControl.isHidden = true
+
+            // NO actions in landscape scroll (will be placed separately)
+            actionsViewSeparate = nil
+
+            // Build vertical column views
+            var columnViews: [UIView] = []
+
+            // Add in order: Hardways first
+            if let hardway = hardwayView {
+                columnViews.append(hardway)
+            }
+
+            // Then Horn
+            if let horn = hornView {
+                columnViews.append(horn)
+            }
+
+            // Build horizontal stack for Make Em and Actions
+            var bottomHorizontalViews: [UIView] = []
+
+            // Add Make Em on the left
+            if let makeEm = makeEmView {
+                bottomHorizontalViews.append(makeEm)
+            }
+
+            // Add Actions on the right
+            bottomHorizontalViews.append(actionsView)
+
+            // Create horizontal stack for Make Em and Actions
+            let makeEmActionsStack = UIStackView(arrangedSubviews: bottomHorizontalViews)
+            makeEmActionsStack.translatesAutoresizingMaskIntoConstraints = false
+            makeEmActionsStack.axis = .horizontal
+            makeEmActionsStack.distribution = .fillEqually
+            makeEmActionsStack.spacing = 16
+            makeEmActionsStack.alignment = .fill
+
+            // Add the horizontal stack to column views
+            columnViews.append(makeEmActionsStack)
+
+            // Create single vertical stack with all items
+            let columnStack = UIStackView(arrangedSubviews: columnViews)
+            columnStack.translatesAutoresizingMaskIntoConstraints = false
+            columnStack.axis = .vertical
+            columnStack.distribution = .fillEqually
+            columnStack.spacing = 16
+            columnStack.alignment = .fill
+
+            betsContainerView.addSubview(columnStack)
+
+            // Constrain column stack to fill container
+            constraints.append(contentsOf: [
+                columnStack.topAnchor.constraint(equalTo: betsContainerView.topAnchor),
+                columnStack.leadingAnchor.constraint(equalTo: betsContainerView.leadingAnchor),
+                columnStack.trailingAnchor.constraint(equalTo: betsContainerView.trailingAnchor),
+                columnStack.bottomAnchor.constraint(equalTo: betsContainerView.bottomAnchor)
+            ])
         }
 
         NSLayoutConstraint.activate(constraints)
+        activeBetViewConstraints = constraints
 
         // Force layout update
         view.layoutIfNeeded()
@@ -1303,7 +1494,7 @@ class CrapsGameplayViewController: UIViewController {
         leftColumn.axis = .vertical
         leftColumn.distribution = .fillEqually
         leftColumn.spacing = 8
-        
+
         // Create right column stack
         let rightColumn = UIStackView()
         rightColumn.translatesAutoresizingMaskIntoConstraints = false
@@ -1346,12 +1537,44 @@ class CrapsGameplayViewController: UIViewController {
         leftColumn.addArrangedSubview(betControls[1])
         rightColumn.addArrangedSubview(betControls[2])
         rightColumn.addArrangedSubview(betControls[3])
-        
+
         // Add columns to bet stack
         quadBetView.betStack.addArrangedSubview(leftColumn)
         quadBetView.betStack.addArrangedSubview(rightColumn)
-        
+
         return quadBetView
+    }
+    
+    /// Adjusts height constraints on SmallControls based on layout mode
+    /// In landscape mode, lowers priority to allow expansion in vertical stacks
+    private func adjustSmallControlHeights(in view: UIView, forLandscape: Bool) {
+        // Recursively find all SmallControls
+        func findSmallControls(in view: UIView) -> [SmallControl] {
+            var controls: [SmallControl] = []
+            if let smallControl = view as? SmallControl {
+                controls.append(smallControl)
+            }
+            for subview in view.subviews {
+                controls.append(contentsOf: findSmallControls(in: subview))
+            }
+            return controls
+        }
+        
+        let smallControls = findSmallControls(in: view)
+        for control in smallControls {
+            // Find height constraint
+            for constraint in control.constraints {
+                if constraint.firstAttribute == .height && constraint.firstItem === control {
+                    if forLandscape {
+                        // Lower priority to allow expansion in vertical stack
+                        constraint.priority = .defaultLow
+                    } else {
+                        // Restore normal priority
+                        constraint.priority = .defaultHigh
+                    }
+                }
+            }
+        }
     }
 
     private func createMakeEmView() -> UIView {
@@ -1369,8 +1592,9 @@ class CrapsGameplayViewController: UIViewController {
         container.addSubview(titleLabel)
 
         // Create Make Em Small control (4, 5, 6, 8, 9, 10)
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
         let makeEmSmallControl = MultiBetControl(
-            title: "Make Em' Small",
+            title: isIPad ? "Small" : "Make Em' Small",
             numbers: [2, 3, 4, 5, 6],
             odds: "34:1"
         )
@@ -1406,7 +1630,7 @@ class CrapsGameplayViewController: UIViewController {
 
         // Create Make Em Tall control (2, 3, 4, 10, 11, 12)
         let makeEmTallControl = MultiBetControl(
-            title: "Make Em' Tall",
+            title: isIPad ? "Tall" : "Make Em' Tall",
             numbers: [8, 9, 10, 11, 12],
             odds: "34:1"
         )
@@ -1454,7 +1678,7 @@ class CrapsGameplayViewController: UIViewController {
             titleLabel.topAnchor.constraint(equalTo: container.topAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            titleLabel.heightAnchor.constraint(equalToConstant: 20),
+            titleLabel.heightAnchor.constraint(equalToConstant: 16), // Smaller height for smaller font
 
             // Make Em stack
             makeEmStack.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
@@ -1546,7 +1770,8 @@ class CrapsGameplayViewController: UIViewController {
             buttonStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             buttonStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            // Height for each button (50pt for each, 8pt spacing between = 108pt total)
+            // Height for top button row and individual buttons (all 50pt)
+            topButtonStack.heightAnchor.constraint(equalToConstant: 50),
             toggleBetsButton.heightAnchor.constraint(equalToConstant: 50),
             collectBetsButton.heightAnchor.constraint(equalToConstant: 50),
             refreshBankrollButton.heightAnchor.constraint(equalToConstant: 50)
@@ -1586,16 +1811,6 @@ class CrapsGameplayViewController: UIViewController {
         
         // Create constraint that will be updated based on playstyle visibility
         topStackTopConstraint = topStackView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
-        
-        NSLayoutConstraint.activate([
-            topStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            topStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            topStackTopConstraint,
-            instructionLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 60), // Ensure space for 2 lines
-            // Fixed width constraint for currentBetView to prevent compression
-            // Width accounts for "Current Bet" title + "$999999" amount (approximately 120pt to be safe)
-            currentBetView.widthAnchor.constraint(equalToConstant: 100)
-        ])
         
         // Show initial message
         instructionLabel.showMessage("Place a Pass Line bet to begin!", shouldFade: false)
@@ -2355,7 +2570,11 @@ class CrapsGameplayViewController: UIViewController {
         let chipView = SmallBetChip()
         chipView.amount = betAmount
         chipView.translatesAutoresizingMaskIntoConstraints = true
-        chipView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+
+        // Match SmallBetChip's scaling behavior - 25% larger on iPad
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let chipSize: CGFloat = isIPad ? 30 * 1.25 : 30
+        chipView.frame = CGRect(x: 0, y: 0, width: chipSize, height: chipSize)
         chipView.isHidden = false
         view.addSubview(chipView)
         chipView.center = betPosition
@@ -2720,13 +2939,7 @@ class CrapsGameplayViewController: UIViewController {
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                         guard let self else { return }
-                        animateWinnings(for: hardwayControl, odds: result.oddsMultiplier!)
-                    }
-
-                    // Collect the original bet after winnings
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        guard let self else { return }
-                        animateBetCollection(for: hardwayControl)
+                        animateWinningsAndBetTogether(for: hardwayControl, odds: result.oddsMultiplier!)
                     }
 
                     winMessages.append("Hard \(result.total) wins! You won $\(result.winAmount!)!")
@@ -2795,13 +3008,7 @@ class CrapsGameplayViewController: UIViewController {
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                         guard let self else { return }
-                        animateWinnings(for: hornControl, odds: result.oddsMultiplier!)
-                    }
-
-                    // Collect the original bet after winnings
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        guard let self else { return }
-                        animateBetCollection(for: hornControl)
+                        animateWinningsAndBetTogether(for: hornControl, odds: result.oddsMultiplier!)
                     }
 
                     winMessages.append("\(result.hornName) wins! You won $\(result.winAmount!)!")
@@ -3446,21 +3653,25 @@ class CrapsGameplayViewController: UIViewController {
     private func animatePendingComeBetLoss(betAmount: Int) {
         let betPosition = comeBetControl.getBetViewPosition(in: view)
         let housePosition = CGPoint(x: view.bounds.width / 2, y: 0)
-        
+
         // Create chip overlay (hide original)
         let betChip = SmallBetChip()
         betChip.translatesAutoresizingMaskIntoConstraints = true
-        betChip.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+
+        // Match SmallBetChip's scaling behavior - 25% larger on iPad
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let chipSize: CGFloat = isIPad ? 30 * 1.25 : 30
+        betChip.frame = CGRect(x: 0, y: 0, width: chipSize, height: chipSize)
         betChip.amount = betAmount
         betChip.isHidden = false
         view.addSubview(betChip)
         betChip.center = betPosition
         comeBetControl.betView.alpha = 0
-        
+
         // Animate chip flying away
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
-            
+
             UIView.animate(withDuration: 0.5, delay: 0, options: .curveEaseIn) {
                 betChip.center = housePosition
                 betChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
@@ -3468,9 +3679,16 @@ class CrapsGameplayViewController: UIViewController {
                 UIView.animate(withDuration: 0.2) {
                     betChip.alpha = 0
                 } completion: { [weak self] _ in
+                    guard let self = self else { return }
                     betChip.removeFromSuperview()
-                    self?.comeBetControl.betAmount = 0
-                    self?.comeBetControl.betView.alpha = 1
+                    // Only clear bet if it's still the same amount (user hasn't placed a new bet)
+                    if self.comeBetControl.betAmount == betAmount {
+                        self.comeBetControl.betAmount = 0
+                    }
+                    // Always restore alpha if still 0 (ensure new bets are visible)
+                    if self.comeBetControl.betView.alpha == 0 {
+                        self.comeBetControl.betView.alpha = 1
+                    }
                 }
             }
         }
@@ -4206,12 +4424,14 @@ extension CrapsGameplayViewController: ChipSelectorDelegate {
 extension CrapsGameplayViewController: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         // Update page control based on scroll position
+        guard scrollView == betsScrollView else { return }
+        guard let pageControl = pageControl else { return }
+        
         let pageWidth = scrollView.bounds.width
+        guard pageWidth > 0 else { return } // Prevent division by zero
+        
         let currentPage = Int((scrollView.contentOffset.x + pageWidth / 2) / pageWidth)
-
-        if scrollView == betsScrollView {
-            pageControl.currentPage = currentPage
-        }
+        pageControl.currentPage = currentPage
     }
 }
 
@@ -4222,8 +4442,15 @@ extension CrapsGameplayViewController: CrapsSettingsManagerDelegate {
         // Update pass line manager with new rebet settings
         passLineManager.updateRebetSettings(enabled: settings.rebetEnabled, amount: settings.rebetAmount)
 
-        // Rebuild bet views if bonus bet settings changed
-        rebuildBetViews()
+        // Only rebuild bet views if bonus bet settings actually changed
+        let currentBonusSettings = (hardways: settings.hardwaysEnabled, makeEm: settings.makeEmEnabled, horn: settings.hornEnabled)
+        let bonusSettingsChanged = previousBonusBetSettings.map {
+            $0 != currentBonusSettings
+        } ?? true
+        
+        if bonusSettingsChanged {
+            rebuildBetViews(for: currentLayoutMode)
+        }
     }
 }
 
