@@ -24,7 +24,9 @@ class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 18, weight: .regular)
+        // iPhone: 18pt, iPad: 22.5pt (consistent with PlainControl)
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        label.font = .systemFont(ofSize: isIPad ? 22.5 : 18, weight: .regular)
         return label
     }()
     
@@ -127,8 +129,11 @@ class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
         
         // Ensure betView stays on top initially
         bringSubviewToFront(betView)
-        
-        let heightConstraint = heightAnchor.constraint(equalToConstant: 50)
+
+        // Device-specific height: iPhone: 42pt, iPad: 65pt (consistent with PlainControl)
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let height: CGFloat = isIPad ? 65 : 50
+        let heightConstraint = heightAnchor.constraint(equalToConstant: height)
         heightConstraint.priority = .defaultHigh
         
         NSLayoutConstraint.activate([
@@ -433,7 +438,10 @@ class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
         guard !isDraggingOdds else {
             return
         }
-        
+
+        // CRITICAL: Only allow odds when bet is locked (i.e., on a point)
+        guard isBetLocked else { return }
+
         let wasEmpty = oddsAmount == 0
         oddsView.addToBet(amount)
         oddsView.alpha = 1
@@ -475,17 +483,17 @@ class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
     func lockBet() {
         guard betAmount > 0 else { return }
         isBetLocked = true
-        // Dim the locked bet to indicate it can't be moved
+        // Change to darker background color to indicate it can't be moved (matches OddsBetStack)
         UIView.animate(withDuration: 0.2) {
-            self.betView.alpha = 0.6
+            self.betView.setLocked(true)
         }
     }
-    
+
     func unlockBet() {
         isBetLocked = false
-        // Restore full opacity when unlocked
+        // Restore normal background color when unlocked
         UIView.animate(withDuration: 0.2) {
-            self.betView.alpha = 1.0
+            self.betView.setLocked(false)
         }
         if oddsAmount > 0 {
             let amountToRemove = oddsAmount
@@ -508,9 +516,9 @@ class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
         }
         
         isBetLocked = false
-        // Restore full opacity when clearing
+        // Restore normal background color when clearing
         UIView.animate(withDuration: 0.2) {
-            self.betView.alpha = 1.0
+            self.betView.setLocked(false)
         }
         oddsAmount = 0  // This will trigger slide-back via setter
     }
@@ -539,6 +547,8 @@ class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
         // This method is called for other cases (like moving bets between controls)
         
         if isBetLocked {
+            // CRITICAL: Only allow odds when bet is locked (i.e., on a point)
+            // This ensures users can't add odds without a point set
             // Add to odds
             let wasEmpty = oddsAmount == 0
             oddsView.addToBet(amount)

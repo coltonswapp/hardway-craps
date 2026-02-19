@@ -38,6 +38,7 @@ class QuadBetView: UIView {
     
     private func setupView() {
         translatesAutoresizingMaskIntoConstraints = false
+        clipsToBounds = true
         
         // Create the bet stack (will be populated externally)
         betStack = UIStackView()
@@ -66,7 +67,7 @@ class QuadBetView: UIView {
             containerStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             containerStack.bottomAnchor.constraint(equalTo: bottomAnchor),
             
-            titleLabel.heightAnchor.constraint(equalToConstant: 20)
+            titleLabel.heightAnchor.constraint(equalToConstant: 16) // Smaller height for smaller font
         ])
         
         titleLabel.text = title

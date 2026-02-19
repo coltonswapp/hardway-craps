@@ -471,11 +471,21 @@ class NNTipManager {
     
     func setupConstraints(for tipView: UIView, sourceView: UIView, viewController: UIViewController, arrowEdge: TipArrowEdge, offset: CGPoint, centerHorizontally: Bool = false) {
         var constraints: [NSLayoutConstraint] = []
+        
+        // Check if device is iPad
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let maxIPadWidth: CGFloat = 300
 
         switch arrowEdge {
         case .top, .bottom:
-            // For top/bottom arrows, use 80% screen width but position to align arrow with source
-            let widthConstraint = tipView.widthAnchor.constraint(equalTo: viewController.view.widthAnchor, multiplier: 0.8)
+            // For top/bottom arrows, use 80% screen width on iPhone, max 300pt on iPad
+            if isIPad {
+                // iPad: Use max width of 300pt
+                constraints.append(tipView.widthAnchor.constraint(lessThanOrEqualToConstant: maxIPadWidth))
+            } else {
+                // iPhone: Use 80% screen width
+                constraints.append(tipView.widthAnchor.constraint(equalTo: viewController.view.widthAnchor, multiplier: 0.8))
+            }
 
             let centerXConstraint: NSLayoutConstraint
 
@@ -487,7 +497,7 @@ class NNTipManager {
                 let sourceViewFrame = sourceView.superview?.convert(sourceView.frame, to: viewController.view) ?? CGRect.zero
                 let sourceViewCenterX = sourceViewFrame.midX
                 let viewControllerWidth = viewController.view.bounds.width
-                let tooltipWidth = viewControllerWidth * 0.8
+                let tooltipWidth = isIPad ? min(viewControllerWidth * 0.8, maxIPadWidth) : viewControllerWidth * 0.8
 
                 // Calculate optimal tooltip center to keep arrow pointing to source
                 let idealTooltipCenterX = sourceViewCenterX
@@ -502,18 +512,16 @@ class NNTipManager {
 
             if arrowEdge == .top {
                 // .top edge = tooltip pinned to top of source = tooltip above source
-                constraints = [
+                constraints.append(contentsOf: [
                     centerXConstraint,
-                    widthConstraint,
                     tipView.bottomAnchor.constraint(equalTo: sourceView.topAnchor, constant: offset.y)
-                ]
+                ])
             } else { // .bottom
                 // .bottom edge = tooltip pinned to bottom of source = tooltip below source
-                constraints = [
+                constraints.append(contentsOf: [
                     centerXConstraint,
-                    widthConstraint,
                     tipView.topAnchor.constraint(equalTo: sourceView.bottomAnchor, constant: offset.y)
-                ]
+                ])
             }
             
         case .leading:
@@ -521,14 +529,23 @@ class NNTipManager {
                 tipView.leadingAnchor.constraint(equalTo: sourceView.trailingAnchor, constant: offset.x),
                 tipView.centerYAnchor.constraint(equalTo: sourceView.centerYAnchor, constant: offset.y)
             ]
+            // Add maximum width constraint for iPad
+            if isIPad {
+                constraints.append(tipView.widthAnchor.constraint(lessThanOrEqualToConstant: maxIPadWidth))
+            }
         case .trailing:
-            // For trailing arrows, especially nav bar buttons, use 80% width and position relative to source
-            let widthConstraint = tipView.widthAnchor.constraint(equalTo: viewController.view.widthAnchor, multiplier: 0.8)
+            // For trailing arrows, especially nav bar buttons, use 80% width on iPhone, max 300pt on iPad
             constraints = [
                 tipView.trailingAnchor.constraint(equalTo: sourceView.leadingAnchor, constant: -offset.x),
-                tipView.centerYAnchor.constraint(equalTo: sourceView.centerYAnchor, constant: offset.y),
-                widthConstraint
+                tipView.centerYAnchor.constraint(equalTo: sourceView.centerYAnchor, constant: offset.y)
             ]
+
+            // Add appropriate width constraint based on device
+            if isIPad {
+                constraints.append(tipView.widthAnchor.constraint(lessThanOrEqualToConstant: maxIPadWidth))
+            } else {
+                constraints.append(tipView.widthAnchor.constraint(equalTo: viewController.view.widthAnchor, multiplier: 0.8))
+            }
         }
         
         // Add boundary constraints (only for leading/trailing arrows since top/bottom have fixed width)

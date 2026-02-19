@@ -18,6 +18,11 @@ class MultiBetControl: PlainControl {
         return label
     }()
 
+    var controlTitle: String? {
+        get { titleLabel.text }
+        set { titleLabel.text = newValue }
+    }
+
     private let oddsLabel: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -71,10 +76,10 @@ class MultiBetControl: PlainControl {
         self.odds = odds
         super.init(title: nil)
         
-        // Remove PlainControl's default 50pt height constraint
+        // Remove PlainControl's default height constraint (50pt iPhone, 65pt iPad)
         var heightConstraintsToRemove: [NSLayoutConstraint] = []
         for constraint in constraints {
-            if constraint.firstAttribute == .height && constraint.firstItem === self && constraint.constant == 50 {
+            if constraint.firstAttribute == .height && constraint.firstItem === self {
                 heightConstraintsToRemove.append(constraint)
             }
         }
@@ -90,13 +95,20 @@ class MultiBetControl: PlainControl {
     private func setupMultiBetView(title: String) {
         titleLabel.text = title
         oddsLabel.text = odds
-        
+
+        // Style the control to match SmallControl
+        backgroundColor = HardwayColors.surfaceGray
+        layer.cornerRadius = 16
+        clipsToBounds = true
+        layer.borderWidth = 1.5
+        layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
+
         // Create number views for each number
         for number in numbers {
             let numberView = NumberView(number: number)
             numberViews.append(numberView)
             numbersStackView.addArrangedSubview(numberView)
-            
+
             // Constrain each number view to a fixed size
             NSLayoutConstraint.activate([
                 numberView.widthAnchor.constraint(equalToConstant: 24),
@@ -129,9 +141,9 @@ class MultiBetControl: PlainControl {
             
             // Numbers stack view height
             numbersStackView.heightAnchor.constraint(equalToConstant: 24),
-            
-            // Control height
-            heightAnchor.constraint(equalToConstant: 70)
+
+            // Device-specific control height: iPhone 50pt, iPad 70pt
+            heightAnchor.constraint(equalToConstant: UIDevice.current.userInterfaceIdiom == .pad ? 70 : 50)
         ])
         
         // Set content hugging priorities: titleLabel hugs content

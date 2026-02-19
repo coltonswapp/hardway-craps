@@ -48,6 +48,14 @@ class PointStack: UIView {
         addSubview(puck)
 
         puckCenterXConstraint = puck.centerXAnchor.constraint(equalTo: leadingAnchor, constant: 8)
+        
+        // Set content hugging priority very low to allow PointStack to grow vertically
+        setContentHuggingPriority(.fittingSizeLevel, for: .vertical)
+        setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        
+        // Also set low content hugging on internal stack view to allow growth
+        stackView.setContentHuggingPriority(.fittingSizeLevel, for: .vertical)
+        stackView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: topAnchor),
@@ -90,7 +98,13 @@ class PointStack: UIView {
 
             pointControls.append(pointControl)
             stackView.addArrangedSubview(pointControl)
+            
+            // CRITICAL: Force PointControls to fill the stack view's height
+            // UIStackView .fill alignment should do this, but explicit constraint ensures it
+            pointControl.heightAnchor.constraint(equalTo: stackView.heightAnchor).isActive = true
         }
+        
+        print("🔧 PointStack: Created \(pointControls.count) PointControls with explicit height = stackView.heightAnchor")
     }
 
     func setPoint(_ number: Int) {

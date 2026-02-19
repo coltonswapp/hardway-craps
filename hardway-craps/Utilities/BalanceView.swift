@@ -54,7 +54,10 @@ class BalanceView: UIView {
             amountLabel.topAnchor.constraint(equalTo: topAnchor),
             amountLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             amountLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
-            amountLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
+            amountLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            // Ensure BalanceView has a minimum height
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 30)
         ])
     }
 

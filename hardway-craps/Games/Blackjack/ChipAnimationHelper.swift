@@ -535,7 +535,11 @@ final class ChipAnimationHelper {
         let chipView = SmallBetChip()
         chipView.amount = amount
         chipView.translatesAutoresizingMaskIntoConstraints = true
-        chipView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+
+        // Match SmallBetChip's scaling behavior - 25% larger on iPad
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let chipSize: CGFloat = isIPad ? 30 * 1.25 : 30
+        chipView.frame = CGRect(x: 0, y: 0, width: chipSize, height: chipSize)
         chipView.isHidden = false
         return chipView
     }

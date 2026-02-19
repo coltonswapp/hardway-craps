@@ -121,7 +121,7 @@ final class CrapsGameStateManager {
             } else if hasAnyBetPlaced {
                 delay = 0.0  // Any bet placed - enable immediately
             } else {
-                delay = 1.5  // After roll result - wait for animations to complete
+                delay = 0.8  // After roll result - brief wait for animations to start
             }
 
             let workItem = DispatchWorkItem { [weak self, weak flipDiceContainer] in

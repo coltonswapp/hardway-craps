@@ -27,7 +27,9 @@ class SmallControl: PlainControl {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 12, weight: .regular)
+        // Device-specific font size
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        label.font = .systemFont(ofSize: isIPad ? 15 : 13, weight: .regular)
         label.textColor = HardwayColors.label.withAlphaComponent(0.6)
         return label
     }()
@@ -36,7 +38,6 @@ class SmallControl: PlainControl {
         let stackView = UIStackView()
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
-        stackView.spacing = 4
         stackView.alignment = .center
         stackView.distribution = .fillEqually
         stackView.isUserInteractionEnabled = false
@@ -47,7 +48,6 @@ class SmallControl: PlainControl {
         let stackView = UIStackView()
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
-        stackView.spacing = 12
         stackView.alignment = .center
         stackView.distribution = .fill
         stackView.isUserInteractionEnabled = false
@@ -71,7 +71,13 @@ class SmallControl: PlainControl {
     }
     
     private func setupSmallControlView() {
-        let dieSize: CGFloat = 28
+        // Device-specific die size: smaller on iPhone, larger on iPad
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let dieSize: CGFloat = isIPad ? 35 : 32
+
+        // Set spacing
+        diceStackView.spacing = 4
+        contentStackView.spacing = 12
 
         // Set die images
         dieImageView1.image = UIImage(named: "hardway-die-\(dieValue1)")
@@ -81,6 +87,7 @@ class SmallControl: PlainControl {
         // Style the control to match action buttons
         backgroundColor = HardwayColors.surfaceGray
         layer.cornerRadius = 16
+        clipsToBounds = true
         layer.borderWidth = 1.5
         layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
 
@@ -95,7 +102,7 @@ class SmallControl: PlainControl {
         addSubview(contentStackView)
         
         NSLayoutConstraint.activate([
-            // Die images - slightly bigger
+            // Die images - original size
             dieImageView1.widthAnchor.constraint(equalToConstant: dieSize),
             dieImageView1.heightAnchor.constraint(equalToConstant: dieSize),
             
@@ -111,7 +118,7 @@ class SmallControl: PlainControl {
     override func configureBetViewConstraints() {
         NSLayoutConstraint.activate([
             betView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            betView.centerXAnchor.constraint(equalTo: trailingAnchor, constant: -12)
+            betView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
         ])
     }
 }

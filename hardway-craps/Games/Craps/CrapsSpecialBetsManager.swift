@@ -258,8 +258,8 @@ final class CrapsSpecialBetsManager {
     /// - Returns: Field result with win/loss and payout information
     func evaluateFieldBet(total: Int, betAmount: Int) -> FieldResult {
         if isFieldNumber(total) {
-            // Field pays 2:1 on 2 and 12, 1:1 on other field numbers
-            let multiplier: Double = (total == 2 || total == 12) ? 2.0 : 1.0
+            // Field pays 3:1 on 12, 2:1 on 2, 1:1 on other field numbers
+            let multiplier: Double = (total == 12) ? 3.0 : (total == 2) ? 2.0 : 1.0
             let winAmount = Int(Double(betAmount) * multiplier)
 
             delegate?.fieldWinEvaluated(
