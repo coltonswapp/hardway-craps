@@ -20,8 +20,8 @@ class BlackJackBetControl: PlainControl {
         }
     }
     
-    override init(title: String? = nil) {
-        super.init(title: title ?? "BET")
+    override init(title: String? = nil, mpChipStyle: MPSmallBetChipStyle? = nil) {
+        super.init(title: title ?? "BET", mpChipStyle: mpChipStyle)
         setupBlackjackLayout()
     }
     

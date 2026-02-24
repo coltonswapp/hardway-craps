@@ -63,6 +63,9 @@ final class AppSettingsViewController: UITableViewController {
         case clearSessions
         case playground
         case chipStack
+        case blackjackHand
+        case multiplayerBet
+        case multiplayerBlackjack
 
         var title: String {
             switch self {
@@ -70,6 +73,9 @@ final class AppSettingsViewController: UITableViewController {
             case .clearSessions: return "Clear All Sessions"
             case .playground: return "Odds Control Playground"
             case .chipStack: return "Chip Stack Playground"
+            case .blackjackHand: return "Blackjack Hand Playground"
+            case .multiplayerBet: return "Multiplayer Bet Playground"
+            case .multiplayerBlackjack: return "Multiplayer Blackjack"
             }
         }
 
@@ -79,6 +85,9 @@ final class AppSettingsViewController: UITableViewController {
             case .clearSessions: return "trash"
             case .playground: return "gamecontroller"
             case .chipStack: return "circle.grid.3x3.fill"
+            case .blackjackHand: return "rectangle.stack"
+            case .multiplayerBet: return "person.2.fill"
+            case .multiplayerBlackjack: return "person.3.fill"
             }
         }
 
@@ -88,6 +97,9 @@ final class AppSettingsViewController: UITableViewController {
             case .clearSessions: return true
             case .playground: return false
             case .chipStack: return false
+            case .blackjackHand: return false
+            case .multiplayerBet: return false
+            case .multiplayerBlackjack: return false
             }
         }
     }
@@ -475,6 +487,21 @@ final class AppSettingsViewController: UITableViewController {
         case .chipStack:
             let chipStackVC = ChipStackPlayground()
             let nav = UINavigationController(rootViewController: chipStackVC)
+            nav.isModalInPresentation = true
+            present(nav, animated: true)
+        case .blackjackHand:
+            let vc = BlackjackHandPlayground()
+            let nav = UINavigationController(rootViewController: vc)
+            nav.isModalInPresentation = true
+            present(nav, animated: true)
+        case .multiplayerBet:
+            let vc = MultiplayerBetPlaygroundViewController()
+            let nav = UINavigationController(rootViewController: vc)
+            nav.isModalInPresentation = true
+            present(nav, animated: true)
+        case .multiplayerBlackjack:
+            let vc = MultiplayerBlackjackViewController()
+            let nav = UINavigationController(rootViewController: vc)
             nav.isModalInPresentation = true
             present(nav, animated: true)
         }

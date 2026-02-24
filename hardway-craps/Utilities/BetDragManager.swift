@@ -26,7 +26,7 @@ protocol BetDropTarget: AnyObject {
 /// Protocol for controls that can be the SOURCE of a bet drag (i.e. dragging a bet away from them)
 protocol BetDragSource: AnyObject {
     var betAmount: Int { get set }
-    var betView: SmallBetChip! { get }
+    var betView: BetChipView! { get }
     var canRemoveBet: (() -> Bool)? { get }
     func removeBetSilently(_ amount: Int)
     func getBetViewPosition(in view: UIView) -> CGPoint

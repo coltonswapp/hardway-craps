@@ -275,6 +275,22 @@ class ChipSelector: UIView, BetDropTarget {
     }
 
 
+    /// Update the chip color set for all chips in the selector
+    func updateColorSet(_ colorSet: ChipColorSet) {
+        print("🎨 [ChipSelector] updateColorSet called with color: '\(colorSet.name)', chipControls count: \(chipControls.count)")
+        // Update UserDefaults so ChipColorSet.current reflects the new color
+        UserDefaults.standard.set(colorSet.name, forKey: "ChipColorSetName")
+        
+        // Update all existing chips with the new color set
+        for chip in chipControls {
+            colorSet.apply(to: chip)
+        }
+        
+        // Update selection indicator color if needed
+        selectionIndicator.backgroundColor = colorSet.textColor
+        print("   ✅ Applied color set to \(chipControls.count) chips")
+    }
+
     // MARK: In-place chip swap (no animation)
 
     private func swapChips(to newValues: [Int]) {

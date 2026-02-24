@@ -7,7 +7,7 @@
 
 import UIKit
 
-class SmallBetChip: UIView {
+class SmallBetChip: UIView, BetChipViewProtocol {
 
     private let amountLabel: UILabel = {
         let label = UILabel()
