@@ -13,6 +13,7 @@ protocol BetChipViewProtocol: AnyObject {
     func addToBet(_ value: Int)
     func clearBet()
     func setLocked(_ locked: Bool)
+    func setAmount(_ newAmount: Int, animated: Bool)
 }
 
 /// Type alias combining UIView with BetChipViewProtocol
@@ -94,6 +95,20 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
             }
             updateTitleAlignment()
         }
+    }
+
+    /// Set bet amount with optional CADisplayLink counting animation.
+    func setBetAmount(_ newAmount: Int, animated: Bool) {
+        if let stack = oddsBetStack {
+            if animated {
+                stack.betChip.setAmount(newAmount, animated: true)
+            } else {
+                stack.betAmount = newAmount
+            }
+        } else {
+            betView.setAmount(newAmount, animated: animated)
+        }
+        updateTitleAlignment()
     }
     
     var oddsAmount: Int {

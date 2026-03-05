@@ -47,6 +47,13 @@ class MPSmallBetChip: UIView, BetChipViewProtocol {
         return HardwayColors.betGray.darker(by: 6.0)
     }()
 
+    // MARK: - CADisplayLink animation state
+    private var displayLink: CADisplayLink?
+    private var animationStartTime: CFTimeInterval = 0
+    private var startAmount: Int = 0
+    private var targetAmount: Int = 0
+    private static let animationDuration: CFTimeInterval = 0.3
+
     var style: MPSmallBetChipStyle {
         didSet {
             amountLabel.textColor = style.textColor
@@ -121,6 +128,51 @@ class MPSmallBetChip: UIView, BetChipViewProtocol {
 
     func clearBet() {
         amount = 0
+    }
+
+    func setAmount(_ newAmount: Int, animated: Bool) {
+        displayLink?.invalidate()
+        displayLink = nil
+
+        guard animated, amount != newAmount, newAmount != 0 else {
+            amount = newAmount
+            return
+        }
+
+        let oldAmount = amount
+        isHidden = false
+
+        startAmount = oldAmount
+        targetAmount = newAmount
+        animationStartTime = CACurrentMediaTime()
+
+        displayLink = CADisplayLink(target: self, selector: #selector(tickAmountAnimation))
+        displayLink?.add(to: .main, forMode: .common)
+
+        if newAmount > oldAmount {
+            UIView.animate(withDuration: 0.1) {
+                self.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                UIView.animate(withDuration: 0.2) {
+                    self.transform = .identity
+                }
+            }
+        }
+    }
+
+    @objc private func tickAmountAnimation() {
+        let elapsed = CACurrentMediaTime() - animationStartTime
+        if elapsed >= Self.animationDuration {
+            amount = targetAmount
+            displayLink?.invalidate()
+            displayLink = nil
+        } else {
+            let progress = elapsed / Self.animationDuration
+            let eased = progress * (2.0 - progress)
+            let current = startAmount + Int(Double(targetAmount - startAmount) * eased)
+            amountLabel.text = "\(current)"
+        }
     }
     
     /// Play a quick shimmer animation on the chip

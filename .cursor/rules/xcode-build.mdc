@@ -1,0 +1,9 @@
+---
+description: Xcode project build guidelines
+alwaysApply: true
+---
+
+# Xcode Build
+
+- Do NOT use Xcode MCP tools (discover_projects, list_schemes, build commands, etc.) to build the project. The user will handle building in Xcode directly.
+- This project uses `PBXFileSystemSynchronizedRootGroup`, so new files added to the `hardway-craps/` source directory are automatically included in the Xcode project. No manual `project.pbxproj` edits are needed for adding files.

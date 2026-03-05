@@ -43,7 +43,7 @@ final class BetResultManager {
         let betResultContainer = BetResultContainer()
         betResultContainer.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(betResultContainer)
-        
+
         // Calculate vertical offset based on currently showing containers
         // Each container is 80pt tall with 20pt spacing, so we stack them vertically
         let verticalOffset = calculateVerticalOffset()
@@ -57,7 +57,9 @@ final class BetResultManager {
         activeContainers.append(betResultContainer)
 
         // Animate the bet result container
-        betResultContainer.animateToAmount(amount, isWin: isWin, showBonus: showBonus, description: description)
+        // Use shorter duration for bonus bets (0.6s instead of 1.0s)
+        let duration: CFTimeInterval = showBonus ? 0.6 : 1.0
+        betResultContainer.animateToAmount(amount, isWin: isWin, showBonus: showBonus, description: description, duration: duration)
         betResultContainer.show(isWin: isWin) { [weak self] in
             betResultContainer.removeFromSuperview()
             // Remove from active containers tracking

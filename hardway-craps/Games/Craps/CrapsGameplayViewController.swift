@@ -245,6 +245,7 @@ class CrapsGameplayViewController: UIViewController {
         // Just start it if it's a new session
         if resumingSession == nil {
             sessionManager.startSession()
+            GameAnalyticsEvent.crapsGameStarted.log()
         }
     }
 

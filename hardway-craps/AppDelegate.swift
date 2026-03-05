@@ -7,15 +7,18 @@
 
 import UIKit
 import FirebaseCore
+import FirebaseFunctions
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
-
-
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
         FirebaseApp.configure()
+        // To use local Functions emulator for debugging, uncomment below:
+        // #if DEBUG
+        // let emulatorHost = ProcessInfo.processInfo.environment["EMULATOR_HOST"] ?? "localhost"
+        // Functions.functions().useEmulator(withHost: emulatorHost, port: 5001)
+        // #endif
         return true
     }
 

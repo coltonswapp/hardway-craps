@@ -88,11 +88,11 @@ struct MPPlayerHand: Codable {
     }
 }
 
-/// Complete game state stored in Firebase
+/// Complete game state stored in Firebase. Deck is derived from deckSeed + deckCount, not stored.
 struct MPGameState: Codable {
     var phase: MPGamePhase
     var deckSeed: Int64              // Seed for deterministic shuffle
-    var deck: [MPCard]               // Current deck state (cards remaining)
+    var deckCount: Int               // Number of 52-card decks (1–6)
     var deckIndex: Int               // Current position in deck
     var dealerCards: [MPCard]        // Dealer's hand
     var dealerHoleCardRevealed: Bool
@@ -100,15 +100,15 @@ struct MPGameState: Codable {
     var currentTurn: MPPlayerTurnState?      // Whose turn it is
     var handNumber: Int              // Increments each hand
     var lastShuffleTime: TimeInterval // Timestamp of last shuffle
-    
-    init(phase: MPGamePhase = .waitingForPlayers, deckSeed: Int64 = 0, 
-         deck: [MPCard] = [], deckIndex: Int = 0, dealerCards: [MPCard] = [],
+
+    init(phase: MPGamePhase = .waitingForPlayers, deckSeed: Int64 = 0,
+         deckCount: Int = 1, deckIndex: Int = 0, dealerCards: [MPCard] = [],
          dealerHoleCardRevealed: Bool = false, playerHands: [Int: [MPPlayerHand]] = [:],
          currentTurn: MPPlayerTurnState? = nil, handNumber: Int = 0,
          lastShuffleTime: TimeInterval = Date().timeIntervalSince1970) {
         self.phase = phase
         self.deckSeed = deckSeed
-        self.deck = deck
+        self.deckCount = deckCount
         self.deckIndex = deckIndex
         self.dealerCards = dealerCards
         self.dealerHoleCardRevealed = dealerHoleCardRevealed
@@ -132,14 +132,12 @@ final class MPBlackjackGameState {
     // MARK: - Game State Management
     
     /// Initialize a new game state (call when starting a new hand)
-    func initializeGame(completion: @escaping (Result<Void, Error>) -> Void) {
+    func initializeGame(deckCount: Int = 1, completion: @escaping (Result<Void, Error>) -> Void) {
         let seed = Int64.random(in: Int64.min...Int64.max)
-        let deck = createShuffledDeck(seed: seed)
-        
         let initialState = MPGameState(
             phase: .betting,
             deckSeed: seed,
-            deck: deck,
+            deckCount: deckCount,
             deckIndex: 0,
             handNumber: 1
         )
@@ -200,20 +198,17 @@ final class MPBlackjackGameState {
         }
     }
     
-    /// Draw a card from the deck (atomic operation)
+    /// Draw a card from the deck (atomic operation). Deck is derived from deckSeed + deckCount.
     func drawCard(completion: @escaping (Result<MPCard, Error>) -> Void) {
         ref.runTransactionBlock({ currentData in
             var data = currentData.value as? [String: Any] ?? [:]
-            guard let deckArray = data["deck"] as? [[String: Any]],
-                  var deckIndex = data["deckIndex"] as? Int,
-                  deckIndex < deckArray.count else {
-                return .abort()
-            }
-            
-            let cardData = deckArray[deckIndex]
+            guard var deckIndex = data["deckIndex"] as? Int else { return .abort() }
+            let deckCount = min(6, max(1, (data["deckCount"] as? Int) ?? 1))
+            guard let deckSeed = data["deckSeed"] as? Int64 else { return .abort() }
+            let provider = DeterministicDeckProvider(seed: Int(truncatingIfNeeded: deckSeed), deckCount: deckCount)
+            guard deckIndex < provider.count else { return .abort() }
             deckIndex += 1
             data["deckIndex"] = deckIndex
-            
             currentData.value = data
             return .success(withValue: currentData)
         }) { error, committed, snapshot in
@@ -222,25 +217,22 @@ final class MPBlackjackGameState {
                                                    userInfo: [NSLocalizedDescriptionKey: "Failed to draw card"])))
                 return
             }
-            
-            // Read the card we just drew
             guard let data = snapshot?.value as? [String: Any],
-                  let deckArray = data["deck"] as? [[String: Any]],
+                  let deckSeed = data["deckSeed"] as? Int64,
                   let deckIndex = data["deckIndex"] as? Int,
-                  deckIndex > 0,
-                  deckIndex <= deckArray.count else {
+                  deckIndex > 0 else {
                 completion(.failure(NSError(domain: "MPBlackjackGameState", code: -1,
                                           userInfo: [NSLocalizedDescriptionKey: "Invalid deck state"])))
                 return
             }
-            
-            let cardData = deckArray[deckIndex - 1]
-            do {
-                let card = try self.decodeCard(from: cardData)
-                completion(.success(card))
-            } catch {
-                completion(.failure(error))
+            let deckCount = min(6, max(1, (data["deckCount"] as? Int) ?? 1))
+            let provider = DeterministicDeckProvider(seed: Int(truncatingIfNeeded: deckSeed), deckCount: deckCount)
+            guard let card = provider.card(at: deckIndex - 1) else {
+                completion(.failure(NSError(domain: "MPBlackjackGameState", code: -1,
+                                          userInfo: [NSLocalizedDescriptionKey: "Invalid deck index"])))
+                return
             }
+            completion(.success(MPCard(rank: card.rank, suit: card.suit, isCutCard: false)))
         }
     }
     
@@ -316,22 +308,17 @@ final class MPBlackjackGameState {
             // Handle action
             switch actionToUse {
             case "hit", "double":
-                // Draw card
-                guard let deckArray = data["deck"] as? [[String: Any]],
-                      var deckIndex = data["deckIndex"] as? Int,
-                      deckIndex < deckArray.count else {
+                // Draw card from deterministic deck (deckSeed + deckCount)
+                guard let deckSeed = data["deckSeed"] as? Int64,
+                      var deckIndex = data["deckIndex"] as? Int else {
                     return .abort()
                 }
-                
-                let cardData = deckArray[deckIndex]
+                let deckCount = min(6, max(1, (data["deckCount"] as? Int) ?? 1))
+                let provider = DeterministicDeckProvider(seed: Int(truncatingIfNeeded: deckSeed), deckCount: deckCount)
+                guard let drawn = provider.card(at: deckIndex) else { return .abort() }
                 deckIndex += 1
                 data["deckIndex"] = deckIndex
-                
-                do {
-                    card = try self.decodeCard(from: cardData)
-                } catch {
-                    return .abort()
-                }
+                card = MPCard(rank: drawn.rank, suit: drawn.suit, isCutCard: false)
                 
                 // Add card to hand
                 var playerHands: [String: [[String: Any]]] = data["playerHands"] as? [String: [[String: Any]]] ?? [:]
@@ -387,20 +374,19 @@ final class MPBlackjackGameState {
                 // Extract card from snapshot if we drew one (for hit/double actions)
                 if actionToUse == "hit" || actionToUse == "double" {
                     guard let data = snapshot?.value as? [String: Any],
-                          let deckArray = data["deck"] as? [[String: Any]],
+                          let deckSeed = data["deckSeed"] as? Int64,
                           let deckIndex = data["deckIndex"] as? Int,
-                          deckIndex > 0,
-                          deckIndex <= deckArray.count else {
+                          deckIndex > 0 else {
                         completion(.success(nil))
                         return
                     }
-                    let cardData = deckArray[deckIndex - 1]
-                    do {
-                        let card = try self.decodeCard(from: cardData)
-                        completion(.success(card))
-                    } catch {
-                        completion(.failure(error))
+                    let deckCount = min(6, max(1, (data["deckCount"] as? Int) ?? 1))
+                    let provider = DeterministicDeckProvider(seed: Int(truncatingIfNeeded: deckSeed), deckCount: deckCount)
+                    guard let c = provider.card(at: deckIndex - 1) else {
+                        completion(.success(nil))
+                        return
                     }
+                    completion(.success(MPCard(rank: c.rank, suit: c.suit, isCutCard: false)))
                 } else {
                     // Stand or split - no card drawn
                     completion(.success(nil))
@@ -413,27 +399,7 @@ final class MPBlackjackGameState {
     }
     
     // MARK: - Helper Methods
-    
-    private func createShuffledDeck(seed: Int64) -> [MPCard] {
-        // Create standard 52-card deck
-        var cards: [MPCard] = []
-        let suits = ["spades", "hearts", "diamonds", "clubs"]
-        // Rank rawValues: "A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"
-        let ranks = ["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"]
-        
-        for suit in suits {
-            for rank in ranks {
-                cards.append(MPCard(rank: rank, suit: suit))
-            }
-        }
-        
-        // Deterministic shuffle using seed
-        var generator = SeededRandomNumberGenerator(seed: seed)
-        cards.shuffle(using: &generator)
-        
-        return cards
-    }
-    
+
     private func writeGameState(_ state: MPGameState, completion: @escaping (Result<Void, Error>) -> Void) {
         do {
             let encoder = JSONEncoder()
@@ -444,19 +410,17 @@ final class MPBlackjackGameState {
                 return
             }
             
-            // Convert nested structures to Firebase-compatible format
+            // Convert nested structures to Firebase-compatible format (deck not stored; derived from deckSeed + deckCount)
             var firebaseDict: [String: Any] = [
                 "phase": state.phase.rawValue,
                 "deckSeed": state.deckSeed,
+                "deckCount": state.deckCount,
                 "deckIndex": state.deckIndex,
                 "dealerHoleCardRevealed": state.dealerHoleCardRevealed,
                 "handNumber": state.handNumber,
                 "lastShuffleTime": state.lastShuffleTime
             ]
-            
-            // Encode deck
-            firebaseDict["deck"] = state.deck.map { ["rank": $0.rank, "suit": $0.suit, "isCutCard": $0.isCutCard] }
-            
+
             // Encode dealer cards
             firebaseDict["dealerCards"] = state.dealerCards.map { ["rank": $0.rank, "suit": $0.suit, "isCutCard": $0.isCutCard] }
             
@@ -504,15 +468,12 @@ final class MPBlackjackGameState {
         let phaseRaw = data["phase"] as? String ?? MPGamePhase.waitingForPlayers.rawValue
         let phase = MPGamePhase(rawValue: phaseRaw) ?? .waitingForPlayers
         let deckSeed = data["deckSeed"] as? Int64 ?? 0
+        let deckCount = min(6, max(1, (data["deckCount"] as? Int) ?? 1))
         let deckIndex = data["deckIndex"] as? Int ?? 0
         let dealerHoleCardRevealed = data["dealerHoleCardRevealed"] as? Bool ?? false
         let handNumber = data["handNumber"] as? Int ?? 0
         let lastShuffleTime = data["lastShuffleTime"] as? TimeInterval ?? Date().timeIntervalSince1970
-        
-        // Decode deck
-        let deckArray = data["deck"] as? [[String: Any]] ?? []
-        let deck = try deckArray.map { try decodeCard(from: $0) }
-        
+
         // Decode dealer cards
         let dealerCardsArray = data["dealerCards"] as? [[String: Any]] ?? []
         let dealerCards = try dealerCardsArray.map { try decodeCard(from: $0) }
@@ -543,7 +504,7 @@ final class MPBlackjackGameState {
         return MPGameState(
             phase: phase,
             deckSeed: deckSeed,
-            deck: deck,
+            deckCount: deckCount,
             deckIndex: deckIndex,
             dealerCards: dealerCards,
             dealerHoleCardRevealed: dealerHoleCardRevealed,
@@ -579,21 +540,5 @@ final class MPBlackjackGameState {
     
     func removeObserver(handle: DatabaseHandle) {
         ref.removeObserver(withHandle: handle)
-    }
-}
-
-// MARK: - Seeded Random Number Generator
-
-/// Deterministic random number generator for reproducible shuffles
-struct SeededRandomNumberGenerator: RandomNumberGenerator {
-    private var state: UInt64
-    
-    init(seed: Int64) {
-        self.state = UInt64(bitPattern: seed)
-    }
-    
-    mutating func next() -> UInt64 {
-        state = state &* 1103515245 &+ 12345
-        return state
     }
 }

@@ -71,7 +71,7 @@ class MainViewController: UIViewController {
     private func setupStartGameButtons() {
         // Configure buttons
         startGameButton.addTarget(self, action: #selector(startGameTapped), for: .touchUpInside)
-        blackjackButton.addTarget(self, action: #selector(blackjackTapped), for: .touchUpInside)
+        configureBlackjackMenu()
 
         // Setup variable blur effect view
         visualEffectView = UIVisualEffectView()
@@ -126,7 +126,7 @@ class MainViewController: UIViewController {
         view.layoutIfNeeded()
         let containerHeight = ctaStackView.frame.height + 56 // 40pt top + 16pt bottom padding
         tableView.contentInset.bottom = containerHeight + 20 // Add extra 20pt buffer
-        tableView.scrollIndicatorInsets.bottom = containerHeight - 20// Match scroll indicator to content inset
+        tableView.verticalScrollIndicatorInsets.bottom = containerHeight - 20// Match scroll indicator to content inset
     }
     
     @objc private func startGameTapped() {
@@ -134,9 +134,36 @@ class MainViewController: UIViewController {
         navigationController?.pushViewController(gameplayVC, animated: true)
     }
     
-    @objc private func blackjackTapped() {
-        let gameplayVC = BlackjackGameplayViewController()
-        navigationController?.pushViewController(gameplayVC, animated: true)
+    private func configureBlackjackMenu() {
+        // Override tap to show menu as action sheet
+        blackjackButton.removeTarget(nil, action: nil, for: .touchUpInside)
+        blackjackButton.addTarget(self, action: #selector(blackjackButtonTapped), for: .touchUpInside)
+    }
+    
+    @objc private func blackjackButtonTapped() {
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        
+        let soloAction = UIAlertAction(title: "Solo", style: .default) { [weak self] _ in
+            let vc = BlackjackGameplayViewController()
+            self?.navigationController?.pushViewController(vc, animated: true)
+        }
+        
+        let multiplayerAction = UIAlertAction(title: "Multiplayer", style: .default) { [weak self] _ in
+            let vc = MPBlackjackLobbyViewController()
+            self?.navigationController?.pushViewController(vc, animated: true)
+        }
+        
+        alert.addAction(soloAction)
+        alert.addAction(multiplayerAction)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        // For iPad support
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = blackjackButton
+            popover.sourceRect = blackjackButton.bounds
+        }
+        
+        present(alert, animated: true)
     }
     
     private func loadSessions() {
@@ -168,7 +195,7 @@ extension MainViewController: UITableViewDelegate {
         let detailViewController = GameDetailViewController(session: session, canContinueSession: true)
 
         // Set up callback for continuing session
-        detailViewController.onContinueSession = { [weak self, weak detailViewController] in
+        detailViewController.onContinueSession = { [weak self] in
             guard let self = self,
                   let navController = self.navigationController else { return }
 
@@ -268,10 +295,20 @@ class SessionTableViewCell: UITableViewCell {
         
         durationLabel.text = "\(durationPart), \(playerType.rawValue)"
         
-        // Configure result label to show ending balance with text color
-        let isWin = session.endingBalance > 200
-        resultLabel.text = "$\(session.endingBalance)"
-        resultLabel.textColor = isWin ? .white : .systemRed
+        // Configure result label to show starting and ending balance
+        // Format: "$500 → $650" or "$500 → $350"
+        let startingBalance = session.startingBalance
+        let endingBalance = session.endingBalance
+        resultLabel.text = "$\(startingBalance) → $\(endingBalance)"
+        
+        // Color based on profit/loss: green if profit, red if loss, white if break-even
+        if endingBalance > startingBalance {
+            resultLabel.textColor = .systemGreen
+        } else if endingBalance < startingBalance {
+            resultLabel.textColor = .systemRed
+        } else {
+            resultLabel.textColor = .white
+        }
         resultLabel.backgroundColor = .clear
         
         // Ensure labels are visible

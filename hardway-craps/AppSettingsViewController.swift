@@ -26,11 +26,13 @@ final class AppSettingsViewController: UITableViewController {
     enum GeneralRow: Int, CaseIterable {
         case playerTypes
         case bankroll
+        case displayName
 
         var title: String {
             switch self {
             case .playerTypes: return "Player Types"
             case .bankroll: return "Starting Bankroll"
+            case .displayName: return "Display Name"
             }
         }
 
@@ -38,6 +40,7 @@ final class AppSettingsViewController: UITableViewController {
             switch self {
             case .playerTypes: return "person.3.fill"
             case .bankroll: return "dollarsign.circle.fill"
+            case .displayName: return "person.fill"
             }
         }
     }
@@ -135,6 +138,21 @@ final class AppSettingsViewController: UITableViewController {
             // Clamp to max 5000
             let clampedValue = min(max(newValue, 1), 5000)
             UserDefaults.standard.set(clampedValue, forKey: BankrollKeys.startingBankroll)
+        }
+    }
+    
+    // MARK: - Display Name Management
+    
+    private struct DisplayNameKeys {
+        static let displayName = "MultiplayerDisplayName"
+    }
+    
+    private var displayName: String {
+        get {
+            return UserDefaults.standard.string(forKey: DisplayNameKeys.displayName) ?? "Player"
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: DisplayNameKeys.displayName)
         }
     }
 
@@ -321,6 +339,15 @@ final class AppSettingsViewController: UITableViewController {
             label.font = .systemFont(ofSize: 17)
             label.sizeToFit()
             cell.accessoryView = label
+            
+        case .displayName:
+            cell.accessoryType = .none
+            let label = UILabel()
+            label.text = displayName
+            label.textColor = .secondaryLabel
+            label.font = .systemFont(ofSize: 17)
+            label.sizeToFit()
+            cell.accessoryView = label
         }
 
         return cell
@@ -417,6 +444,8 @@ final class AppSettingsViewController: UITableViewController {
             navigationController?.pushViewController(playerTypesVC, animated: true)
         case .bankroll:
             showBankrollMenu()
+        case .displayName:
+            showDisplayNameEditor()
         }
     }
     
@@ -461,6 +490,46 @@ final class AppSettingsViewController: UITableViewController {
         present(alert, animated: true)
     }
     
+    private func showDisplayNameEditor() {
+        let alert = UIAlertController(
+            title: "Display Name",
+            message: "Enter your display name for multiplayer games",
+            preferredStyle: .alert
+        )
+        
+        alert.addTextField { [weak self] textField in
+            textField.text = self?.displayName ?? "Player"
+            textField.placeholder = "Player"
+            textField.autocapitalizationType = .words
+            textField.autocorrectionType = .no
+            textField.clearButtonMode = .whileEditing
+        }
+        
+        let saveAction = UIAlertAction(title: "Save", style: .default) { [weak self] _ in
+            guard let self = self,
+                  let textField = alert.textFields?.first,
+                  let newName = textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return
+            }
+            
+            // Use "Player" as default if empty
+            let nameToSave = newName.isEmpty ? "Player" : newName
+            self.displayName = nameToSave
+            
+            // Reload just the display name row
+            let displayNameIndexPath = IndexPath(row: GeneralRow.displayName.rawValue, section: Section.general.rawValue)
+            self.tableView.reloadRows(at: [displayNameIndexPath], with: .none)
+            HapticsHelper.lightHaptic()
+        }
+        
+        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
+        
+        alert.addAction(saveAction)
+        alert.addAction(cancelAction)
+        
+        present(alert, animated: true)
+    }
+    
     private func handleAppearanceRowSelection(at indexPath: IndexPath) {
         guard let row = AppearanceRow(rawValue: indexPath.row) else { return }
 
@@ -500,7 +569,7 @@ final class AppSettingsViewController: UITableViewController {
             nav.isModalInPresentation = true
             present(nav, animated: true)
         case .multiplayerBlackjack:
-            let vc = MultiplayerBlackjackViewController()
+            let vc = MPBlackjackLobbyViewController()
             let nav = UINavigationController(rootViewController: vc)
             nav.isModalInPresentation = true
             present(nav, animated: true)

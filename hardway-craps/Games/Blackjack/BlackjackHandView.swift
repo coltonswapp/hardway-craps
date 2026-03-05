@@ -9,1256 +9,1303 @@ import UIKit
 
 class BlackjackHandView: UIControl {
 
-    struct Card {
-        let rank: PlayingCardView.Rank
-        let suit: PlayingCardView.Suit
-        let isCutCard: Bool
+  struct Card {
+    let rank: PlayingCardView.Rank
+    let suit: PlayingCardView.Suit
+    let isCutCard: Bool
 
-        init(rank: PlayingCardView.Rank, suit: PlayingCardView.Suit, isCutCard: Bool = false) {
-            self.rank = rank
-            self.suit = suit
-            self.isCutCard = isCutCard
-        }
-
-        static func cutCard() -> Card {
-            // Use a dummy rank/suit for the cut card - it won't be displayed
-            return Card(rank: .ace, suit: .spades, isCutCard: true)
-        }
+    init(rank: PlayingCardView.Rank, suit: PlayingCardView.Suit, isCutCard: Bool = false) {
+      self.rank = rank
+      self.suit = suit
+      self.isCutCard = isCutCard
     }
 
-    enum StackDirection {
-        case down
-        case up
+    static func cutCard() -> Card {
+      // Use a dummy rank/suit for the cut card - it won't be displayed
+      return Card(rank: .ace, suit: .spades, isCutCard: true)
+    }
+  }
+
+  enum StackDirection {
+    case down
+    case up
+  }
+
+  private let stackDirection: StackDirection
+  private let hidesFirstCard: Bool
+  private let scale: CGFloat
+  private let suitScale: CGFloat
+  private let valueScale: CGFloat
+  private let cardPadding: CGFloat
+
+  let cardContainer = UIView()
+  private var cardViews: [PlayingCardView] = []
+  private var cardConstraints: [NSLayoutConstraint] = []
+  private let totalLabel = UILabel()
+  private let alternativeTotalLabel = UILabel()
+  private let contentStackView = UIStackView()
+  private let labelStackView = UIStackView()
+
+  private let cardHeight: CGFloat = 120
+  private let cardAspectRatio: CGFloat = 60.0 / 88.0
+  private let horizontalOffset: CGFloat = 45
+  private let verticalOffset: CGFloat = 7.5
+  private let horizontalStepScale: Double = 0.9
+
+  private var containerHeightConstraint: NSLayoutConstraint!
+  private var containerWidthConstraint: NSLayoutConstraint!
+
+  private var cards: [Card] = []
+  private var isFirstCardHidden = false
+  private var faceDownCardIndices: Set<Int> = []  // Track which card indices should be face-down
+  private var cardRotations: [CGFloat] = []  // Random rotation for each card (-5° to +5°)
+
+  /// When enabled, render face-down placeholder cards when `cards` is empty.
+  /// Useful for seat UIs that should reserve a "hand" shape before any cards are dealt.
+  var showsEmptyPlaceholders: Bool = false {
+    didSet {
+      guard oldValue != showsEmptyPlaceholders else { return }
+      updateCards(animated: false)
+    }
+  }
+
+  private let emptyPlaceholderCount: Int = 2
+  private var emptyPlaceholderCardViews: [PlayingCardView] = []
+  private var emptyPlaceholderRotations: [CGFloat] = []
+
+  var currentCards: [Card] {
+    return cards
+  }
+
+  /// Cards that count toward the total (excludes face-down). Use for CompactPlayerHandView total label.
+  var visibleCardsForTotal: [Card] {
+    if hidesFirstCard && isFirstCardHidden {
+      return Array(cards.dropFirst())
+    }
+    return cards.enumerated().compactMap {
+      faceDownCardIndices.contains($0.offset) ? nil : $0.element
+    }
+  }
+
+  // Expose card views for animations
+  var cardViewsForAnimation: [PlayingCardView] {
+    return cardViews
+  }
+
+  func getCardViewFrame(at index: Int, in targetView: UIView) -> CGRect? {
+    guard index >= 0 && index < cardViews.count else { return nil }
+    let cardView = cardViews[index]
+    return cardView.superview?.convert(cardView.frame, to: targetView)
+  }
+
+  // Touch handling properties
+  var onTap: (() -> Void)?
+  var canTap: (() -> Bool)?
+
+  /// When set, layout scales down as card count increases (e.g. compact mode). Closure takes current card count and returns a factor (e.g. 1.0 for ≤4 cards, 0.85 for 5, 0.75 for 6).
+  var countBasedScaleFactor: ((Int) -> CGFloat)?
+  private var currentCountScaleFactor: CGFloat = 1.0
+  private var effectiveScale: CGFloat { scale * currentCountScaleFactor }
+
+  init(
+    stackDirection: StackDirection, hidesFirstCard: Bool, scale: CGFloat = 1,
+    suitScale: CGFloat = 1, cardPadding: CGFloat = 8, valueScale: CGFloat = 1
+  ) {
+    self.stackDirection = stackDirection
+    self.hidesFirstCard = hidesFirstCard
+    self.scale = scale
+    self.suitScale = suitScale
+    self.valueScale = valueScale
+    self.cardPadding = cardPadding
+    super.init(frame: .zero)
+    setupView()
+  }
+
+  override init(frame: CGRect) {
+    self.stackDirection = .down
+    self.hidesFirstCard = false
+    self.scale = 1
+    self.suitScale = 1
+    self.valueScale = 1
+    self.cardPadding = 8
+    super.init(frame: frame)
+    setupView()
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  func configure(firstCard: Card, secondCard: Card) {
+    isFirstCardHidden = hidesFirstCard
+    setCards([firstCard, secondCard], animated: false)
+  }
+
+  func setCardsWithoutAnimation(_ cards: [Card]) {
+    self.cards = cards
+
+    // Preserve existing rotations; only generate for newly-added positions
+    while cardRotations.count < cards.count {
+      cardRotations.append(generateRandomRotation())
+    }
+    if cardRotations.count > cards.count {
+      cardRotations = Array(cardRotations.prefix(cards.count))
     }
 
-    private let stackDirection: StackDirection
-    private let hidesFirstCard: Bool
-    private let scale: CGFloat
-    private let suitScale: CGFloat
-    private let valueScale: CGFloat
-    private let cardPadding: CGFloat
-
-    let cardContainer = UIView()
-    private var cardViews: [PlayingCardView] = []
-    private var cardConstraints: [NSLayoutConstraint] = []
-    private let totalLabel = UILabel()
-    private let alternativeTotalLabel = UILabel()
-    private let contentStackView = UIStackView()
-    private let labelStackView = UIStackView()
-
-    private let cardHeight: CGFloat = 120
-    private let cardAspectRatio: CGFloat = 60.0 / 88.0
-    private let horizontalOffset: CGFloat = 45
-    private let verticalOffset: CGFloat = 7.5
-    private let horizontalStepScale: Double = 0.9
-
-    private var containerHeightConstraint: NSLayoutConstraint!
-    private var containerWidthConstraint: NSLayoutConstraint!
-
-    private var cards: [Card] = []
-    private var isFirstCardHidden = false
-    private var faceDownCardIndices: Set<Int> = [] // Track which card indices should be face-down
-    private var cardRotations: [CGFloat] = [] // Random rotation for each card (-5° to +5°)
-    
-    /// When enabled, render face-down placeholder cards when `cards` is empty.
-    /// Useful for seat UIs that should reserve a "hand" shape before any cards are dealt.
-    var showsEmptyPlaceholders: Bool = false {
-        didSet {
-            guard oldValue != showsEmptyPlaceholders else { return }
-            updateCards(animated: false)
-        }
+    // Reset faceDownCardIndices for dealer hands (hidesFirstCard == true) to prevent stale state
+    // For dealer hands: only index 0 should be face down if isFirstCardHidden is true
+    // For player hands: preserve existing faceDownCardIndices (e.g., placeholder cards)
+    if hidesFirstCard {
+      faceDownCardIndices.removeAll()
+      if isFirstCardHidden && !cards.isEmpty {
+        faceDownCardIndices.insert(0)
+      }
     }
-    
-    private let emptyPlaceholderCount: Int = 2
-    private var emptyPlaceholderCardViews: [PlayingCardView] = []
-    private var emptyPlaceholderRotations: [CGFloat] = []
+    // Note: For non-dealer hands, faceDownCardIndices is preserved (e.g., setPlaceholderCards sets it explicitly)
 
-    var currentCards: [Card] {
-        return cards
-    }
-    
-    /// Cards that count toward the total (excludes face-down). Use for CompactPlayerHandView total label.
-    var visibleCardsForTotal: [Card] {
-        if hidesFirstCard && isFirstCardHidden {
-            return Array(cards.dropFirst())
-        }
-        return cards.enumerated().compactMap { faceDownCardIndices.contains($0.offset) ? nil : $0.element }
+    updateCards(animated: false)
+  }
+
+  /// Set two face-down placeholder cards (e.g. for empty seat). Same idea as BlackjackHandPlayground showing 2 cards.
+  func setPlaceholderCards() {
+    let cards: [Card] = [
+      Card(rank: .ace, suit: .spades),
+      Card(rank: .king, suit: .hearts),
+    ]
+    faceDownCardIndices = Set([0, 1])
+    setCardsWithoutAnimation(cards)
+  }
+
+  func clearCards() {
+    cards = []
+    faceDownCardIndices.removeAll()
+    cardRotations.removeAll()
+    updateCards(animated: false)
+  }
+
+  func discardCards(
+    to endPoint: CGPoint, in containerView: UIView, completion: @escaping () -> Void
+  ) {
+    guard !cards.isEmpty else {
+      completion()
+      return
     }
 
-    // Expose card views for animations
-    var cardViewsForAnimation: [PlayingCardView] {
-        return cardViews
-    }
+    // Force layout to ensure card positions are accurate
+    layoutIfNeeded()
 
-    func getCardViewFrame(at index: Int, in targetView: UIView) -> CGRect? {
-        guard index >= 0 && index < cardViews.count else { return nil }
-        let cardView = cardViews[index]
-        return cardView.superview?.convert(cardView.frame, to: targetView)
-    }
+    // Animate total label opacity to zero
+    UIView.animate(
+      withDuration: 0.3,
+      animations: {
+        self.totalLabel.alpha = 0
+        self.alternativeTotalLabel.alpha = 0
+      })
 
-    // Touch handling properties
-    var onTap: (() -> Void)?
-    var canTap: (() -> Bool)?
+    let cardsToDiscard = cards
+    let cardViewsToDiscard = Array(cardViews)  // Create a copy of the array
+    // Store the card identities to check if they're still the same cards later
+    let cardsToDiscardIdentities = cardsToDiscard.map { "\($0.rank)\($0.suit)" }
 
-    /// When set, layout scales down as card count increases (e.g. compact mode). Closure takes current card count and returns a factor (e.g. 1.0 for ≤4 cards, 0.85 for 5, 0.75 for 6).
-    var countBasedScaleFactor: ((Int) -> CGFloat)?
-    private var currentCountScaleFactor: CGFloat = 1.0
-    private var effectiveScale: CGFloat { scale * currentCountScaleFactor }
-    
-    init(stackDirection: StackDirection, hidesFirstCard: Bool, scale: CGFloat = 1, suitScale: CGFloat = 1, cardPadding: CGFloat = 8, valueScale: CGFloat = 1) {
-        self.stackDirection = stackDirection
-        self.hidesFirstCard = hidesFirstCard
-        self.scale = scale
-        self.suitScale = suitScale
-        self.valueScale = valueScale
-        self.cardPadding = cardPadding
-        super.init(frame: .zero)
-        setupView()
-    }
-    
-    override init(frame: CGRect) {
-        self.stackDirection = .down
-        self.hidesFirstCard = false
-        self.scale = 1
-        self.suitScale = 1
-        self.valueScale = 1
-        self.cardPadding = 8
-        super.init(frame: frame)
-        setupView()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    func configure(firstCard: Card, secondCard: Card) {
-        isFirstCardHidden = hidesFirstCard
-        setCards([firstCard, secondCard], animated: false)
-    }
+    // Track completion for all cards
+    var completedAnimations = 0
+    let totalCards = cardsToDiscard.count
 
-    func setCardsWithoutAnimation(_ cards: [Card]) {
-        self.cards = cards
+    // Animate all cards simultaneously with random delays (like chip animation)
+    for (index, cardView) in cardViewsToDiscard.enumerated() {
+      let card = cardsToDiscard[index]
 
-        // Generate random rotations for new cards
-        cardRotations.removeAll()
-        for _ in 0..<cards.count {
-            cardRotations.append(generateRandomRotation())
-        }
+      // Get the card's current position - convert from cardContainer to containerView
+      let cardFrameInContainer =
+        cardView.superview?.convert(cardView.frame, to: cardContainer) ?? .zero
+      let cardCenterInContainer = CGPoint(
+        x: cardFrameInContainer.midX, y: cardFrameInContainer.midY)
+      let startPointInContainer = cardContainer.convert(cardCenterInContainer, to: containerView)
 
-        updateCards(animated: false)
-    }
-    
-    /// Set two face-down placeholder cards (e.g. for empty seat). Same idea as BlackjackHandPlayground showing 2 cards.
-    func setPlaceholderCards() {
-        let cards: [Card] = [
-            Card(rank: .ace, suit: .spades),
-            Card(rank: .king, suit: .hearts)
-        ]
-        faceDownCardIndices = Set([0, 1])
-        setCardsWithoutAnimation(cards)
-    }
-    
-    func clearCards() {
-        cards = []
-        faceDownCardIndices.removeAll()
-        cardRotations.removeAll()
-        updateCards(animated: false)
-    }
-    
-    func discardCards(to endPoint: CGPoint, in containerView: UIView, completion: @escaping () -> Void) {
-        guard !cards.isEmpty else {
-            completion()
-            return
-        }
-        
-        // Force layout to ensure card positions are accurate
-        layoutIfNeeded()
-        
-        // Animate total label opacity to zero
-        UIView.animate(withDuration: 0.3, animations: {
-            self.totalLabel.alpha = 0
-            self.alternativeTotalLabel.alpha = 0
+      // Create temporary card for animation (matching chip animation approach)
+      let tempCard = PlayingCardView()
+      tempCard.padding = cardView.padding
+      tempCard.suitScale = suitScale
+      tempCard.valueScale = valueScale
+      tempCard.contentScale = currentCountScaleFactor
+      if card.isCutCard {
+        tempCard.configureCutCard()
+      } else {
+        tempCard.configure(rank: card.rank, suit: card.suit)
+      }
+      tempCard.setFaceDown(index == 0 && isFirstCardHidden, animated: false)
+      applyCardShadow(to: tempCard)
+
+      // Start with the card's current size and transform
+      let currentCardSize = cardSize()
+      tempCard.bounds = CGRect(origin: .zero, size: currentCardSize)
+      tempCard.center = startPointInContainer
+
+      // Use the card's current transform (scale and rotation based on position in hand)
+      let currentScale = scaleForCard(at: index, total: cardsToDiscard.count)
+      let currentRotation = index < cardRotations.count ? cardRotations[index] : 0
+      tempCard.transform = CGAffineTransform(scaleX: currentScale, y: currentScale).rotated(
+        by: currentRotation)
+
+      containerView.addSubview(tempCard)
+
+      // Hide the original card immediately
+      cardView.alpha = 0
+
+      // Random delay for cascading effect (like chip animation)
+      let randomDelay = Double.random(in: 0...0.15)
+
+      // Animate to destination with easeIn curve (matching chip animation)
+      UIView.animate(
+        withDuration: 0.5, delay: randomDelay, options: .curveEaseIn,
+        animations: {
+          tempCard.center = endPoint
+          tempCard.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+        },
+        completion: { _ in
+          // Fade out after reaching destination (matching chip animation)
+          UIView.animate(
+            withDuration: 0.2,
+            animations: {
+              tempCard.alpha = 0
+            },
+            completion: { _ in
+              tempCard.removeFromSuperview()
+              completedAnimations += 1
+
+              // When all cards are done, clear the hand
+              // BUT: Don't clear if new cards have been dealt (check if cards are different)
+              if completedAnimations >= totalCards {
+                // Check if the current cards are the same as the ones we were discarding
+                // If cards have changed (new cards dealt), don't clear
+                let currentCardsIdentities = self.cards.map { "\($0.rank)\($0.suit)" }
+                let areSameCards = currentCardsIdentities == cardsToDiscardIdentities
+
+                if areSameCards && !currentCardsIdentities.isEmpty {
+                  // Cards are still the same ones we were discarding - safe to clear
+                  self.cards = []
+                  self.cardRotations.removeAll()
+                  self.updateCards(animated: false)
+                }
+                completion()
+              }
+            })
         })
-        
-        let cardsToDiscard = cards
-        let cardViewsToDiscard = Array(cardViews) // Create a copy of the array
-        // Store the card identities to check if they're still the same cards later
-        let cardsToDiscardIdentities = cardsToDiscard.map { "\($0.rank)\($0.suit)" }
-        
-        // Track completion for all cards
-        var completedAnimations = 0
-        let totalCards = cardsToDiscard.count
-        
-        // Animate all cards simultaneously with random delays (like chip animation)
-        for (index, cardView) in cardViewsToDiscard.enumerated() {
-            let card = cardsToDiscard[index]
-            
-            // Get the card's current position - convert from cardContainer to containerView
-            let cardFrameInContainer = cardView.superview?.convert(cardView.frame, to: cardContainer) ?? .zero
-            let cardCenterInContainer = CGPoint(x: cardFrameInContainer.midX, y: cardFrameInContainer.midY)
-            let startPointInContainer = cardContainer.convert(cardCenterInContainer, to: containerView)
-            
-            // Create temporary card for animation (matching chip animation approach)
-            let tempCard = PlayingCardView()
-            tempCard.padding = cardView.padding
-            tempCard.suitScale = suitScale
-            tempCard.valueScale = valueScale
-            tempCard.contentScale = currentCountScaleFactor
-            if card.isCutCard {
-                tempCard.configureCutCard()
-            } else {
-                tempCard.configure(rank: card.rank, suit: card.suit)
-            }
-            tempCard.setFaceDown(index == 0 && isFirstCardHidden, animated: false)
-            applyCardShadow(to: tempCard)
-            
-            // Start with the card's current size and transform
-            let currentCardSize = cardSize()
-            tempCard.bounds = CGRect(origin: .zero, size: currentCardSize)
-            tempCard.center = startPointInContainer
-
-            // Use the card's current transform (scale and rotation based on position in hand)
-            let currentScale = scaleForCard(at: index, total: cardsToDiscard.count)
-            let currentRotation = index < cardRotations.count ? cardRotations[index] : 0
-            tempCard.transform = CGAffineTransform(scaleX: currentScale, y: currentScale).rotated(by: currentRotation)
-            
-            containerView.addSubview(tempCard)
-            
-            // Hide the original card immediately
-            cardView.alpha = 0
-            
-            // Random delay for cascading effect (like chip animation)
-            let randomDelay = Double.random(in: 0...0.15)
-            
-            // Animate to destination with easeIn curve (matching chip animation)
-            UIView.animate(withDuration: 0.5, delay: randomDelay, options: .curveEaseIn, animations: {
-                tempCard.center = endPoint
-                tempCard.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
-            }, completion: { _ in
-                // Fade out after reaching destination (matching chip animation)
-                UIView.animate(withDuration: 0.2, animations: {
-                    tempCard.alpha = 0
-                }, completion: { _ in
-                    tempCard.removeFromSuperview()
-                    completedAnimations += 1
-                    
-                    // When all cards are done, clear the hand
-                    // BUT: Don't clear if new cards have been dealt (check if cards are different)
-                    if completedAnimations >= totalCards {
-                        // Check if the current cards are the same as the ones we were discarding
-                        // If cards have changed (new cards dealt), don't clear
-                        let currentCardsIdentities = self.cards.map { "\($0.rank)\($0.suit)" }
-                        let areSameCards = currentCardsIdentities == cardsToDiscardIdentities
-                        
-                        if areSameCards && !currentCardsIdentities.isEmpty {
-                            // Cards are still the same ones we were discarding - safe to clear
-                            self.cards = []
-                            self.cardRotations.removeAll()
-                            self.updateCards(animated: false)
-                        }
-                        completion()
-                    }
-                })
-            })
-        }
     }
-    
-    func addCard(_ card: Card) {
-        if cards.isEmpty && hidesFirstCard {
-            isFirstCardHidden = true
-        }
-        var updatedCards = cards
-        updatedCards.append(card)
-        setCards(updatedCards, animated: true)
+  }
+
+  func addCard(_ card: Card) {
+    if cards.isEmpty && hidesFirstCard {
+      isFirstCardHidden = true
     }
-    
-    func dealCard(_ card: Card, from startPoint: CGPoint, in containerView: UIView) {
-        if cards.isEmpty && hidesFirstCard {
-            isFirstCardHidden = true
-        }
+    var updatedCards = cards
+    updatedCards.append(card)
+    setCards(updatedCards, animated: true)
+  }
 
-        // Calculate start point BEFORE updating layout, so coordinate conversion uses current cardContainer size
-        let startPointInContainer = containerView.convert(startPoint, to: cardContainer)
+  func dealCard(_ card: Card, from startPoint: CGPoint, in containerView: UIView) {
+    if cards.isEmpty && hidesFirstCard {
+      isFirstCardHidden = true
+    }
 
-        var updatedCards = cards
-        updatedCards.append(card)
-        setCards(updatedCards, animated: true)
+    var updatedCards = cards
+    updatedCards.append(card)
+    setCards(updatedCards, animated: true)
 
-        // Force layout to get the final position (this happens before the animation starts)
-        layoutIfNeeded()
+    layoutIfNeeded()
 
-        guard let newCardView = cardViews.last else { return }
-        newCardView.alpha = 0
+    guard let newCardView = cardViews.last else { return }
+    newCardView.alpha = 0
 
-        // Read the actual center from the card view's frame after layout
-        // Convert from cardContainer's coordinate space
-        let cardFrame = newCardView.superview?.convert(newCardView.frame, to: cardContainer) ?? .zero
-        let targetCenter = CGPoint(x: cardFrame.midX, y: cardFrame.midY)
-        let tempCard = PlayingCardView()
-        tempCard.padding = newCardView.padding
-        tempCard.suitScale = suitScale
-        tempCard.valueScale = valueScale
-        tempCard.contentScale = currentCountScaleFactor
-        if card.isCutCard {
-            tempCard.configureCutCard()
-        } else {
-            tempCard.configure(rank: card.rank, suit: card.suit)
-        }
-        tempCard.setFaceDown(isFirstCardHidden && updatedCards.count == 1)
-        applyCardShadow(to: tempCard)
-        tempCard.bounds = CGRect(origin: .zero, size: cardSize())
-        tempCard.center = startPointInContainer
-        
-        // Start at deck scale (deck cards are 60px, hand cards are 120px, so start at 0.5 scale)
-        let deckScale: CGFloat = 0.5
-        let targetScale = scaleForCard(at: updatedCards.count - 1, total: updatedCards.count)
-        let targetRotation = cardRotations.count > updatedCards.count - 1 ? cardRotations[updatedCards.count - 1] : 0
-        tempCard.transform = CGAffineTransform(scaleX: deckScale, y: deckScale)
-        cardContainer.addSubview(tempCard)
+    let cardFrame = newCardView.superview?.convert(newCardView.frame, to: containerView) ?? .zero
+    let targetCenter = CGPoint(x: cardFrame.midX, y: cardFrame.midY)
+    let tempCard = PlayingCardView()
+    tempCard.padding = newCardView.padding
+    tempCard.suitScale = suitScale
+    tempCard.valueScale = valueScale
+    tempCard.contentScale = currentCountScaleFactor
+    if card.isCutCard {
+      tempCard.configureCutCard()
+    } else {
+      tempCard.configure(rank: card.rank, suit: card.suit)
+    }
+    tempCard.setFaceDown(isFirstCardHidden && updatedCards.count == 1)
+    applyCardShadow(to: tempCard)
+    tempCard.bounds = CGRect(origin: .zero, size: cardSize())
+    tempCard.center = startPoint
 
-        // Temporarily disable clipping on all ancestor views so the card is visible
-        // when it starts at the deck position (which may be outside the scroll view's bounds)
-        var clippingViews: [UIView] = []
-        var ancestor: UIView? = cardContainer.superview
-        while let v = ancestor, v !== containerView {
-            if v.clipsToBounds {
-                v.clipsToBounds = false
-                clippingViews.append(v)
-            }
-            ancestor = v.superview
-        }
+    let deckScale: CGFloat = 0.5
+    let targetScale = scaleForCard(at: updatedCards.count - 1, total: updatedCards.count)
+    let targetRotation =
+      cardRotations.count > updatedCards.count - 1 ? cardRotations[updatedCards.count - 1] : 0
+    tempCard.transform = CGAffineTransform(scaleX: deckScale, y: deckScale)
+    containerView.addSubview(tempCard)
 
-        let animator = UIViewPropertyAnimator(
-            duration: 0.25,
-            controlPoint1: CGPoint(x: 0.45, y: 0),
-            controlPoint2: CGPoint(x: 0.07, y: 1.1)
-        ) {
-            tempCard.center = targetCenter
-            tempCard.transform = CGAffineTransform(scaleX: targetScale, y: targetScale).rotated(by: targetRotation)
-        }
-        animator.addCompletion { [weak self] _ in
-            clippingViews.forEach { $0.clipsToBounds = true }
-            tempCard.removeFromSuperview()
-            newCardView.alpha = 1
+    let animator = UIViewPropertyAnimator(
+      duration: 0.25,
+      controlPoint1: CGPoint(x: 0.45, y: 0),
+      controlPoint2: CGPoint(x: 0.07, y: 1.1)
+    ) {
+      tempCard.center = targetCenter
+      tempCard.transform = CGAffineTransform(scaleX: targetScale, y: targetScale).rotated(
+        by: targetRotation)
+    }
+    animator.addCompletion { [weak self] _ in
+      tempCard.removeFromSuperview()
+      newCardView.alpha = 1
 
-            // Only count cards that are dealt face-up (not the dealer's hole card)
-            let isFaceDown = self?.isFirstCardHidden == true && updatedCards.count == 1
-            if !isFaceDown {
-                // Notify that a card animation completed (for card count updates)
-                var responder: UIResponder? = self
-                while responder != nil {
-                    if let vc = responder as? BlackjackGameplayViewController {
-                        vc.onCardAnimationComplete(card: card)
-                        break
-                    }
-                    responder = responder?.next
-                }
-            }
-        }
-
-        // Trigger super light haptic when card starts dealing
-        HapticsHelper.superLightHaptic()
-
-        // Notify that a card is being dealt (for deck count updates)
+      let isFaceDown = self?.isFirstCardHidden == true && updatedCards.count == 1
+      if !isFaceDown {
         var responder: UIResponder? = self
         while responder != nil {
-            if let vc = responder as? BlackjackGameplayViewController {
-                vc.onCardDealt()
-                break
-            }
-            responder = responder?.next
+          if let vc = responder as? BlackjackGameplayViewController {
+            vc.onCardAnimationComplete(card: card)
+            break
+          }
+          responder = responder?.next
         }
-
-        animator.startAnimation()
-    }
-    
-    func isFirstCardFaceDown() -> Bool {
-        guard let firstCardView = cardViews.first else { return false }
-        return firstCardView.isFaceDownCard
-    }
-    
-    @discardableResult
-    func revealFirstCard(animated: Bool = true) -> Bool {
-        guard isFirstCardHidden, let firstCardView = cardViews.first else { return false }
-        isFirstCardHidden = false
-        firstCardView.setFaceDown(false, animated: animated)
-
-        // Recalculate totals now that the first card is visible
-        // All cards are now visible (no more hidden cards)
-        let visibleCards = cards
-        let totals = calculateBlackjackTotals(for: visibleCards)
-        totalLabel.text = "\(totals.primary)"
-
-        let totalUpdate = {
-            // Add back to arranged subviews if it was removed
-            if !self.contentStackView.arrangedSubviews.contains(self.labelStackView) {
-                self.contentStackView.insertArrangedSubview(self.labelStackView, at: 0)
-            }
-
-            // Show the label stack (which will properly center the cards)
-            self.labelStackView.isHidden = false
-            self.totalLabel.alpha = 1
-
-            // Update alternative total if it exists (but only if totals aren't explicitly hidden)
-            if let alternative = totals.alternative, !visibleCards.isEmpty, !self.totalLabel.isHidden {
-                self.alternativeTotalLabel.text = "or \(alternative)"
-                self.alternativeTotalLabel.isHidden = false
-                self.alternativeTotalLabel.alpha = 1
-            } else {
-                self.alternativeTotalLabel.isHidden = true
-                self.alternativeTotalLabel.alpha = 0
-            }
-        }
-        if animated {
-            UIView.animate(withDuration: 0.2, animations: totalUpdate)
-        } else {
-            totalUpdate()
-        }
-
-        // Update card count when the hole card is revealed
-        if let firstCard = cards.first {
-            var responder: UIResponder? = self
-            while responder != nil {
-                if let vc = responder as? BlackjackGameplayViewController {
-                    vc.onCardAnimationComplete(card: firstCard)
-                    break
-                }
-                responder = responder?.next
-            }
-        }
-
-        return true
-    }
-    
-    /// Deal a card face-down (for double down scenarios)
-    func dealCardFaceDown(_ card: Card, from startPoint: CGPoint, in containerView: UIView) {
-        var updatedCards = cards
-        updatedCards.append(card)
-        // Mark this card index as face-down
-        faceDownCardIndices.insert(updatedCards.count - 1)
-        setCards(updatedCards, animated: true)
-        
-        // Force layout to get the final position
-        layoutIfNeeded()
-        
-        guard let newCardView = cardViews.last else { return }
-        newCardView.alpha = 0
-        
-        // Read the actual center from the card view's frame after layout
-        let cardFrame = newCardView.superview?.convert(newCardView.frame, to: cardContainer) ?? .zero
-        let targetCenter = CGPoint(x: cardFrame.midX, y: cardFrame.midY)
-        let startPointInContainer = containerView.convert(startPoint, to: cardContainer)
-        let tempCard = PlayingCardView()
-        tempCard.padding = newCardView.padding
-        tempCard.suitScale = suitScale
-        tempCard.valueScale = valueScale
-        tempCard.contentScale = currentCountScaleFactor
-        if card.isCutCard {
-            tempCard.configureCutCard()
-        } else {
-            tempCard.configure(rank: card.rank, suit: card.suit)
-        }
-        tempCard.setFaceDown(true, animated: false) // Always face-down
-        applyCardShadow(to: tempCard)
-        tempCard.bounds = CGRect(origin: .zero, size: cardSize())
-        tempCard.center = startPointInContainer
-        
-        // Start at deck scale
-        let deckScale: CGFloat = 0.5
-        let targetScale = scaleForCard(at: updatedCards.count - 1, total: updatedCards.count)
-        let targetRotation = cardRotations.count > updatedCards.count - 1 ? cardRotations[updatedCards.count - 1] : 0
-        tempCard.transform = CGAffineTransform(scaleX: deckScale, y: deckScale)
-        cardContainer.addSubview(tempCard)
-
-        // Temporarily disable clipping on all ancestor views so the card is visible
-        // when it starts at the deck position (which may be outside the scroll view's bounds)
-        var clippingViews: [UIView] = []
-        var ancestor: UIView? = cardContainer.superview
-        while let v = ancestor, v !== containerView {
-            if v.clipsToBounds {
-                v.clipsToBounds = false
-                clippingViews.append(v)
-            }
-            ancestor = v.superview
-        }
-
-        let animator = UIViewPropertyAnimator(
-            duration: 0.25,
-            controlPoint1: CGPoint(x: 0.45, y: 0),
-            controlPoint2: CGPoint(x: 0.07, y: 1.1)
-        ) {
-            tempCard.center = targetCenter
-            tempCard.transform = CGAffineTransform(scaleX: targetScale, y: targetScale).rotated(by: targetRotation)
-        }
-        animator.addCompletion { _ in
-            clippingViews.forEach { $0.clipsToBounds = true }
-            tempCard.removeFromSuperview()
-            newCardView.alpha = 1
-            // Ensure the card stays face-down
-            newCardView.setFaceDown(true, animated: false)
-
-            // Don't count face-down cards (like double-down cards or dealer's hole card)
-            // They'll be counted when revealed
-        }
-
-        // Trigger super light haptic when card starts dealing
-        HapticsHelper.superLightHaptic()
-
-        // Notify that a card is being dealt (for deck count updates)
-        var responder: UIResponder? = self
-        while responder != nil {
-            if let vc = responder as? BlackjackGameplayViewController {
-                vc.onCardDealt()
-                break
-            }
-            responder = responder?.next
-        }
-
-        animator.startAnimation()
-    }
-    
-    /// Reveal a specific card by index (for double down scenarios)
-    @discardableResult
-    func revealCard(at index: Int, animated: Bool = true) -> Bool {
-        guard index >= 0 && index < cardViews.count else { return false }
-        guard index < cards.count else { return false }
-
-        // Get the card before removing from face-down set
-        let revealedCard = cards[index]
-
-        // Remove from face-down set
-        faceDownCardIndices.remove(index)
-        let cardView = cardViews[index]
-        cardView.setFaceDown(false, animated: animated)
-
-        // Recalculate totals now that the card is visible
-        // Calculate totals using only visible cards (exclude face-down cards except dealer's hole card)
-        let visibleCards: [Card]
-        if hidesFirstCard && isFirstCardHidden {
-            // Dealer's hole card scenario: exclude first card from totals
-            visibleCards = Array(cards.dropFirst())
-        } else {
-            // Player scenario: exclude any remaining face-down cards (double down cards)
-            visibleCards = cards.enumerated().compactMap { cardIndex, card in
-                faceDownCardIndices.contains(cardIndex) ? nil : card
-            }
-        }
-
-        let totals = calculateBlackjackTotals(for: visibleCards)
-        totalLabel.text = "\(totals.primary)"
-
-        // Update totals display
-        let totalUpdate = {
-            // Add back to arranged subviews if it was removed
-            if !self.contentStackView.arrangedSubviews.contains(self.labelStackView) {
-                self.contentStackView.insertArrangedSubview(self.labelStackView, at: 0)
-            }
-
-            self.labelStackView.isHidden = false
-            self.totalLabel.alpha = 1
-
-            // Update alternative total if it exists (but only if totals aren't explicitly hidden)
-            if let alternative = totals.alternative, !visibleCards.isEmpty, !self.totalLabel.isHidden {
-                self.alternativeTotalLabel.text = "or \(alternative)"
-                self.alternativeTotalLabel.isHidden = false
-                self.alternativeTotalLabel.alpha = 1
-            } else {
-                self.alternativeTotalLabel.isHidden = true
-                self.alternativeTotalLabel.alpha = 0
-            }
-        }
-        if animated {
-            UIView.animate(withDuration: 0.2, animations: totalUpdate)
-        } else {
-            totalUpdate()
-        }
-
-        // Update card count when the card is revealed
-        var responder: UIResponder? = self
-        while responder != nil {
-            if let vc = responder as? BlackjackGameplayViewController {
-                vc.onCardAnimationComplete(card: revealedCard)
-                break
-            }
-            responder = responder?.next
-        }
-
-        return true
-    }
-    
-    func setTotalsHidden(_ hidden: Bool) {
-        // If first card is hidden, keep label stack hidden regardless of this setting
-        if hidesFirstCard && isFirstCardHidden {
-            labelStackView.isHidden = true
-            alternativeTotalLabel.isHidden = true // Explicitly hide alternative label
-            // Remove from arranged subviews to center cards
-            if contentStackView.arrangedSubviews.contains(labelStackView) {
-                contentStackView.removeArrangedSubview(labelStackView)
-                labelStackView.removeFromSuperview()
-            }
-            return
-        }
-
-        // Otherwise, respect the hidden parameter
-        if hidden {
-            // Remove from arranged subviews to center cards when hidden
-            if contentStackView.arrangedSubviews.contains(labelStackView) {
-                contentStackView.removeArrangedSubview(labelStackView)
-                labelStackView.removeFromSuperview()
-            }
-        } else {
-            // Add back to arranged subviews when showing
-            if !contentStackView.arrangedSubviews.contains(labelStackView) {
-                contentStackView.insertArrangedSubview(labelStackView, at: 0)
-            }
-        }
-
-        labelStackView.isHidden = hidden
-        totalLabel.isHidden = hidden
-        alternativeTotalLabel.isHidden = hidden // Always hide alternative when totals are hidden
-    }
-    
-    private func setupView() {
-        translatesAutoresizingMaskIntoConstraints = false
-
-        // Setup touch handling
-        setupGestures()
-        
-        contentStackView.translatesAutoresizingMaskIntoConstraints = false
-        contentStackView.axis = .horizontal
-        contentStackView.alignment = .center
-        contentStackView.distribution = .fill
-        contentStackView.spacing = 4
-        contentStackView.isUserInteractionEnabled = false // Allow touches to pass through to control
-        addSubview(contentStackView)
-        
-        totalLabel.translatesAutoresizingMaskIntoConstraints = false
-        totalLabel.font = .systemFont(ofSize: 22, weight: .semibold) // Always full size, not scaled with cards
-        totalLabel.textColor = .white
-        totalLabel.textAlignment = .left
-        
-        alternativeTotalLabel.translatesAutoresizingMaskIntoConstraints = false
-        alternativeTotalLabel.font = .systemFont(ofSize: 16, weight: .regular) // Always full size, not scaled with cards
-        alternativeTotalLabel.textColor = .white.withAlphaComponent(0.7)
-        alternativeTotalLabel.textAlignment = .left
-        alternativeTotalLabel.isHidden = true
-        
-        cardContainer.translatesAutoresizingMaskIntoConstraints = false
-        cardContainer.isUserInteractionEnabled = false // Allow touches to pass through
-
-        labelStackView.axis = .vertical
-        labelStackView.alignment = .leading
-        labelStackView.spacing = 2
-        labelStackView.addArrangedSubview(totalLabel)
-        labelStackView.addArrangedSubview(alternativeTotalLabel)
-        
-        // Set content hugging priority so label gets space before cards compress
-        labelStackView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        cardContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        // Set compression resistance so label doesn't compress when space is tight
-        labelStackView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        totalLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        
-        contentStackView.addArrangedSubview(labelStackView)
-        contentStackView.addArrangedSubview(cardContainer)
-        
-        containerHeightConstraint = cardContainer.heightAnchor.constraint(equalToConstant: cardHeight * scale)
-        containerWidthConstraint = cardContainer.widthAnchor.constraint(equalToConstant: (cardHeight * cardAspectRatio * scale) - 20)
-        
-        NSLayoutConstraint.activate([
-            contentStackView.topAnchor.constraint(equalTo: topAnchor),
-            contentStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
-            contentStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: 0),
-            contentStackView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            
-            // Ensure label has enough width for 2-digit numbers (e.g., "17")
-            totalLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
-            labelStackView.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
-            
-            containerHeightConstraint,
-            containerWidthConstraint
-        ])
-
-        updateCards(animated: false)
-    }
-    
-    private func applyCardShadow(to cardView: PlayingCardView) {
-        cardView.layer.masksToBounds = false
-        cardView.layer.shadowColor = UIColor.black.cgColor
-        cardView.layer.shadowOpacity = 0.18
-        cardView.layer.shadowRadius = 6
-        cardView.layer.shadowOffset = CGSize(width: 0, height: 3)
-    }
-    
-    private func generateRandomRotation() -> CGFloat {
-        // Generate random rotation for cards
-        let degrees = CGFloat.random(in: -3...3)
-        return degrees * .pi / 180 // Convert to radians
+      }
     }
 
-    private func setCards(_ cards: [Card], animated: Bool) {
-        self.cards = cards
+    HapticsHelper.superLightHaptic()
 
-        // Generate random rotations for new cards
-        while cardRotations.count < cards.count {
-            cardRotations.append(generateRandomRotation())
-        }
-        // Remove excess rotations if cards were removed
-        if cardRotations.count > cards.count {
-            cardRotations = Array(cardRotations.prefix(cards.count))
-        }
-
-        updateCards(animated: animated)
+    var responder: UIResponder? = self
+    while responder != nil {
+      if let vc = responder as? BlackjackGameplayViewController {
+        vc.onCardDealt()
+        break
+      }
+      responder = responder?.next
     }
 
+    animator.startAnimation()
+  }
 
-    private func updateCards(animated: Bool) {
-        currentCountScaleFactor = countBasedScaleFactor?(cards.count) ?? 1.0
-        
-        // Ensure parent views are laid out first if we're showing placeholders
-        let shouldShowEmptyPlaceholders = cards.isEmpty && showsEmptyPlaceholders
-        if shouldShowEmptyPlaceholders && cardContainer.frame.width == 0 {
-            // Parent hasn't been laid out yet - force layout first
-            superview?.setNeedsLayout()
-            superview?.layoutIfNeeded()
-        }
-        
-        if animated {
-            layoutIfNeeded()
-        }
-        cardConstraints.forEach { $0.isActive = false }
-        cardConstraints.removeAll()
-        
-        if cardViews.count > cards.count {
-            cardViews.dropFirst(cards.count).forEach { $0.removeFromSuperview() }
-            cardViews = Array(cardViews.prefix(cards.count))
-        }
-        
-        while cardViews.count < cards.count {
-            let cardView = PlayingCardView()
-            cardView.translatesAutoresizingMaskIntoConstraints = false
-            cardView.isUserInteractionEnabled = false // Allow touches to pass through to the control
-            cardView.suitScale = suitScale
-            cardView.valueScale = valueScale
-            cardView.padding = cardPadding
-            applyCardShadow(to: cardView)
-            cardContainer.addSubview(cardView)
-            cardViews.append(cardView)
-        }
-        
-        var accumulatedHorizontalOffset: CGFloat = 0
-        
-        if !shouldShowEmptyPlaceholders, !emptyPlaceholderCardViews.isEmpty {
-            emptyPlaceholderCardViews.forEach { $0.removeFromSuperview() }
-            emptyPlaceholderCardViews.removeAll()
-            emptyPlaceholderRotations.removeAll()
-        }
-        
-        if shouldShowEmptyPlaceholders {
-            while emptyPlaceholderCardViews.count < emptyPlaceholderCount {
-                let cardView = PlayingCardView()
-                cardView.translatesAutoresizingMaskIntoConstraints = false
-                cardView.isUserInteractionEnabled = false
-                cardView.suitScale = suitScale
-                cardView.valueScale = valueScale
-                cardView.padding = cardPadding
-                applyCardShadow(to: cardView)
-                // Configure a dummy face so the back renders consistently, then force face-down.
-                cardView.configure(rank: .ace, suit: .spades)
-                cardView.setFaceDown(true, animated: false)
-                cardContainer.addSubview(cardView)
-                emptyPlaceholderCardViews.append(cardView)
-            }
-            if emptyPlaceholderRotations.count != emptyPlaceholderCount {
-                emptyPlaceholderRotations = (0..<emptyPlaceholderCount).map { _ in generateRandomRotation() }
-            }
-            
-            for index in 0..<emptyPlaceholderCount {
-                let cardView = emptyPlaceholderCardViews[index]
-                cardView.setFaceDown(true, animated: false)
-                cardView.contentScale = currentCountScaleFactor
-                cardContainer.bringSubviewToFront(cardView)
-                
-                let leading = cardView.leadingAnchor.constraint(
-                    equalTo: cardContainer.leadingAnchor,
-                    constant: accumulatedHorizontalOffset
-                )
-                
-                let verticalAnchor: NSLayoutConstraint
-                switch stackDirection {
-                case .down:
-                    verticalAnchor = cardView.bottomAnchor.constraint(
-                        equalTo: cardContainer.bottomAnchor,
-                        constant: -(verticalOffset * effectiveScale) * CGFloat(index)
-                    )
-                case .up:
-                    verticalAnchor = cardView.topAnchor.constraint(
-                        equalTo: cardContainer.topAnchor,
-                        constant: (verticalOffset * effectiveScale) * CGFloat(index)
-                    )
-                }
-                
-                let cardHeightValue = cardHeight * effectiveScale
-                let cardWidthValue = cardHeightValue * cardAspectRatio
-                let height = cardView.heightAnchor.constraint(equalToConstant: cardHeightValue)
-                let width = cardView.widthAnchor.constraint(equalToConstant: cardWidthValue)
-                cardConstraints.append(contentsOf: [leading, verticalAnchor, height, width])
-                
-                let scale = scaleForCard(at: index, total: emptyPlaceholderCount)
-                let rotation = index < emptyPlaceholderRotations.count ? emptyPlaceholderRotations[index] : 0
-                // Don't apply transform until after layout - it can interfere with constraint resolution
-                // cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
-                
-                let stepScale = pow(horizontalStepScale, Double((emptyPlaceholderCount - 1) - index))
-                accumulatedHorizontalOffset += (horizontalOffset * effectiveScale) * CGFloat(stepScale)
-            }
-        } else {
-            for (index, card) in cards.enumerated() {
-                let cardView = cardViews[index]
-                if card.isCutCard {
-                    cardView.configureCutCard()
-                } else {
-                    cardView.configure(rank: card.rank, suit: card.suit)
-                }
-                // Set face-down if it's the first card and hidden, OR if it's in the faceDownCardIndices set
-                let shouldBeFaceDown = (index == 0 && isFirstCardHidden) || faceDownCardIndices.contains(index)
-                cardView.setFaceDown(shouldBeFaceDown, animated: false)
-                cardView.contentScale = currentCountScaleFactor
-                cardContainer.bringSubviewToFront(cardView)
-                
-                let leading = cardView.leadingAnchor.constraint(
-                    equalTo: cardContainer.leadingAnchor,
-                    constant: accumulatedHorizontalOffset
-                )
-                
-                let verticalAnchor: NSLayoutConstraint
-                switch stackDirection {
-                case .down:
-                    verticalAnchor = cardView.bottomAnchor.constraint(
-                        equalTo: cardContainer.bottomAnchor,
-                        constant: -(verticalOffset * effectiveScale) * CGFloat(index)
-                    )
-                case .up:
-                    verticalAnchor = cardView.topAnchor.constraint(
-                        equalTo: cardContainer.topAnchor,
-                        constant: (verticalOffset * effectiveScale) * CGFloat(index)
-                    )
-                }
-                
-                let height = cardView.heightAnchor.constraint(equalToConstant: cardHeight * effectiveScale)
-                let width = cardView.widthAnchor.constraint(equalTo: cardView.heightAnchor, multiplier: cardAspectRatio)
-                cardConstraints.append(contentsOf: [leading, verticalAnchor, height, width])
-                
-                let scale = scaleForCard(at: index, total: cards.count)
-                let rotation = index < cardRotations.count ? cardRotations[index] : 0
-                if !animated {
-                    cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
-                }
-                
-                let stepScale = pow(horizontalStepScale, Double((cards.count - 1) - index))
-                accumulatedHorizontalOffset += (horizontalOffset * effectiveScale) * CGFloat(stepScale)
-            }
-        }
-        
-        // When showing placeholders (no cards), size container for 2 cards
-        let count = cards.isEmpty ? 2 : max(cards.count, 1)
-        let newHeight = cardHeight * effectiveScale + abs(verticalOffset * effectiveScale) * CGFloat(count - 1)
-        let newWidth = cardHeight * cardAspectRatio * effectiveScale + totalHorizontalOffset(for: count, stepScale: horizontalStepScale)
-        containerHeightConstraint.constant = newHeight
-        containerWidthConstraint.constant = newWidth
-        
-        // Activate constraints AFTER container is sized
-        cardConstraints.forEach { $0.isActive = true }
-        
-        // Force immediate layout to ensure container has size before applying transforms
-        if !animated {
-            superview?.setNeedsLayout()
-            superview?.layoutIfNeeded()
-            cardContainer.setNeedsLayout()
-            cardContainer.layoutIfNeeded()
-        }
+  func isFirstCardFaceDown() -> Bool {
+    guard let firstCardView = cardViews.first else { return false }
+    return firstCardView.isFaceDownCard
+  }
 
-        if animated {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
-                self.superview?.layoutIfNeeded()
-            }
-        }
-        
-        // Apply transforms to placeholder cards after layout
-        if shouldShowEmptyPlaceholders {
-            for (index, cardView) in emptyPlaceholderCardViews.enumerated() {
-                let scale = scaleForCard(at: index, total: emptyPlaceholderCount)
-                let rotation = index < emptyPlaceholderRotations.count ? emptyPlaceholderRotations[index] : 0
-                cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
-            }
-        }
+  @discardableResult
+  func revealFirstCard(animated: Bool = true) -> Bool {
+    guard isFirstCardHidden, let firstCardView = cardViews.first else { return false }
+    isFirstCardHidden = false
+    faceDownCardIndices.remove(0)
+    firstCardView.setFaceDown(false, animated: animated)
 
-        // Calculate totals using only visible cards (exclude face-down cards except dealer's hole card)
-        // For dealer's hole card, we still want to show totals based on visible card only
-        // For player's double down card, exclude it from totals until revealed
-        let visibleCards: [Card]
-        if hidesFirstCard && isFirstCardHidden {
-            // Dealer's hole card scenario: exclude first card from totals
-            visibleCards = Array(cards.dropFirst())
-        } else {
-            // Player scenario: exclude any face-down cards (double down cards)
-            visibleCards = cards.enumerated().compactMap { index, card in
-                faceDownCardIndices.contains(index) ? nil : card
-            }
-        }
-        
-        let totals = calculateBlackjackTotals(for: visibleCards)
-        
-        // When showing placeholders, show "0" for the total
-        if shouldShowEmptyPlaceholders {
-            totalLabel.text = "0"
-        } else {
-            totalLabel.text = "\(totals.primary)"
-        }
-        
-        // Hide label stack entirely when first card is hidden (not just alpha) to keep cards centered
-        // BUT: show labels when placeholders are visible (even though cards.isEmpty)
-        let shouldHideLabels = (cards.isEmpty && !shouldShowEmptyPlaceholders) || (hidesFirstCard && isFirstCardHidden)
-        
-        if shouldHideLabels {
-            labelStackView.isHidden = true
-            totalLabel.alpha = 0
-            alternativeTotalLabel.alpha = 0
-            alternativeTotalLabel.isHidden = true // Explicitly hide alternative label when labels are hidden
-        } else {
-            labelStackView.isHidden = false
-            totalLabel.alpha = 1
+    // Recalculate totals now that the first card is visible
+    // All cards are now visible (no more hidden cards)
+    let visibleCards = cards
+    let totals = calculateBlackjackTotals(for: visibleCards)
+    totalLabel.text = "\(totals.primary)"
 
-            // Only show alternative total if we have visible cards, an alternative exists, and totals aren't explicitly hidden
-            if let alternative = totals.alternative, !visibleCards.isEmpty, !totalLabel.isHidden {
-                alternativeTotalLabel.text = "or \(alternative)"
-                alternativeTotalLabel.isHidden = false
-                alternativeTotalLabel.alpha = 1
-            } else {
-                alternativeTotalLabel.isHidden = true
-                alternativeTotalLabel.alpha = 0
-            }
+    let totalUpdate = {
+      // Add back to arranged subviews if it was removed
+      if !self.contentStackView.arrangedSubviews.contains(self.labelStackView) {
+        self.contentStackView.insertArrangedSubview(self.labelStackView, at: 0)
+      }
+
+      // Show the label stack (which will properly center the cards)
+      self.labelStackView.isHidden = false
+      self.totalLabel.alpha = 1
+
+      // Update alternative total if it exists (but only if totals aren't explicitly hidden)
+      if let alternative = totals.alternative, !visibleCards.isEmpty, !self.totalLabel.isHidden {
+        self.alternativeTotalLabel.text = "or \(alternative)"
+        self.alternativeTotalLabel.isHidden = false
+        self.alternativeTotalLabel.alpha = 1
+      } else {
+        self.alternativeTotalLabel.isHidden = true
+        self.alternativeTotalLabel.alpha = 0
+      }
+    }
+    if animated {
+      UIView.animate(withDuration: 0.2, animations: totalUpdate)
+    } else {
+      totalUpdate()
+    }
+
+    // Update card count when the hole card is revealed
+    if let firstCard = cards.first {
+      var responder: UIResponder? = self
+      while responder != nil {
+        if let vc = responder as? BlackjackGameplayViewController {
+          vc.onCardAnimationComplete(card: firstCard)
+          break
         }
-        
-        if animated {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut], animations: {
-                self.layoutIfNeeded()
-                for (index, cardView) in self.cardViews.enumerated() {
-                    let scale = self.scaleForCard(at: index, total: self.cards.count)
-                    let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
-                    cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
-                }
-                // Apply transforms to placeholder cards too
-                if self.showsEmptyPlaceholders && self.cards.isEmpty {
-                    for (index, cardView) in self.emptyPlaceholderCardViews.enumerated() {
-                        let scale = self.scaleForCard(at: index, total: self.emptyPlaceholderCount)
-                        let rotation = index < self.emptyPlaceholderRotations.count ? self.emptyPlaceholderRotations[index] : 0
-                        cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
-                    }
-                }
-            })
-        } else {
-            layoutIfNeeded()
+        responder = responder?.next
+      }
+    }
+
+    return true
+  }
+
+  /// Deal a card face-down (for double down scenarios)
+  func dealCardFaceDown(_ card: Card, from startPoint: CGPoint, in containerView: UIView) {
+    var updatedCards = cards
+    updatedCards.append(card)
+    let newIndex = updatedCards.count - 1
+    faceDownCardIndices.insert(newIndex)
+    // Dealer hole card: so setCardsWithoutAnimation (e.g. when syncing during player_actions) keeps index 0 face down
+    if hidesFirstCard && newIndex == 0 {
+      isFirstCardHidden = true
+    }
+    setCards(updatedCards, animated: true)
+
+    layoutIfNeeded()
+
+    guard let newCardView = cardViews.last else { return }
+    newCardView.alpha = 0
+
+    let cardFrame = newCardView.superview?.convert(newCardView.frame, to: containerView) ?? .zero
+    let targetCenter = CGPoint(x: cardFrame.midX, y: cardFrame.midY)
+    let tempCard = PlayingCardView()
+    tempCard.padding = newCardView.padding
+    tempCard.suitScale = suitScale
+    tempCard.valueScale = valueScale
+    tempCard.contentScale = currentCountScaleFactor
+    if card.isCutCard {
+      tempCard.configureCutCard()
+    } else {
+      tempCard.configure(rank: card.rank, suit: card.suit)
+    }
+    tempCard.setFaceDown(true, animated: false)
+    applyCardShadow(to: tempCard)
+    tempCard.bounds = CGRect(origin: .zero, size: cardSize())
+    tempCard.center = startPoint
+
+    let deckScale: CGFloat = 0.5
+    let targetScale = scaleForCard(at: updatedCards.count - 1, total: updatedCards.count)
+    let targetRotation =
+      cardRotations.count > updatedCards.count - 1 ? cardRotations[updatedCards.count - 1] : 0
+    tempCard.transform = CGAffineTransform(scaleX: deckScale, y: deckScale)
+    containerView.addSubview(tempCard)
+
+    let animator = UIViewPropertyAnimator(
+      duration: 0.25,
+      controlPoint1: CGPoint(x: 0.45, y: 0),
+      controlPoint2: CGPoint(x: 0.07, y: 1.1)
+    ) {
+      tempCard.center = targetCenter
+      tempCard.transform = CGAffineTransform(scaleX: targetScale, y: targetScale).rotated(
+        by: targetRotation)
+    }
+    animator.addCompletion { _ in
+      tempCard.removeFromSuperview()
+      newCardView.alpha = 1
+      newCardView.setFaceDown(true, animated: false)
+    }
+
+    HapticsHelper.superLightHaptic()
+
+    var responder: UIResponder? = self
+    while responder != nil {
+      if let vc = responder as? BlackjackGameplayViewController {
+        vc.onCardDealt()
+        break
+      }
+      responder = responder?.next
+    }
+
+    animator.startAnimation()
+  }
+
+  /// Reveal a specific card by index (for double down scenarios)
+  @discardableResult
+  func revealCard(at index: Int, animated: Bool = true) -> Bool {
+    guard index >= 0 && index < cardViews.count else { return false }
+    guard index < cards.count else { return false }
+
+    // Get the card before removing from face-down set
+    let revealedCard = cards[index]
+
+    // Remove from face-down set
+    faceDownCardIndices.remove(index)
+    let cardView = cardViews[index]
+    cardView.setFaceDown(false, animated: animated)
+
+    // Recalculate totals now that the card is visible
+    // Calculate totals using only visible cards (exclude face-down cards except dealer's hole card)
+    let visibleCards: [Card]
+    if hidesFirstCard && isFirstCardHidden {
+      // Dealer's hole card scenario: exclude first card from totals
+      visibleCards = Array(cards.dropFirst())
+    } else {
+      // Player scenario: exclude any remaining face-down cards (double down cards)
+      visibleCards = cards.enumerated().compactMap { cardIndex, card in
+        faceDownCardIndices.contains(cardIndex) ? nil : card
+      }
+    }
+
+    let totals = calculateBlackjackTotals(for: visibleCards)
+    totalLabel.text = "\(totals.primary)"
+
+    // Update totals display
+    let totalUpdate = {
+      // Add back to arranged subviews if it was removed
+      if !self.contentStackView.arrangedSubviews.contains(self.labelStackView) {
+        self.contentStackView.insertArrangedSubview(self.labelStackView, at: 0)
+      }
+
+      self.labelStackView.isHidden = false
+      self.totalLabel.alpha = 1
+
+      // Update alternative total if it exists (but only if totals aren't explicitly hidden)
+      if let alternative = totals.alternative, !visibleCards.isEmpty, !self.totalLabel.isHidden {
+        self.alternativeTotalLabel.text = "or \(alternative)"
+        self.alternativeTotalLabel.isHidden = false
+        self.alternativeTotalLabel.alpha = 1
+      } else {
+        self.alternativeTotalLabel.isHidden = true
+        self.alternativeTotalLabel.alpha = 0
+      }
+    }
+    if animated {
+      UIView.animate(withDuration: 0.2, animations: totalUpdate)
+    } else {
+      totalUpdate()
+    }
+
+    // Update card count when the card is revealed
+    var responder: UIResponder? = self
+    while responder != nil {
+      if let vc = responder as? BlackjackGameplayViewController {
+        vc.onCardAnimationComplete(card: revealedCard)
+        break
+      }
+      responder = responder?.next
+    }
+
+    return true
+  }
+
+  func setTotalsHidden(_ hidden: Bool) {
+    // If first card is hidden, keep label stack hidden regardless of this setting
+    if hidesFirstCard && isFirstCardHidden {
+      labelStackView.isHidden = true
+      alternativeTotalLabel.isHidden = true  // Explicitly hide alternative label
+      // Remove from arranged subviews to center cards
+      if contentStackView.arrangedSubviews.contains(labelStackView) {
+        contentStackView.removeArrangedSubview(labelStackView)
+        labelStackView.removeFromSuperview()
+      }
+      return
+    }
+
+    // Otherwise, respect the hidden parameter
+    if hidden {
+      // Remove from arranged subviews to center cards when hidden
+      if contentStackView.arrangedSubviews.contains(labelStackView) {
+        contentStackView.removeArrangedSubview(labelStackView)
+        labelStackView.removeFromSuperview()
+      }
+    } else {
+      // Add back to arranged subviews when showing
+      if !contentStackView.arrangedSubviews.contains(labelStackView) {
+        contentStackView.insertArrangedSubview(labelStackView, at: 0)
+      }
+    }
+
+    labelStackView.isHidden = hidden
+    totalLabel.isHidden = hidden
+    alternativeTotalLabel.isHidden = hidden  // Always hide alternative when totals are hidden
+  }
+
+  /// Scale the total label font size (useful for dealer hand which uses smaller cards)
+  func setTotalLabelScale(_ scale: CGFloat) {
+    let baseFontSize: CGFloat = 22
+    let baseAlternativeFontSize: CGFloat = 16
+    totalLabel.font = .systemFont(ofSize: baseFontSize * scale, weight: .semibold)
+    alternativeTotalLabel.font = .systemFont(ofSize: baseAlternativeFontSize * scale, weight: .regular)
+  }
+
+  private func setupView() {
+    translatesAutoresizingMaskIntoConstraints = false
+
+    // Setup touch handling
+    setupGestures()
+
+    contentStackView.translatesAutoresizingMaskIntoConstraints = false
+    contentStackView.axis = .horizontal
+    contentStackView.alignment = .center
+    contentStackView.distribution = .fill
+    contentStackView.spacing = 4
+    contentStackView.isUserInteractionEnabled = false  // Allow touches to pass through to control
+    addSubview(contentStackView)
+
+    totalLabel.translatesAutoresizingMaskIntoConstraints = false
+    totalLabel.font = .systemFont(ofSize: 22, weight: .semibold)  // Always full size, not scaled with cards
+    totalLabel.textColor = .white
+    totalLabel.textAlignment = .left
+
+    alternativeTotalLabel.translatesAutoresizingMaskIntoConstraints = false
+    alternativeTotalLabel.font = .systemFont(ofSize: 16, weight: .regular)  // Always full size, not scaled with cards
+    alternativeTotalLabel.textColor = .white.withAlphaComponent(0.7)
+    alternativeTotalLabel.textAlignment = .left
+    alternativeTotalLabel.isHidden = true
+
+    cardContainer.translatesAutoresizingMaskIntoConstraints = false
+    cardContainer.isUserInteractionEnabled = false  // Allow touches to pass through
+
+    labelStackView.axis = .vertical
+    labelStackView.alignment = .leading
+    labelStackView.spacing = 2
+    labelStackView.addArrangedSubview(totalLabel)
+    labelStackView.addArrangedSubview(alternativeTotalLabel)
+
+    // Set content hugging priority so label gets space before cards compress
+    labelStackView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+    cardContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    // Set compression resistance so label doesn't compress when space is tight
+    labelStackView.setContentCompressionResistancePriority(.required, for: .horizontal)
+    totalLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+    contentStackView.addArrangedSubview(labelStackView)
+    contentStackView.addArrangedSubview(cardContainer)
+
+    containerHeightConstraint = cardContainer.heightAnchor.constraint(
+      equalToConstant: cardHeight * scale)
+    containerWidthConstraint = cardContainer.widthAnchor.constraint(
+      equalToConstant: (cardHeight * cardAspectRatio * scale) - 20)
+
+    NSLayoutConstraint.activate([
+      contentStackView.topAnchor.constraint(equalTo: topAnchor),
+      contentStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
+      contentStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: 0),
+      contentStackView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+      // Ensure label has enough width for 2-digit numbers including bust (e.g., "21", "24")
+      totalLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+      labelStackView.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+
+      containerHeightConstraint,
+      containerWidthConstraint,
+    ])
+
+    updateCards(animated: false)
+  }
+
+  private func applyCardShadow(to cardView: PlayingCardView) {
+    cardView.layer.masksToBounds = false
+    cardView.layer.shadowColor = UIColor.black.cgColor
+    cardView.layer.shadowOpacity = 0.18
+    cardView.layer.shadowRadius = 6
+    cardView.layer.shadowOffset = CGSize(width: 0, height: 3)
+  }
+
+  private func generateRandomRotation() -> CGFloat {
+    // Generate random rotation for cards
+    let degrees = CGFloat.random(in: -3...3)
+    return degrees * .pi / 180  // Convert to radians
+  }
+
+  private func setCards(_ cards: [Card], animated: Bool) {
+    self.cards = cards
+
+    // Generate random rotations for new cards
+    while cardRotations.count < cards.count {
+      cardRotations.append(generateRandomRotation())
+    }
+    // Remove excess rotations if cards were removed
+    if cardRotations.count > cards.count {
+      cardRotations = Array(cardRotations.prefix(cards.count))
+    }
+
+    updateCards(animated: animated)
+  }
+
+  private func updateCards(animated: Bool) {
+    currentCountScaleFactor = countBasedScaleFactor?(cards.count) ?? 1.0
+
+    // Ensure parent views are laid out first if we're showing placeholders
+    let shouldShowEmptyPlaceholders = cards.isEmpty && showsEmptyPlaceholders
+    if shouldShowEmptyPlaceholders && cardContainer.frame.width == 0 {
+      // Parent hasn't been laid out yet - force layout first
+      superview?.setNeedsLayout()
+      superview?.layoutIfNeeded()
+    }
+
+    if animated {
+      layoutIfNeeded()
+    }
+    cardConstraints.forEach { $0.isActive = false }
+    cardConstraints.removeAll()
+
+    if cardViews.count > cards.count {
+      cardViews.dropFirst(cards.count).forEach { $0.removeFromSuperview() }
+      cardViews = Array(cardViews.prefix(cards.count))
+    }
+
+    while cardViews.count < cards.count {
+      let cardView = PlayingCardView()
+      cardView.translatesAutoresizingMaskIntoConstraints = false
+      cardView.isUserInteractionEnabled = false  // Allow touches to pass through to the control
+      cardView.suitScale = suitScale
+      cardView.valueScale = valueScale
+      cardView.padding = cardPadding
+      applyCardShadow(to: cardView)
+      cardContainer.addSubview(cardView)
+      cardViews.append(cardView)
+    }
+
+    var accumulatedHorizontalOffset: CGFloat = 0
+
+    if !shouldShowEmptyPlaceholders, !emptyPlaceholderCardViews.isEmpty {
+      emptyPlaceholderCardViews.forEach { $0.removeFromSuperview() }
+      emptyPlaceholderCardViews.removeAll()
+      emptyPlaceholderRotations.removeAll()
+    }
+
+    if shouldShowEmptyPlaceholders {
+      while emptyPlaceholderCardViews.count < emptyPlaceholderCount {
+        let cardView = PlayingCardView()
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.isUserInteractionEnabled = false
+        cardView.suitScale = suitScale
+        cardView.valueScale = valueScale
+        cardView.padding = cardPadding
+        applyCardShadow(to: cardView)
+        // Configure a dummy face so the back renders consistently, then force face-down.
+        cardView.configure(rank: .ace, suit: .spades)
+        cardView.setFaceDown(true, animated: false)
+        cardContainer.addSubview(cardView)
+        emptyPlaceholderCardViews.append(cardView)
+      }
+      if emptyPlaceholderRotations.count != emptyPlaceholderCount {
+        emptyPlaceholderRotations = (0..<emptyPlaceholderCount).map { _ in generateRandomRotation()
         }
-    }
-    
-    private func cardValue(for rank: PlayingCardView.Rank) -> Int {
-        switch rank {
-        case .ace:
-            return 11
-        case .king, .queen, .jack, .ten:
-            return 10
-        case .nine:
-            return 9
-        case .eight:
-            return 8
-        case .seven:
-            return 7
-        case .six:
-            return 6
-        case .five:
-            return 5
-        case .four:
-            return 4
-        case .three:
-            return 3
-        case .two:
-            return 2
-        }
-    }
-    
-    private struct BlackjackTotals {
-        let primary: Int
-        let alternative: Int?
-    }
-    
-    private func calculateBlackjackTotals(for cards: [Card]) -> BlackjackTotals {
-        // Count aces separately
-        var aceCount = 0
-        var nonAceTotal = 0
-        
-        for card in cards {
-            if card.rank == .ace {
-                aceCount += 1
-            } else {
-                nonAceTotal += cardValue(for: card.rank)
-            }
-        }
-        
-        // Start with all aces as 11
-        var total = nonAceTotal + (aceCount * 11)
-        
-        // Convert aces to 1 if we're over 21
-        var acesAsOne = 0
-        while total > 21 && acesAsOne < aceCount {
-            total -= 10 // Convert one ace from 11 to 1
-            acesAsOne += 1
-        }
-        
-        let primaryTotal = total
-        
-        // If we have an ace still counted as 11 (meaning total <= 21), show alternative
-        let acesStillAsEleven = aceCount - acesAsOne
-        let alternativeTotal: Int?
-        
-        if acesStillAsEleven > 0 && primaryTotal <= 21 {
-            // Show alternative where one more ace is counted as 1
-            alternativeTotal = primaryTotal - 10
-        } else {
-            alternativeTotal = nil
-        }
-        
-        return BlackjackTotals(primary: primaryTotal, alternative: alternativeTotal)
-    }
-    
-    private func scaleForCard(at index: Int, total: Int) -> CGFloat {
-        return pow(0.95, Double((total - 1) - index))
-    }
-    
-    private func cardSize() -> CGSize {
-        return CGSize(width: cardHeight * cardAspectRatio * effectiveScale, height: cardHeight * effectiveScale)
-    }
-    
-    private func totalHorizontalOffset(for count: Int, stepScale: Double) -> CGFloat {
-        guard count > 1 else { return 0 }
-        let ratio = stepScale
-        let steps = count - 1
-        let factor = (1 - pow(ratio, Double(steps))) / (1 - ratio)
-        return (horizontalOffset * effectiveScale) * CGFloat(factor)
-    }
-    
-    private func cardCenter(at index: Int, total: Int) -> CGPoint {
-        let containerSize = CGSize(
-            width: containerWidthConstraint.constant,
-            height: containerHeightConstraint.constant
+      }
+
+      for index in 0..<emptyPlaceholderCount {
+        let cardView = emptyPlaceholderCardViews[index]
+        cardView.setFaceDown(true, animated: false)
+        cardView.contentScale = currentCountScaleFactor
+        cardContainer.bringSubviewToFront(cardView)
+
+        let leading = cardView.leadingAnchor.constraint(
+          equalTo: cardContainer.leadingAnchor,
+          constant: accumulatedHorizontalOffset
         )
-        var accumulatedOffset: CGFloat = 0
-        if index > 0 {
-            for i in 0..<index {
-                let stepScale = pow(horizontalStepScale, Double((total - 1) - i))
-                accumulatedOffset += (horizontalOffset * effectiveScale) * CGFloat(stepScale)
-            }
-        }
-        
-        let cardWidth = cardHeight * cardAspectRatio * effectiveScale
-        let centerX = accumulatedOffset + cardWidth / 2
-        
-        let centerY: CGFloat
+
+        let verticalAnchor: NSLayoutConstraint
         switch stackDirection {
         case .down:
-            let bottomY = containerSize.height - (verticalOffset * effectiveScale) * CGFloat(index)
-            centerY = bottomY - (cardHeight * effectiveScale) / 2
+          verticalAnchor = cardView.bottomAnchor.constraint(
+            equalTo: cardContainer.bottomAnchor,
+            constant: -(verticalOffset * effectiveScale) * CGFloat(index)
+          )
         case .up:
-            let topY = (verticalOffset * effectiveScale) * CGFloat(index)
-            centerY = topY + (cardHeight * effectiveScale) / 2
+          verticalAnchor = cardView.topAnchor.constraint(
+            equalTo: cardContainer.topAnchor,
+            constant: (verticalOffset * effectiveScale) * CGFloat(index)
+          )
         }
-        
-        return CGPoint(x: centerX, y: centerY)
+
+        let cardHeightValue = cardHeight * effectiveScale
+        let cardWidthValue = cardHeightValue * cardAspectRatio
+        let height = cardView.heightAnchor.constraint(equalToConstant: cardHeightValue)
+        let width = cardView.widthAnchor.constraint(equalToConstant: cardWidthValue)
+        cardConstraints.append(contentsOf: [leading, verticalAnchor, height, width])
+
+        let scale = scaleForCard(at: index, total: emptyPlaceholderCount)
+        let rotation =
+          index < emptyPlaceholderRotations.count ? emptyPlaceholderRotations[index] : 0
+        // Don't apply transform until after layout - it can interfere with constraint resolution
+        // cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
+
+        let stepScale = pow(horizontalStepScale, Double((emptyPlaceholderCount - 1) - index))
+        accumulatedHorizontalOffset += (horizontalOffset * effectiveScale) * CGFloat(stepScale)
+      }
+    } else {
+      for (index, card) in cards.enumerated() {
+        let cardView = cardViews[index]
+        if card.isCutCard {
+          cardView.configureCutCard()
+        } else {
+          cardView.configure(rank: card.rank, suit: card.suit)
+        }
+        // Set face-down if it's the first card and hidden, OR if it's in the faceDownCardIndices set
+        let shouldBeFaceDown =
+          (index == 0 && isFirstCardHidden) || faceDownCardIndices.contains(index)
+        cardView.setFaceDown(shouldBeFaceDown, animated: false)
+        cardView.contentScale = currentCountScaleFactor
+        cardContainer.bringSubviewToFront(cardView)
+
+        let leading = cardView.leadingAnchor.constraint(
+          equalTo: cardContainer.leadingAnchor,
+          constant: accumulatedHorizontalOffset
+        )
+
+        let verticalAnchor: NSLayoutConstraint
+        switch stackDirection {
+        case .down:
+          verticalAnchor = cardView.bottomAnchor.constraint(
+            equalTo: cardContainer.bottomAnchor,
+            constant: -(verticalOffset * effectiveScale) * CGFloat(index)
+          )
+        case .up:
+          verticalAnchor = cardView.topAnchor.constraint(
+            equalTo: cardContainer.topAnchor,
+            constant: (verticalOffset * effectiveScale) * CGFloat(index)
+          )
+        }
+
+        let height = cardView.heightAnchor.constraint(equalToConstant: cardHeight * effectiveScale)
+        let width = cardView.widthAnchor.constraint(
+          equalTo: cardView.heightAnchor, multiplier: cardAspectRatio)
+        cardConstraints.append(contentsOf: [leading, verticalAnchor, height, width])
+
+        let scale = scaleForCard(at: index, total: cards.count)
+        let rotation = index < cardRotations.count ? cardRotations[index] : 0
+        if !animated {
+          cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
+        }
+
+        let stepScale = pow(horizontalStepScale, Double((cards.count - 1) - index))
+        accumulatedHorizontalOffset += (horizontalOffset * effectiveScale) * CGFloat(stepScale)
+      }
     }
-    
-    func playSpreadAnimation() {
-        guard cards.count > 1 else { return } // Need at least 2 cards to spread
 
-        let spreadDuration: TimeInterval = 0.2
-        let returnDuration: TimeInterval = 0.2
-        let extraSpacing: CGFloat = 30 * effectiveScale // Extra horizontal spacing per card
+    // When showing placeholders (no cards), size container for 2 cards
+    let count = cards.isEmpty ? 2 : max(cards.count, 1)
+    let newHeight =
+      cardHeight * effectiveScale + abs(verticalOffset * effectiveScale) * CGFloat(count - 1)
+    let newWidth =
+      cardHeight * cardAspectRatio * effectiveScale
+      + totalHorizontalOffset(for: count, stepScale: horizontalStepScale)
+    containerHeightConstraint.constant = newHeight
+    containerWidthConstraint.constant = newWidth
 
-        // Animate spreading
-        UIView.animate(withDuration: spreadDuration, delay: 0, options: .curveEaseOut) {
-            for (index, cardView) in self.cardViews.enumerated() {
-                let baseScale = self.scaleForCard(at: index, total: self.cards.count)
-                let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
+    // Activate constraints AFTER container is sized
+    cardConstraints.forEach { $0.isActive = true }
 
-                // Create base transform (scale + rotation)
-                let baseTransform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(by: rotation)
+    // Force immediate layout to ensure container has size before applying transforms
+    if !animated {
+      superview?.setNeedsLayout()
+      superview?.layoutIfNeeded()
+      cardContainer.setNeedsLayout()
+      cardContainer.layoutIfNeeded()
+    }
 
-                // Add translation to spread cards apart (applied in screen space)
-                let translation = CGFloat(index) * extraSpacing
-                let spreadTransform = CGAffineTransform(translationX: translation, y: 0).concatenating(baseTransform)
+    if animated {
+      UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
+        self.superview?.layoutIfNeeded()
+      }
+    }
 
-                cardView.transform = spreadTransform
+    // Apply transforms to placeholder cards after layout
+    if shouldShowEmptyPlaceholders {
+      for (index, cardView) in emptyPlaceholderCardViews.enumerated() {
+        let scale = scaleForCard(at: index, total: emptyPlaceholderCount)
+        let rotation =
+          index < emptyPlaceholderRotations.count ? emptyPlaceholderRotations[index] : 0
+        cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
+      }
+    }
+
+    // Calculate totals using only visible cards (exclude face-down cards except dealer's hole card)
+    // For dealer's hole card, we still want to show totals based on visible card only
+    // For player's double down card, exclude it from totals until revealed
+    let visibleCards: [Card]
+    if hidesFirstCard && isFirstCardHidden {
+      // Dealer's hole card scenario: exclude first card from totals
+      visibleCards = Array(cards.dropFirst())
+    } else {
+      // Player scenario: exclude any face-down cards (double down cards)
+      visibleCards = cards.enumerated().compactMap { index, card in
+        faceDownCardIndices.contains(index) ? nil : card
+      }
+    }
+
+    let totals = calculateBlackjackTotals(for: visibleCards)
+
+    // When showing placeholders, show "0" for the total
+    if shouldShowEmptyPlaceholders {
+      totalLabel.text = "0"
+    } else {
+      totalLabel.text = "\(totals.primary)"
+    }
+
+    // Hide label stack entirely when:
+    // 1. No cards and not showing placeholders
+    // 2. First card is hidden (dealer hole card scenario)
+    // 3. Less than 2 cards total (including face-down cards) - same logic as CompactPlayerHandView
+    // BUT: show labels when placeholders are visible (even though cards.isEmpty)
+    let shouldHideLabels =
+      (cards.isEmpty && !shouldShowEmptyPlaceholders) || (hidesFirstCard && isFirstCardHidden)
+      || cards.count < 2
+
+    if shouldHideLabels {
+      labelStackView.isHidden = true
+      totalLabel.alpha = 0
+      alternativeTotalLabel.alpha = 0
+      alternativeTotalLabel.isHidden = true  // Explicitly hide alternative label when labels are hidden
+    } else {
+      labelStackView.isHidden = false
+      totalLabel.alpha = 1
+
+      // Only show alternative total if we have visible cards, an alternative exists, and totals aren't explicitly hidden
+      if let alternative = totals.alternative, !visibleCards.isEmpty, !totalLabel.isHidden {
+        alternativeTotalLabel.text = "or \(alternative)"
+        alternativeTotalLabel.isHidden = false
+        alternativeTotalLabel.alpha = 1
+      } else {
+        alternativeTotalLabel.isHidden = true
+        alternativeTotalLabel.alpha = 0
+      }
+    }
+
+    if animated {
+      UIView.animate(
+        withDuration: 0.25, delay: 0, options: [.curveEaseOut],
+        animations: {
+          self.layoutIfNeeded()
+          for (index, cardView) in self.cardViews.enumerated() {
+            let scale = self.scaleForCard(at: index, total: self.cards.count)
+            let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
+            cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
+          }
+          // Apply transforms to placeholder cards too
+          if self.showsEmptyPlaceholders && self.cards.isEmpty {
+            for (index, cardView) in self.emptyPlaceholderCardViews.enumerated() {
+              let scale = self.scaleForCard(at: index, total: self.emptyPlaceholderCount)
+              let rotation =
+                index < self.emptyPlaceholderRotations.count
+                ? self.emptyPlaceholderRotations[index] : 0
+              cardView.transform = CGAffineTransform(scaleX: scale, y: scale).rotated(by: rotation)
             }
-        } completion: { _ in
-            // Animate back to original positions
-            UIView.animate(withDuration: returnDuration, delay: 0, options: .curveEaseInOut) {
-                for (index, cardView) in self.cardViews.enumerated() {
-                    let baseScale = self.scaleForCard(at: index, total: self.cards.count)
-                    let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
-                    cardView.transform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(by: rotation)
-                }
-            }
+          }
+        })
+    } else {
+      layoutIfNeeded()
+    }
+  }
+
+  private func cardValue(for rank: PlayingCardView.Rank) -> Int {
+    switch rank {
+    case .ace:
+      return 11
+    case .king, .queen, .jack, .ten:
+      return 10
+    case .nine:
+      return 9
+    case .eight:
+      return 8
+    case .seven:
+      return 7
+    case .six:
+      return 6
+    case .five:
+      return 5
+    case .four:
+      return 4
+    case .three:
+      return 3
+    case .two:
+      return 2
+    }
+  }
+
+  private struct BlackjackTotals {
+    let primary: Int
+    let alternative: Int?
+  }
+
+  private func calculateBlackjackTotals(for cards: [Card]) -> BlackjackTotals {
+    // Count aces separately
+    var aceCount = 0
+    var nonAceTotal = 0
+
+    for card in cards {
+      if card.rank == .ace {
+        aceCount += 1
+      } else {
+        nonAceTotal += cardValue(for: card.rank)
+      }
+    }
+
+    // Start with all aces as 11
+    var total = nonAceTotal + (aceCount * 11)
+
+    // Convert aces to 1 if we're over 21
+    var acesAsOne = 0
+    while total > 21 && acesAsOne < aceCount {
+      total -= 10  // Convert one ace from 11 to 1
+      acesAsOne += 1
+    }
+
+    let primaryTotal = total
+
+    // If we have an ace still counted as 11 (meaning total <= 21), show alternative
+    let acesStillAsEleven = aceCount - acesAsOne
+    let alternativeTotal: Int?
+
+    if acesStillAsEleven > 0 && primaryTotal <= 21 {
+      // Show alternative where one more ace is counted as 1
+      alternativeTotal = primaryTotal - 10
+    } else {
+      alternativeTotal = nil
+    }
+
+    return BlackjackTotals(primary: primaryTotal, alternative: alternativeTotal)
+  }
+
+  private func scaleForCard(at index: Int, total: Int) -> CGFloat {
+    return pow(0.95, Double((total - 1) - index))
+  }
+
+  private func cardSize() -> CGSize {
+    return CGSize(
+      width: cardHeight * cardAspectRatio * effectiveScale, height: cardHeight * effectiveScale)
+  }
+
+  private func totalHorizontalOffset(for count: Int, stepScale: Double) -> CGFloat {
+    guard count > 1 else { return 0 }
+    let ratio = stepScale
+    let steps = count - 1
+    let factor = (1 - pow(ratio, Double(steps))) / (1 - ratio)
+    return (horizontalOffset * effectiveScale) * CGFloat(factor)
+  }
+
+  private func cardCenter(at index: Int, total: Int) -> CGPoint {
+    let containerSize = CGSize(
+      width: containerWidthConstraint.constant,
+      height: containerHeightConstraint.constant
+    )
+    var accumulatedOffset: CGFloat = 0
+    if index > 0 {
+      for i in 0..<index {
+        let stepScale = pow(horizontalStepScale, Double((total - 1) - i))
+        accumulatedOffset += (horizontalOffset * effectiveScale) * CGFloat(stepScale)
+      }
+    }
+
+    let cardWidth = cardHeight * cardAspectRatio * effectiveScale
+    let centerX = accumulatedOffset + cardWidth / 2
+
+    let centerY: CGFloat
+    switch stackDirection {
+    case .down:
+      let bottomY = containerSize.height - (verticalOffset * effectiveScale) * CGFloat(index)
+      centerY = bottomY - (cardHeight * effectiveScale) / 2
+    case .up:
+      let topY = (verticalOffset * effectiveScale) * CGFloat(index)
+      centerY = topY + (cardHeight * effectiveScale) / 2
+    }
+
+    return CGPoint(x: centerX, y: centerY)
+  }
+
+  func playSpreadAnimation() {
+    guard cards.count > 1 else { return }  // Need at least 2 cards to spread
+
+    let spreadDuration: TimeInterval = 0.2
+    let returnDuration: TimeInterval = 0.2
+    let extraSpacing: CGFloat = 30 * effectiveScale  // Extra horizontal spacing per card
+
+    // Animate spreading
+    UIView.animate(withDuration: spreadDuration, delay: 0, options: .curveEaseOut) {
+      for (index, cardView) in self.cardViews.enumerated() {
+        let baseScale = self.scaleForCard(at: index, total: self.cards.count)
+        let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
+
+        // Create base transform (scale + rotation)
+        let baseTransform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(by: rotation)
+
+        // Add translation to spread cards apart (applied in screen space)
+        let translation = CGFloat(index) * extraSpacing
+        let spreadTransform = CGAffineTransform(translationX: translation, y: 0).concatenating(
+          baseTransform)
+
+        cardView.transform = spreadTransform
+      }
+    } completion: { _ in
+      // Animate back to original positions
+      UIView.animate(withDuration: returnDuration, delay: 0, options: .curveEaseInOut) {
+        for (index, cardView) in self.cardViews.enumerated() {
+          let baseScale = self.scaleForCard(at: index, total: self.cards.count)
+          let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
+          cardView.transform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(
+            by: rotation)
         }
+      }
     }
+  }
 
-    // MARK: - Touch Handling
+  // MARK: - Touch Handling
 
-    private var panGestureRecognizer: UIPanGestureRecognizer!
-    private var initialCardTransforms: [CGAffineTransform] = []
+  private var panGestureRecognizer: UIPanGestureRecognizer!
+  private var initialCardTransforms: [CGAffineTransform] = []
 
-    private func setupGestures() {
-        addTarget(self, action: #selector(touchDown), for: [.touchDown, .touchDragEnter])
-        addTarget(self, action: #selector(touchUp), for: [.touchUpInside, .touchDragExit, .touchCancel])
-        addTarget(self, action: #selector(handleTap), for: .touchUpInside)
+  private func setupGestures() {
+    addTarget(self, action: #selector(touchDown), for: [.touchDown, .touchDragEnter])
+    addTarget(
+      self, action: #selector(touchUp), for: [.touchUpInside, .touchDragExit, .touchCancel])
+    addTarget(self, action: #selector(handleTap), for: .touchUpInside)
 
-        // Add pan gesture for card spreading
-        panGestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        panGestureRecognizer.delegate = self
-        addGestureRecognizer(panGestureRecognizer)
+    // Add pan gesture for card spreading
+    panGestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+    panGestureRecognizer.delegate = self
+    addGestureRecognizer(panGestureRecognizer)
+  }
+
+  @objc private func touchDown() {
+    let canTapResult = canTap?() ?? false
+    print("🃏 [BlackjackHandView] touchDown fired! canTap=\(canTapResult) cards=\(cards.count)")
+    guard canTapResult else { return }
+
+    UIView.animate(withDuration: 0.1, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+      self.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
     }
+  }
 
-    @objc private func touchDown() {
-        // Check if tapping is allowed
-        guard canTap?() ?? false else { return }
+  @objc private func touchUp() {
+    // Always reset transform
+    UIView.animate(
+      withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0.5,
+      options: [.curveEaseInOut, .allowUserInteraction]
+    ) {
+      self.transform = .identity
+    }
+  }
 
-        UIView.animate(withDuration: 0.1, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            self.transform = CGAffineTransform(scaleX: 0.98, y: 0.98)
+  @objc private func handleTap() {
+    let canTapResult = canTap?() ?? false
+    print(
+      "🃏 [BlackjackHandView] handleTap fired! canTap=\(canTapResult) onTap=\(String(describing: onTap))"
+    )
+    guard canTapResult else { return }
+
+    HapticsHelper.lightHaptic()
+    print("🃏 [BlackjackHandView] calling onTap!")
+    onTap?()
+  }
+
+  @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+    guard cards.count > 1 else { return }  // Need at least 2 cards to spread
+
+    switch gesture.state {
+    case .began:
+      // Store initial transforms
+      initialCardTransforms = cardViews.map { $0.transform }
+
+      // Trigger light haptic feedback
+      HapticsHelper.superLightHaptic()
+
+    case .changed:
+      let translation = gesture.translation(in: self)
+
+      // Calculate spread amount based on horizontal translation with rubber-banding effect
+      // Normalize by view width to make it feel consistent across different screen sizes
+      let normalizedTranslation = translation.x / bounds.width
+      let absTranslation = abs(normalizedTranslation)
+
+      // Apply logarithmic dampening to create resistance as you swipe further
+      // This creates a smooth clamping effect where initial movement is responsive
+      // but additional movement has diminishing returns
+      let dampening: CGFloat = 0.5  // Controls how quickly resistance increases
+      let spreadFactor = (1.0 - exp(-absTranslation / dampening)) * dampening
+
+      // Maximum extra spacing when fully spread
+      let maxExtraSpacing: CGFloat = 60 * effectiveScale
+      let currentExtraSpacing = maxExtraSpacing * spreadFactor
+
+      // Apply spreading transform to each card
+      for (index, cardView) in cardViews.enumerated() {
+        let baseScale = scaleForCard(at: index, total: cards.count)
+        let rotation = index < cardRotations.count ? cardRotations[index] : 0
+
+        // Create base transform (scale + rotation)
+        let baseTransform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(by: rotation)
+
+        // Add translation to spread cards apart (in the direction of the pan)
+        let direction: CGFloat = translation.x >= 0 ? 1 : -1
+        let translationAmount = CGFloat(index) * currentExtraSpacing * direction
+        let spreadTransform = CGAffineTransform(translationX: translationAmount, y: 0)
+          .concatenating(baseTransform)
+
+        cardView.transform = spreadTransform
+      }
+
+    case .ended, .cancelled, .failed:
+      // Snap back to original positions with spring animation
+      UIView.animate(
+        withDuration: 0.4,
+        delay: 0,
+        usingSpringWithDamping: 0.6,
+        initialSpringVelocity: 0.5,
+        options: [.curveEaseInOut, .allowUserInteraction]
+      ) {
+        for (index, cardView) in self.cardViews.enumerated() {
+          let baseScale = self.scaleForCard(at: index, total: self.cards.count)
+          let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
+          cardView.transform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(
+            by: rotation)
         }
+      }
+
+      // Trigger light haptic when snapping back
+      HapticsHelper.superLightHaptic()
+
+    default:
+      break
+    }
+  }
+
+  // Only accept touches that are within the card container bounds
+  override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+    let pointInContainer = cardContainer.convert(point, from: self)
+    let result = cardContainer.bounds.contains(pointInContainer)
+    print(
+      "🃏 [BlackjackHandView] point(inside:) point=\(point) → containerPt=\(pointInContainer) containerBounds=\(cardContainer.bounds) → \(result) | cards=\(cards.count) isUserInteraction=\(isUserInteractionEnabled) canTap=\(String(describing: canTap)) onTap=\(String(describing: onTap))"
+    )
+    return result
+  }
+
+  // Allow pan gestures from the scroll view to work even when touching this control
+  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    // If it's our pan gesture, check if we have multiple cards
+    if gestureRecognizer == panGestureRecognizer {
+      return cards.count > 1
     }
 
-    @objc private func touchUp() {
-        // Always reset transform
-        UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0.5, options: [.curveEaseInOut, .allowUserInteraction]) {
-            self.transform = .identity
-        }
+    // If it's a pan gesture from the scroll view, allow it
+    if gestureRecognizer is UIPanGestureRecognizer {
+      return true
     }
-
-    @objc private func handleTap() {
-        // Check if tapping is allowed before executing tap action
-        guard canTap?() ?? false else { return }
-
-        HapticsHelper.lightHaptic()
-        onTap?()
-    }
-
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard cards.count > 1 else { return } // Need at least 2 cards to spread
-
-        switch gesture.state {
-        case .began:
-            // Store initial transforms
-            initialCardTransforms = cardViews.map { $0.transform }
-
-            // Trigger light haptic feedback
-            HapticsHelper.superLightHaptic()
-
-        case .changed:
-            let translation = gesture.translation(in: self)
-
-            // Calculate spread amount based on horizontal translation with rubber-banding effect
-            // Normalize by view width to make it feel consistent across different screen sizes
-            let normalizedTranslation = translation.x / bounds.width
-            let absTranslation = abs(normalizedTranslation)
-
-            // Apply logarithmic dampening to create resistance as you swipe further
-            // This creates a smooth clamping effect where initial movement is responsive
-            // but additional movement has diminishing returns
-            let dampening: CGFloat = 0.5 // Controls how quickly resistance increases
-            let spreadFactor = (1.0 - exp(-absTranslation / dampening)) * dampening
-
-            // Maximum extra spacing when fully spread
-            let maxExtraSpacing: CGFloat = 60 * effectiveScale
-            let currentExtraSpacing = maxExtraSpacing * spreadFactor
-
-            // Apply spreading transform to each card
-            for (index, cardView) in cardViews.enumerated() {
-                let baseScale = scaleForCard(at: index, total: cards.count)
-                let rotation = index < cardRotations.count ? cardRotations[index] : 0
-
-                // Create base transform (scale + rotation)
-                let baseTransform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(by: rotation)
-
-                // Add translation to spread cards apart (in the direction of the pan)
-                let direction: CGFloat = translation.x >= 0 ? 1 : -1
-                let translationAmount = CGFloat(index) * currentExtraSpacing * direction
-                let spreadTransform = CGAffineTransform(translationX: translationAmount, y: 0).concatenating(baseTransform)
-
-                cardView.transform = spreadTransform
-            }
-
-        case .ended, .cancelled, .failed:
-            // Snap back to original positions with spring animation
-            UIView.animate(
-                withDuration: 0.4,
-                delay: 0,
-                usingSpringWithDamping: 0.6,
-                initialSpringVelocity: 0.5,
-                options: [.curveEaseInOut, .allowUserInteraction]
-            ) {
-                for (index, cardView) in self.cardViews.enumerated() {
-                    let baseScale = self.scaleForCard(at: index, total: self.cards.count)
-                    let rotation = index < self.cardRotations.count ? self.cardRotations[index] : 0
-                    cardView.transform = CGAffineTransform(scaleX: baseScale, y: baseScale).rotated(by: rotation)
-                }
-            }
-
-            // Trigger light haptic when snapping back
-            HapticsHelper.superLightHaptic()
-
-        default:
-            break
-        }
-    }
-
-    // Only accept touches that are within the card container bounds
-    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        let pointInContainer = cardContainer.convert(point, from: self)
-        return cardContainer.bounds.contains(pointInContainer)
-    }
-
-    // Allow pan gestures from the scroll view to work even when touching this control
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        // If it's our pan gesture, check if we have multiple cards
-        if gestureRecognizer == panGestureRecognizer {
-            return cards.count > 1
-        }
-
-        // If it's a pan gesture from the scroll view, allow it
-        if gestureRecognizer is UIPanGestureRecognizer {
-            return true
-        }
-        return super.gestureRecognizerShouldBegin(gestureRecognizer)
-    }
+    return super.gestureRecognizerShouldBegin(gestureRecognizer)
+  }
 }
 
 // MARK: - UIGestureRecognizerDelegate
 extension BlackjackHandView: UIGestureRecognizerDelegate {
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        // Allow our pan gesture to work with scroll view pan gestures
-        // The scroll view will take over if the gesture is primarily vertical
-        return true
-    }
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    // Allow our pan gesture to work with scroll view pan gestures
+    // The scroll view will take over if the gesture is primarily vertical
+    return true
+  }
 
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        // Don't require any gesture to fail first
-        return false
-    }
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    // Don't require any gesture to fail first
+    return false
+  }
 
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        // If this is our pan gesture and the other is a scroll view pan,
-        // let the scroll view take priority for vertical scrolling
-        if gestureRecognizer == panGestureRecognizer && otherGestureRecognizer is UIPanGestureRecognizer {
-            return false
-        }
-        return false
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    // If this is our pan gesture and the other is a scroll view pan,
+    // let the scroll view take priority for vertical scrolling
+    if gestureRecognizer == panGestureRecognizer && otherGestureRecognizer is UIPanGestureRecognizer
+    {
+      return false
     }
+    return false
+  }
 }
