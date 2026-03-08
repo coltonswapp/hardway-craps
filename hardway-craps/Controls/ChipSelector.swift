@@ -62,6 +62,21 @@ class ChipSelector: UIView, BetDropTarget {
         super.init(frame: .zero)
         setupView()
     }
+    
+    /// Creates a compact ChipSelector that removes the smallest and largest chips,
+    /// leaving only the middle 3 chips.
+    convenience init(compact chipValues: [Int] = [1, 5, 25, 50, 100], chipSize: CGFloat = 60) {
+        guard chipValues.count >= 3 else {
+            // If less than 3 chips, use all of them
+            self.init(chipValues: chipValues, chipSize: chipSize)
+            return
+        }
+        
+        // Remove smallest and largest, keep the middle chips
+        let sortedValues = chipValues.sorted()
+        let compactValues = Array(sortedValues.dropFirst().dropLast())
+        self.init(chipValues: compactValues, chipSize: chipSize)
+    }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -218,6 +233,14 @@ class ChipSelector: UIView, BetDropTarget {
         moveIndicatorToChip(at: index, animated: animated)
     }
 
+    func selectedChipCenter(in coordinateSpace: UIView) -> CGPoint {
+        guard let chip = chipControls.first(where: { $0.value == selectedValue }) else {
+            return convert(center, to: coordinateSpace)
+        }
+        let chipCenter = CGPoint(x: chip.frame.midX, y: chip.frame.midY)
+        return stackView.convert(chipCenter, to: coordinateSpace)
+    }
+
     func updateAvailableChips(balance: Int) {
         for chip in chipControls {
             if chip.value > balance {
@@ -274,6 +297,22 @@ class ChipSelector: UIView, BetDropTarget {
         }
     }
 
+
+    /// Update the chip color set for all chips in the selector
+    func updateColorSet(_ colorSet: ChipColorSet) {
+        print("🎨 [ChipSelector] updateColorSet called with color: '\(colorSet.name)', chipControls count: \(chipControls.count)")
+        // Update UserDefaults so ChipColorSet.current reflects the new color
+        UserDefaults.standard.set(colorSet.name, forKey: "ChipColorSetName")
+        
+        // Update all existing chips with the new color set
+        for chip in chipControls {
+            colorSet.apply(to: chip)
+        }
+        
+        // Update selection indicator color if needed
+        selectionIndicator.backgroundColor = colorSet.textColor
+        print("   ✅ Applied color set to \(chipControls.count) chips")
+    }
 
     // MARK: In-place chip swap (no animation)
 

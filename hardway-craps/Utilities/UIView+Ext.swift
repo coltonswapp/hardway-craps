@@ -109,3 +109,35 @@ extension UIView {
         self.layer.add(rotationAnimation, forKey: "errorShakeAnimation")
     }
 }
+
+extension UIButton {
+    /// Creates a styled action button with consistent appearance
+    /// - Parameters:
+    ///   - title: The button title text
+    ///   - target: The target object for the action
+    ///   - action: The selector to call when tapped
+    ///   - isInitiallyHidden: Whether the button should be hidden initially (default: false)
+    ///   - initialAlpha: The initial alpha value (default: 1.0)
+    /// - Returns: A configured UIButton with standard styling
+    static func createActionButton(
+        title: String,
+        target: Any?,
+        action: Selector,
+        isInitiallyHidden: Bool = false,
+        initialAlpha: CGFloat = 1.0
+    ) -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        button.backgroundColor = HardwayColors.surfaceGray
+        button.setTitleColor(.white, for: .normal)
+        button.layer.cornerRadius = 16
+        button.layer.borderWidth = 1.5
+        button.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
+        button.isHidden = isInitiallyHidden
+        button.alpha = initialAlpha
+        button.addTarget(target, action: action, for: .touchUpInside)
+        return button
+    }
+}

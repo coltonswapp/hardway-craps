@@ -65,7 +65,7 @@ class BetResultContainer: UIVisualEffectView {
     private var targetValue: Int = 0
     private var currentValue: Int = 0
     private var startTime: CFTimeInterval = 0
-    private let animationDuration: CFTimeInterval = 1.0
+    private var animationDuration: CFTimeInterval = 1.0
     private var isWin: Bool = true
     
     convenience init() {
@@ -157,8 +157,10 @@ class BetResultContainer: UIVisualEffectView {
         layer.masksToBounds = false
     }
     
-    func animateToAmount(_ amount: Int, isWin: Bool = true, showBonus: Bool = false, description: String? = nil) {
+    func animateToAmount(_ amount: Int, isWin: Bool = true, showBonus: Bool = false, description: String? = nil, duration: CFTimeInterval? = nil) {
         self.isWin = isWin
+        // Use shorter duration for bonus bets if not explicitly provided
+        self.animationDuration = duration ?? (showBonus ? 0.6 : 1.0)
         startValue = 0
         targetValue = amount
         currentValue = 0

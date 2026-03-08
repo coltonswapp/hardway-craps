@@ -7,6 +7,18 @@
 
 import UIKit
 
+/// Protocol for bet chip views used in PlainControl
+protocol BetChipViewProtocol: AnyObject {
+    var amount: Int { get set }
+    func addToBet(_ value: Int)
+    func clearBet()
+    func setLocked(_ locked: Bool)
+    func setAmount(_ newAmount: Int, animated: Bool)
+}
+
+/// Type alias combining UIView with BetChipViewProtocol
+typealias BetChipView = UIView & BetChipViewProtocol
+
 /// Direction for winnings chip animation
 enum WinningsAnimationDirection {
     case leading  // Animate 30 points from the leading edge of betView
@@ -32,7 +44,7 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         return label
     }()
 
-    private(set) var betView: SmallBetChip!
+    private(set) var betView: BetChipView!
     private var originalTransform: CGAffineTransform = .identity
     
     // Optional odds support via composition
@@ -84,6 +96,20 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
             updateTitleAlignment()
         }
     }
+
+    /// Set bet amount with optional CADisplayLink counting animation.
+    func setBetAmount(_ newAmount: Int, animated: Bool) {
+        if let stack = oddsBetStack {
+            if animated {
+                stack.betChip.setAmount(newAmount, animated: true)
+            } else {
+                stack.betAmount = newAmount
+            }
+        } else {
+            betView.setAmount(newAmount, animated: animated)
+        }
+        updateTitleAlignment()
+    }
     
     var oddsAmount: Int {
         get { oddsBetStack?.oddsAmount ?? 0 }
@@ -132,6 +158,10 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
 
     /// Determines if this bet stays active after a roll (perpetual) or is cleared (one-time)
     var isPerpetualBet: Bool = true
+
+    /// When true, forces title to shift left when bet is placed (even without OddsBetStack).
+    /// Used for compact bet controls where we want the animated shift behavior.
+    var shouldAnimateTitleShift: Bool = false
 
     /// Direction for winnings chip animation. Default is .trailing (30 points from the trailing edge)
     var winningsAnimationDirection: WinningsAnimationDirection = .trailing
@@ -215,8 +245,12 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         }
     }
 
-    init(title: String? = nil) {
+    /// Optional multiplayer chip style. If provided, uses MPSmallBetChip instead of SmallBetChip.
+    var mpChipStyle: MPSmallBetChipStyle?
+
+    init(title: String? = nil, mpChipStyle: MPSmallBetChipStyle? = nil) {
         self.title = title
+        self.mpChipStyle = mpChipStyle
         super.init(frame: .zero)
         setupView()
     }
@@ -240,7 +274,11 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
 
         addSubview(titleLabel)
 
-        betView = SmallBetChip()
+        if let mpStyle = mpChipStyle {
+            betView = MPSmallBetChip(style: mpStyle)
+        } else {
+            betView = SmallBetChip()
+        }
         addSubview(betView)
 
         // Ensure betView stays on top
@@ -329,16 +367,16 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
             titleAlignment = .centered
             return
         }
-        
-        // Only shift title alignment when using OddsBetStack (for pass line/don't pass with odds)
-        // Other controls like field should keep centered alignment
-        guard oddsBetStack != nil else {
-            // Not using OddsBetStack - keep title centered
+
+        // Check if this control should animate title shift (OddsBetStack or explicitly requested)
+        let shouldShift = oddsBetStack != nil || shouldAnimateTitleShift
+        guard shouldShift else {
+            // Not using OddsBetStack and not requesting animation - keep title centered
             titleAlignment = .centered
             return
         }
-        
-        // Using OddsBetStack - shift title left when there's a bet
+
+        // Shift title left when there's a bet
         let hasAnyBet = betAmount > 0 || oddsAmount > 0
         titleAlignment = hasAnyBet ? .left : .centered
     }

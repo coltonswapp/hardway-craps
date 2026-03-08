@@ -279,7 +279,8 @@ final class BlackjackSessionManager {
             betSizeHistory: betSizeHistory,
             atmVisitIndices: atmVisitIndices,
             handCount: handCount,
-            blackjackMetrics: blackjackMetrics
+            blackjackMetrics: blackjackMetrics,
+            gameType: .blackjack
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -324,7 +325,8 @@ final class BlackjackSessionManager {
             betSizeHistory: betSizeHistory,
             atmVisitIndices: atmVisitIndices,
             handCount: handCount,
-            blackjackMetrics: blackjackMetrics
+            blackjackMetrics: blackjackMetrics,
+            gameType: .blackjack
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -366,7 +368,8 @@ final class BlackjackSessionManager {
             betSizeHistory: betSizeHistory,
             atmVisitIndices: atmVisitIndices,
             handCount: handCount,
-            blackjackMetrics: blackjackMetrics
+            blackjackMetrics: blackjackMetrics,
+            gameType: .blackjack
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -424,7 +427,8 @@ final class BlackjackSessionManager {
             betSizeHistory: betSnapshot,
             atmVisitIndices: atmVisitIndices,
             handCount: handCount,
-            blackjackMetrics: blackjackMetrics
+            blackjackMetrics: blackjackMetrics,
+            gameType: .blackjack
         )
     }
 

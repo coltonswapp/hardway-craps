@@ -30,7 +30,7 @@ class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
         return label
     }()
     
-    private(set) var betView: SmallBetChip!
+    private(set) var betView: BetChipView!
     private(set) var oddsView: SmallBetChip!
     
     var title: String? {

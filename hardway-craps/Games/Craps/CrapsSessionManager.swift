@@ -261,7 +261,8 @@ final class CrapsSessionManager {
             betSizeHistory: betSizeHistory,
             atmVisitIndices: atmVisitIndices,
             handCount: nil,
-            blackjackMetrics: nil
+            blackjackMetrics: nil,
+            gameType: .craps
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -306,7 +307,8 @@ final class CrapsSessionManager {
             betSizeHistory: betSizeHistory,
             atmVisitIndices: atmVisitIndices,
             handCount: nil,
-            blackjackMetrics: nil
+            blackjackMetrics: nil,
+            gameType: .craps
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -348,7 +350,8 @@ final class CrapsSessionManager {
             betSizeHistory: betSizeHistory,
             atmVisitIndices: atmVisitIndices,
             handCount: nil,
-            blackjackMetrics: nil
+            blackjackMetrics: nil,
+            gameType: .craps
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -424,7 +427,8 @@ final class CrapsSessionManager {
             betSizeHistory: betSnapshot,
             atmVisitIndices: atmVisitIndices,
             handCount: nil,
-            blackjackMetrics: nil
+            blackjackMetrics: nil,
+            gameType: .craps
         )
     }
 

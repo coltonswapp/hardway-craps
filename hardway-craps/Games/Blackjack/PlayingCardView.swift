@@ -62,7 +62,10 @@ final class PlayingCardView: UIView {
     private var labelLeadingConstraint: NSLayoutConstraint!
     private var imageLeadingConstraint: NSLayoutConstraint!
     private var imageBottomConstraint: NSLayoutConstraint!
-    
+    private var suitWidthConstraint: NSLayoutConstraint!
+    private var suitHeightConstraint: NSLayoutConstraint!
+
+    private static let baseSuitSize: CGFloat = 24
     private var isFaceDown = false
     
     var isFaceDownCard: Bool {
@@ -76,6 +79,43 @@ final class PlayingCardView: UIView {
             imageLeadingConstraint.constant = padding
             imageBottomConstraint.constant = -padding
         }
+    }
+
+    /// Scale factor for the suit image (1.0 = default 24pt). Used for compact layouts.
+    var suitScale: CGFloat = 1.0 {
+        didSet {
+            guard suitScale != oldValue else { return }
+            applySuitSize()
+        }
+    }
+
+    /// Scale factor for the whole card face (value + suit). Used when the card view is sized down (e.g. count-based scaling in compact hand) so the content scales with the card.
+    var contentScale: CGFloat = 1.0 {
+        didSet {
+            guard contentScale != oldValue else { return }
+            applyContentScale()
+        }
+    }
+
+    /// Scale factor for the value label only (1.0 = same as contentScale). Used in compact layouts to make the rank character smaller.
+    var valueScale: CGFloat = 1.0 {
+        didSet {
+            guard valueScale != oldValue else { return }
+            applyContentScale()
+        }
+    }
+
+    private static let baseValueFontSize: CGFloat = 30
+
+    private func applySuitSize() {
+        let size = Self.baseSuitSize * suitScale * contentScale
+        suitWidthConstraint.constant = size
+        suitHeightConstraint.constant = size
+    }
+
+    private func applyContentScale() {
+        valueLabel.font = .systemFont(ofSize: Self.baseValueFontSize * contentScale * valueScale, weight: .semibold)
+        applySuitSize()
     }
     
     override init(frame: CGRect) {
@@ -166,9 +206,10 @@ final class PlayingCardView: UIView {
             valueLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -padding),
             
             imageLeadingConstraint,
-            imageBottomConstraint,
-            suitImageView.widthAnchor.constraint(equalToConstant: 24),
-            suitImageView.heightAnchor.constraint(equalToConstant: 24)
+            imageBottomConstraint
         ])
+        suitWidthConstraint = suitImageView.widthAnchor.constraint(equalToConstant: Self.baseSuitSize)
+        suitHeightConstraint = suitImageView.heightAnchor.constraint(equalToConstant: Self.baseSuitSize)
+        NSLayoutConstraint.activate([suitWidthConstraint, suitHeightConstraint])
     }
 }

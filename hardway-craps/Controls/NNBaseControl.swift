@@ -135,6 +135,7 @@ class NNBaseControl: UIControl {
         addTarget(self, action: #selector(touchDown), for: .touchDown)
         addTarget(self, action: #selector(touchDragExit), for: .touchDragExit)
         addTarget(self, action: #selector(touchUpOutside), for: .touchUpOutside)
+        addTarget(self, action: #selector(touchCancel), for: .touchCancel)
         addTarget(self, action: #selector(touchUp), for: .touchUpInside)
     }
     
@@ -152,6 +153,11 @@ class NNBaseControl: UIControl {
     
     @objc private func touchUpOutside() {
         guard !showsMenuAsPrimaryAction else { return }
+        touchDownTimestamp = nil
+        standardControlAnimation(.touchCancel)
+    }
+
+    @objc private func touchCancel() {
         touchDownTimestamp = nil
         standardControlAnimation(.touchCancel)
     }
@@ -180,6 +186,16 @@ class NNBaseControl: UIControl {
                 self.backgroundColor = self.originalBackgroundColor
             }
         }
+    }
+    
+    /// Resets the button's transform and appearance to its normal state
+    /// Useful when presenting modals/alerts that might interrupt the normal touch animation
+    func resetAppearance() {
+        UIView.animate(withDuration: 0.075) {
+            self.transform = .identity
+            self.backgroundColor = self.originalBackgroundColor
+        }
+        touchDownTimestamp = nil
     }
     
     override func didMoveToSuperview() {

@@ -12,8 +12,8 @@ final class InsuranceControl: PlainControl {
     private let iconImageView = UIImageView()
     private var hasSetupIcon = false
     
-    override init(title: String? = nil) {
-        super.init(title: title)
+    override init(title: String? = nil, mpChipStyle: MPSmallBetChipStyle? = nil) {
+        super.init(title: title, mpChipStyle: mpChipStyle)
         
         // Override height constraint from PlainControl (which sets it to 50)
         // Deactivate the 50 height constraint and set it to 60 for circular button
