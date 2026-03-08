@@ -328,7 +328,17 @@ final class MPCreateTableViewController: UIViewController {
 
     private func launchGame(tableCode: String) {
         let vc = MultiplayerBlackjackViewController(tableCode: tableCode, bankroll: selectedBankroll)
-        navigationController?.pushViewController(vc, animated: true)
+
+        // Remove create table screen from navigation stack so back button goes to lobby
+        guard let navigationController = navigationController else { return }
+        var viewControllers = navigationController.viewControllers
+        // Remove self (the create table screen) from the stack
+        if let selfIndex = viewControllers.firstIndex(of: self) {
+            viewControllers.remove(at: selfIndex)
+        }
+        // Add the game view controller
+        viewControllers.append(vc)
+        navigationController.setViewControllers(viewControllers, animated: true)
     }
 
     private func showErrorAlert(message: String) {

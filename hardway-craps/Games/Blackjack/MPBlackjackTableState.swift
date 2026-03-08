@@ -97,6 +97,7 @@ final class MPBlackjackTableState {
         let displayName: String
         let balance: Int
         let chipColorName: String
+        let ready: Bool
         let hands: [HandData]
         let insuranceBet: Int
         let insuranceDecided: Bool
@@ -278,6 +279,7 @@ final class MPBlackjackTableState {
                     displayName: seat["displayName"] as? String ?? "",
                     balance: Self.intFromAny(seat["balance"]) ?? 0,
                     chipColorName: seat["chipColorName"] as? String ?? Self.seatColors[i],
+                    ready: seat["ready"] as? Bool ?? false,
                     hands: hands,
                     insuranceBet: Self.intFromAny(seat[MultiplayerBlackjackKeys.Insurance.insuranceBet]) ?? 0,
                     insuranceDecided: seat[MultiplayerBlackjackKeys.Insurance.insuranceDecided] as? Bool ?? false,
@@ -303,6 +305,7 @@ final class MPBlackjackTableState {
                     displayName: seat["displayName"] as? String ?? "",
                     balance: Self.intFromAny(seat["balance"]) ?? 0,
                     chipColorName: seat["chipColorName"] as? String ?? Self.seatColors[i],
+                    ready: seat["ready"] as? Bool ?? false,
                     hands: hands,
                     insuranceBet: Self.intFromAny(seat[MultiplayerBlackjackKeys.Insurance.insuranceBet]) ?? 0,
                     insuranceDecided: seat[MultiplayerBlackjackKeys.Insurance.insuranceDecided] as? Bool ?? false,
@@ -330,6 +333,7 @@ final class MPBlackjackTableState {
                     displayName: seat["displayName"] as? String ?? "",
                     balance: Self.intFromAny(seat["balance"]) ?? 0,
                     chipColorName: seat["chipColorName"] as? String ?? Self.seatColors[i],
+                    ready: seat["ready"] as? Bool ?? false,
                     hands: hands,
                     insuranceBet: Self.intFromAny(seat[MultiplayerBlackjackKeys.Insurance.insuranceBet]) ?? 0,
                     insuranceDecided: seat[MultiplayerBlackjackKeys.Insurance.insuranceDecided] as? Bool ?? false,
@@ -817,6 +821,26 @@ final class MPBlackjackTableState {
                     print("💰 [MPBlackjack] Updated balance to \(balance) for seat \(playerSeat.seatIndex)")
                     completion?(.success(()))
                 }
+            }
+        }
+    }
+
+    /// Update ready state for a seat.
+    func setReady(seatIndex: Int, ready: Bool, completion: ((Result<Void, Error>) -> Void)? = nil) {
+        guard seatIndex >= 0 && seatIndex < Self.maxSeats else {
+            completion?(.failure(NSError(
+                domain: "MPBlackjackTableState",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid seat index"]
+            )))
+            return
+        }
+        seatsRef.child("\(seatIndex)").child("ready").setValue(ready) { error, _ in
+            if let error = error {
+                print("❌ [MPBlackjack] Failed to update ready state: \(error.localizedDescription)")
+                completion?(.failure(error))
+            } else {
+                completion?(.success(()))
             }
         }
     }

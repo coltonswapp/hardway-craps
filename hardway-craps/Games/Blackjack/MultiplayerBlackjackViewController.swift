@@ -81,87 +81,196 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   /// Local player's seat (interactive); reused for mySeatIndex.
   private var defaultSeat: PlayerSeat!
   /// All seat views by index (local + remote). Rebuilt when observeSeats fires.
-  private var seatViewsByIndex: [Int: PlayerSeat] = [:]
+  private var seatViewsByIndex: [Int: PlayerSeat] {
+    get { gameContext.seatViewsByIndex }
+    set { gameContext.seatViewsByIndex = newValue }
+  }
   /// Current seats data (updated by observeSeats)
-  private var currentSeatsData: [Int: MPBlackjackTableState.SeatData] = [:]
-  /// True while the initial deal animation is running (prevents re-applying cards from seat observer)
-  private var isDealAnimationRunning = false
-  /// True when a deal request is in progress (prevents double-tapping DEAL button)
-  private var isDealInProgress = false
-  /// True while post-deal blackjack payout animations are playing (suppresses turn indicator / buttons)
-  private var isBlackjackPayoutAnimating = false
-  /// Incremented each time applyCardsWithoutDealAnimation is called; stale asyncAfter blocks check this to bail out
-  private var cardApplyGeneration: Int = 0
-  /// Track previous hands for each seat to detect bet changes
-  private var previousHandsByIndex: [Int: [MPBlackjackTableState.HandData]] = [:]
-  /// Track previous balance for each seat to avoid unnecessary updates
-  private var previousBalanceByIndex: [Int: Int] = [:]
+  private var currentSeatsData: [Int: MPBlackjackTableState.SeatData] {
+    get { gameContext.currentSeatsData }
+    set { gameContext.currentSeatsData = newValue }
+  }
+  private var isDealAnimationRunning: Bool {
+    get { gameContext.isDealAnimationRunning }
+    set { gameContext.isDealAnimationRunning = newValue }
+  }
+  private var isDealInProgress: Bool {
+    get { gameContext.isDealInProgress }
+    set { gameContext.isDealInProgress = newValue }
+  }
+  private var isBlackjackPayoutAnimating: Bool {
+    get { gameContext.isBlackjackPayoutAnimating }
+    set { gameContext.isBlackjackPayoutAnimating = newValue }
+  }
+  private var cardApplyGeneration: Int {
+    get { gameContext.cardApplyGeneration }
+    set { gameContext.cardApplyGeneration = newValue }
+  }
+  private var previousHandsByIndex: [Int: [MPBlackjackTableState.HandData]] {
+    get { handResetManager.previousHandsByIndex }
+    set { handResetManager.previousHandsByIndex = newValue }
+  }
+  private var previousBalanceByIndex: [Int: Int] {
+    get { handResetManager.previousBalanceByIndex }
+    set { handResetManager.previousBalanceByIndex = newValue }
+  }
   /// Track previous card counts and hasStood flags per seat to detect action changes
-  private var previousCardCountsBySeat: [Int: Int] = [:]
-  private var previousHasStoodBySeat: [Int: Bool] = [:]
-  /// Track previous hand counts per seat to detect split actions
-  private var previousHandCountsBySeat: [Int: Int] = [:]
-  /// When true, Firebase balance updates for the local player are ignored (balance is applied via animation instead).
-  private var isBalanceFrozenForSettlement: Bool = false
-  /// The player's balance captured the moment settlement begins, before any payout is applied.
-  private var preBetSettlementBalance: Int = 0
-  /// When true, Firebase balance updates are ignored during optimistic bet operations (place/remove).
-  /// Prevents Firebase listener from overriding optimistic balance updates before backend confirms.
-  private var isBalanceFrozenForBetOperation: Bool = false
-  /// Expected balance after optimistic bet operation completes (used to validate Firebase updates).
-  private var expectedBalanceAfterBetOperation: Int?
-  /// Track push bets per seat to carry over to next hand
-  private var pushBetsBySeatIndex: [Int: Int] = [:]
-  /// Seats whose bust was already animated during player_actions (skip in end-of-hand reconciliation)
-  private var bustAnimatedSeatIndices: Set<Int> = []
+  private var previousCardCountsBySeat: [Int: Int] {
+    get { dealAnimationController.previousCardCountsBySeat }
+    set { dealAnimationController.previousCardCountsBySeat = newValue }
+  }
+  private var previousHasStoodBySeat: [Int: Bool] {
+    get { dealAnimationController.previousHasStoodBySeat }
+    set { dealAnimationController.previousHasStoodBySeat = newValue }
+  }
+  private var previousHandCountsBySeat: [Int: Int] {
+    get { handResetManager.previousHandCountsBySeat }
+    set { handResetManager.previousHandCountsBySeat = newValue }
+  }
+  private var isBalanceFrozenForSettlement: Bool {
+    get { gameContext.isBalanceFrozenForSettlement }
+    set { gameContext.isBalanceFrozenForSettlement = newValue }
+  }
+  private var preBetSettlementBalance: Int {
+    get { gameContext.preBetSettlementBalance }
+    set { gameContext.preBetSettlementBalance = newValue }
+  }
+  private var isBalanceFrozenForBetOperation: Bool {
+    get { gameContext.isBalanceFrozenForBetOperation }
+    set { gameContext.isBalanceFrozenForBetOperation = newValue }
+  }
+  private var expectedBalanceAfterBetOperation: Int? {
+    get { gameContext.expectedBalanceAfterBetOperation }
+    set { gameContext.expectedBalanceAfterBetOperation = newValue }
+  }
+  private var pushBetsBySeatIndex: [Int: Int] {
+    get { gameContext.pushBetsBySeatIndex }
+    set { gameContext.pushBetsBySeatIndex = newValue }
+  }
+  private var bustAnimatedSeatIndices: Set<Int> {
+    get { gameContext.bustAnimatedSeatIndices }
+    set { gameContext.bustAnimatedSeatIndices = newValue }
+  }
   /// Track the last instruction message shown to prevent unnecessary animation restarts
   private var lastInstructionMessage: String?
   private let seatWidth: CGFloat = 180
   private let maxSeats = 5
-  /// The hand index within our seat that is currently active (from server's currentTurn.handIndex).
-  private var activeHandIndex: Int = 0
+  private var activeHandIndex: Int {
+    get { gameContext.activeHandIndex }
+    set { gameContext.activeHandIndex = newValue }
+  }
   /// Small yellow dot above the current player's hand during player_actions; animated left/right when turn changes.
   private var turnIndicatorDot: UIView!
   private var turnIndicatorDotCenterXConstraint: NSLayoutConstraint?
-  private var seatsObserverHandle: DatabaseHandle?
-  private var gameStateObserverHandle: DatabaseHandle?
-  private var hostPlayerIdObserverHandle: DatabaseHandle?
+  private var seatsObserverHandle: DatabaseHandle? {
+    get { gameContext.seatsObserverHandle }
+    set { gameContext.seatsObserverHandle = newValue }
+  }
+  private var gameStateObserverHandle: DatabaseHandle? {
+    get { gameContext.gameStateObserverHandle }
+    set { gameContext.gameStateObserverHandle = newValue }
+  }
+  private var hostPlayerIdObserverHandle: DatabaseHandle? {
+    get { gameContext.hostPlayerIdObserverHandle }
+    set { gameContext.hostPlayerIdObserverHandle = newValue }
+  }
   /// The playerId of the current host as stored in Firebase. Authoritative source of host status.
   private var currentHostPlayerId: String?
-  /// Last game state snapshot for diffing cards (to animate new cards only).
-  private var lastGameSnapshot: MPBlackjackTableState.GameStateSnapshot?
-  /// Previous game state snapshot (before lastGameSnapshot) for detecting phase transitions.
-  private var previousGameSnapshot: MPBlackjackTableState.GameStateSnapshot?
+  private var lastGameSnapshot: MPBlackjackTableState.GameStateSnapshot? {
+    get { gameContext.lastGameSnapshot }
+    set { gameContext.lastGameSnapshot = newValue }
+  }
+  private var previousGameSnapshot: MPBlackjackTableState.GameStateSnapshot? {
+    get { gameContext.previousGameSnapshot }
+    set { gameContext.previousGameSnapshot = newValue }
+  }
 
-  // MARK: - Optimistic UI (seed-only deck, instant feedback for local player)
+  // MARK: - Shared Context
 
-  private var deckProvider: DeterministicDeckProvider?
-  private var optimisticDeckIndex: Int = 0
-  /// Cards we predicted for our hand that the server has not confirmed yet.
-  private var optimisticCardsForMyHand: [BlackjackHandView.Card] = []
-  private var isActionInFlight = false
-  private var actionInFlightTimeoutWorkItem: DispatchWorkItem?
+  private let gameContext = MPGameContext()
+
+  // MARK: - Player Action Handler
+
+  private lazy var playerActionHandler = MPPlayerActionHandler(context: gameContext)
+
+  private var deckProvider: DeterministicDeckProvider? {
+    get { playerActionHandler.deckProvider }
+    set { playerActionHandler.setDeckProvider(newValue) }
+  }
+  private var optimisticDeckIndex: Int {
+    get { playerActionHandler.optimisticDeckIndex }
+    set { playerActionHandler.setOptimisticDeckIndex(newValue) }
+  }
+  private var optimisticCardsForMyHand: [BlackjackHandView.Card] {
+    get { playerActionHandler.optimisticCardsForMyHand }
+    set {
+      if newValue.isEmpty { playerActionHandler.clearOptimisticCards() }
+    }
+  }
+  private var isActionInFlight: Bool {
+    get { playerActionHandler.isActionInFlight }
+    set { playerActionHandler.setIsActionInFlight(newValue) }
+  }
+  private var actionInFlightTimeoutWorkItem: DispatchWorkItem? {
+    get { playerActionHandler.actionInFlightTimeoutWorkItem }
+    set { playerActionHandler.cancelTimeout() }
+  }
   /// True after the initial seat reconciliation completes, used to distinguish initial host assignment from a host transfer.
   private var hasCompletedInitialJoin: Bool = false
 
-  // MARK: - Dealer card queue (sequential animation during dealer turn)
+  // MARK: - Dealer card queue (delegated to dealerCardQueue manager)
 
-  /// Cards queued to be animated onto the dealer hand one at a time.
-  private var dealerCardQueue: [BlackjackHandView.Card] = []
-  /// True while a dealer-card animation is in flight; prevents overlapping animations.
-  private var isDealerCardAnimating = false
-  /// Number of dealer cards already rendered (avoids re-queuing cards we've already shown).
-  private var dealerCardsRenderedCount: Int = 0
-  /// Whether the dealer's hole card has been revealed during this turn's queue processing.
-  private var dealerHoleRevealed = false
+  private lazy var dealerCardQueueManager = MPDealerCardQueue(context: gameContext)
+
+  private var dealerCardQueue: [BlackjackHandView.Card] {
+    dealerCardQueueManager.dealerCardQueue
+  }
+  private var isDealerCardAnimating: Bool {
+    get { dealerCardQueueManager.isDealerCardAnimating }
+    set { dealerCardQueueManager.setIsDealerCardAnimating(newValue) }
+  }
+  private var dealerCardsRenderedCount: Int {
+    get { dealerCardQueueManager.dealerCardsRenderedCount }
+    set { dealerCardQueueManager.setDealerCardsRenderedCount(newValue) }
+  }
+  private var dealerHoleRevealed: Bool {
+    get { dealerCardQueueManager.dealerHoleRevealed }
+    set { dealerCardQueueManager.setDealerHoleRevealed(newValue) }
+  }
+
+  // MARK: - Chip Animation Helper
+
+  private lazy var chipAnimator = MPChipAnimationHelper(context: gameContext)
+
+  private var isBetReconciliationRunning: Bool {
+    get { chipAnimator.isBetReconciliationRunning }
+    set { chipAnimator.setIsBetReconciliationRunning(newValue) }
+  }
+
+  private var isBonusBetResolutionAnimating: Bool {
+    get { chipAnimator.isBonusBetResolutionAnimating }
+    set { chipAnimator.setIsBonusBetResolutionAnimating(newValue) }
+  }
+
+  private var bonusBetResultsProcessed: Bool {
+    get { gameContext.bonusBetResultsProcessed }
+    set {
+      gameContext.bonusBetResultsProcessed = newValue
+      chipAnimator.setBonusBetResultsProcessed(newValue)
+    }
+  }
 
   // MARK: - Bonus Bets
 
   private let mpBonusBetControl = MPBonusBetControl()
-  private var previousBonusBetsBySeat: [Int: Int] = [:]
-  private var localBonusBetAmount: Int = 0
-  private var isBonusBetResolutionAnimating = false
-  private var bonusBetResultsProcessed = false
+  private var previousBonusBetsBySeat: [Int: Int] {
+    get { handResetManager.previousBonusBetsBySeat }
+    set { handResetManager.previousBonusBetsBySeat = newValue }
+  }
+  private var localBonusBetAmount: Int {
+    get { handResetManager.localBonusBetAmount }
+    set { handResetManager.localBonusBetAmount = newValue }
+  }
   /// True once the very first game-state snapshot has been received.
   /// Distinguishes a genuine mid-game join from a nil `lastGameSnapshot` caused by
   /// `finishCardClearingCleanup` resetting state between hands.
@@ -175,13 +284,26 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
 
   private let mpInsuranceControl = MPInsuranceControl()
   private var continueButton: UIButton!
-  private var isInsurancePhaseActive = false
-  private var localInsuranceBetAmount: Int = 0
-  private var pendingInsuranceSnapshot: MPBlackjackTableState.GameStateSnapshot?
-  private var pendingInsuranceHoleCard: BlackjackHandView.Card?
-  private var pendingInsuranceUpCard: BlackjackHandView.Card?
-  /// Track previous insurance bets per seat to detect remote changes
-  private var previousInsuranceBySeat: [Int: Int] = [:]
+  private lazy var insuranceManager = MPInsuranceManager(context: gameContext)
+
+  private var isInsurancePhaseActive: Bool { insuranceManager.isInsurancePhaseActive }
+  private var localInsuranceBetAmount: Int {
+    get { insuranceManager.localInsuranceBetAmount }
+    set { insuranceManager.setLocalInsuranceBetAmount(newValue) }
+  }
+  private var pendingInsuranceSnapshot: MPBlackjackTableState.GameStateSnapshot? {
+    insuranceManager.pendingInsuranceSnapshot
+  }
+  private var pendingInsuranceHoleCard: BlackjackHandView.Card? {
+    insuranceManager.pendingInsuranceHoleCard
+  }
+  private var pendingInsuranceUpCard: BlackjackHandView.Card? {
+    insuranceManager.pendingInsuranceUpCard
+  }
+  private var previousInsuranceBySeat: [Int: Int] {
+    get { insuranceManager.previousInsuranceBySeat }
+    set { insuranceManager.previousInsuranceBySeat = newValue }
+  }
   /// When true, auto-scroll is disabled until it's the user's turn (allows user to look at their hand without interruption)
   private var shouldIgnoreAutoScroll = false
   /// Track if scrolling is programmatic (to distinguish from user-initiated scrolling)
@@ -202,25 +324,49 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   private var connectedObserverHandle: DatabaseHandle?
   private var connectionDebounceWorkItem: DispatchWorkItem?
 
+  // MARK: - Deal Animation Controller
+
+  private lazy var dealAnimationController = MPDealAnimationController(context: gameContext)
+
+  // MARK: - Betting Manager
+
+  private lazy var bettingManager = MPBettingManager(context: gameContext)
+
+  // MARK: - Hand Reset Manager
+
+  private lazy var handResetManager = MPHandResetManager(context: gameContext)
+
+  // MARK: - Table Session Manager
+
+  private lazy var tableSessionManager = MPTableSessionManager(context: gameContext)
+
+  // MARK: - Local Session Manager (for tracking gameplay stats)
+
+  private var sessionManager: MPBlackjackSessionManager!
+
   // MARK: - Table state (set after join)
 
   private var tableState: MPBlackjackTableState!
-  private var mySeatIndex: Int = 0
+  private var mySeatIndex: Int {
+    get { gameContext.mySeatIndex }
+    set { gameContext.mySeatIndex = newValue }
+  }
   private var myDisplayName: String = "Player"
-  private var myChipColorName: String = "Cyan"
+  private var myChipColorName: String {
+    get { gameContext.myChipColorName }
+    set { gameContext.myChipColorName = newValue }
+  }
   private var joinedBalance: Int = 200
-  /// True when this player occupies the lowest seat index (first to join). Host controls Deal and Next Hand.
-  private var isHost: Bool = false
+  private var isHost: Bool {
+    get { gameContext.isHost }
+    set { gameContext.isHost = newValue }
+  }
 
   // MARK: - State
 
   private var balance: Int {
-    get { balanceView?.balance ?? joinedBalance }
-    set {
-      balanceView?.balance = newValue
-      chipSelector?.updateAvailableChips(balance: newValue)
-      defaultSeat?.setBalance(newValue, animated: false)
-    }
+    get { gameContext.balance }
+    set { gameContext.balance = newValue }
   }
 
   var selectedChipValue: Int {
@@ -300,13 +446,52 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
 
     tableState = MPBlackjackTableState(tableCode: loadTableCode())
     setupLoadingOverlay()
+
+    // Register for app lifecycle notifications to pause/resume session timer
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAppWillResignActive),
+      name: UIApplication.willResignActiveNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAppDidEnterBackground),
+      name: UIApplication.didEnterBackgroundNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAppDidBecomeActive),
+      name: UIApplication.didBecomeActiveNotification,
+      object: nil
+    )
+
     attemptJoin()
+  }
+
+  @objc private func handleAppWillResignActive() {
+    sessionManager?.pauseSessionTimer()
+  }
+
+  @objc private func handleAppDidEnterBackground() {
+    sessionManager?.pauseSessionTimer()
+  }
+
+  @objc private func handleAppDidBecomeActive() {
+    sessionManager?.resumeSessionTimer()
   }
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
     // Re-enable interactive pop gesture when leaving this view controller
     navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+
+    // Save session when leaving (if leaving the navigation stack)
+    if isMovingFromParent {
+      sessionManager?.pauseSessionTimer()
+      sessionManager?.saveCurrentSessionForced()
+    }
   }
 
   override func viewDidLayoutSubviews() {
@@ -452,6 +637,67 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
 
   // MARK: - Gameplay UI (after join success)
 
+  private func setupManagers() {
+    gameContext.playerId = MultiplayerPlayerIdKey.value
+    gameContext.tableCode = tableState.tableCode
+    gameContext.containerView = view
+    gameContext.dealerHandView = dealerHandView
+    gameContext.defaultSeat = defaultSeat
+    gameContext.balanceView = balanceView
+    gameContext.deckView = deckView
+    gameContext.insuranceControl = mpInsuranceControl
+    gameContext.bonusBetControl = mpBonusBetControl
+    gameContext.continueButton = continueButton
+    gameContext.instructionLabel = instructionLabel
+
+    // Initialize local session manager for tracking gameplay stats
+    sessionManager = MPBlackjackSessionManager(startingBalance: joinedBalance)
+    sessionManager.delegate = self
+    gameContext.sessionManager = sessionManager
+
+    gameContext.onBalanceChanged = { [weak self] newBalance in
+      guard let self = self else { return }
+      self.balanceView?.balance = newBalance
+      self.chipSelector?.updateAvailableChips(balance: newBalance)
+      self.defaultSeat?.setBalance(newBalance, animated: false)
+      // Update session manager balance
+      self.sessionManager?.currentBalance = newBalance
+    }
+
+    gameContext.isActionInFlightProvider = { [weak self] in
+      self?.playerActionHandler.isActionInFlight ?? false
+    }
+
+    chipAnimator.delegate = self
+    insuranceManager.delegate = self
+    insuranceManager.tableState = tableState
+    insuranceManager.onDealerCardsRenderedCountChanged = { [weak self] count in
+      self?.dealerCardQueueManager.setDealerCardsRenderedCount(count)
+    }
+    playerActionHandler.delegate = self
+    dealerCardQueueManager.delegate = self
+    tableSessionManager.delegate = self
+    tableSessionManager.tableState = tableState
+    dealAnimationController.delegate = self
+    bettingManager.delegate = self
+    bettingManager.tableState = tableState
+    handResetManager.delegate = self
+    handResetManager.onResetBetReconciliation = { [weak self] in
+      self?.isBetReconciliationRunning = false
+      self?.isBonusBetResolutionAnimating = false
+    }
+    handResetManager.onResetOptimisticState = { [weak self] in
+      self?.optimisticCardsForMyHand.removeAll()
+      self?.isActionInFlight = false
+      self?.actionInFlightTimeoutWorkItem?.cancel()
+      self?.actionInFlightTimeoutWorkItem = nil
+    }
+    handResetManager.onResetPreviousCardCounts = { [weak self] in
+      self?.previousCardCountsBySeat.removeAll()
+      self?.previousHasStoodBySeat.removeAll()
+    }
+  }
+
   private func setupGameplayUI() {
     setupInstructionLabel()
     setupDeckView()
@@ -462,6 +708,11 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
     setupBottomStackView()
     setupActionButtons()
     setupConnectionStatusView()
+
+    setupManagers()
+
+    // Start tracking the gameplay session
+    sessionManager.startSession()
 
     defaultSeat.nameText = displayLabel(name: myDisplayName, playerId: MultiplayerPlayerIdKey.value)
     balance = joinedBalance
@@ -531,6 +782,8 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   }
 
   deinit {
+    NotificationCenter.default.removeObserver(self)
+      
     if let handle = seatsObserverHandle {
       tableState?.removeSeatsObserver(handle: handle)
     }
@@ -577,7 +830,7 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
         if animated && seat.isRemote && newBet > oldBet && i == 0 {
           let delta = newBet - oldBet
           animateChipToBet(for: seat, amount: delta) { [weak self] in
-            handView.betControl.setBetAmount(newBet, animated: true)
+            handView.betControl.setBetAmount(newBet, animated: false)
             self?.animateBetChipUpdate(for: seat)
           }
         } else {
@@ -672,108 +925,11 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   }
 
   private func syncHandsToFirebase(for seat: PlayerSeat) {
-    let playerId = MultiplayerPlayerIdKey.value
-
-    // Collect all hands with their bet amounts
-    var hands: [MPBlackjackTableState.HandData] = []
-    for handView in seat.hands {
-      let betAmount = handView.betControl.betAmount
-      if betAmount > 0 {
-        hands.append(
-          MPBlackjackTableState.HandData(
-            bet: betAmount, cards: [], stood: false, doubled: false, busted: false,
-            playerId: playerId))
-      }
-    }
-
-    let totalBet = hands.reduce(0) { $0 + $1.bet }
-    print("🟡 [syncHandsToFirebase] Writing betAmount=\(totalBet) to Firebase (from UI betControl)")
-
-    // Sync to Firebase
-    tableState?.updateHands(playerId: playerId, hands: hands)
-    tableState?.updateBalance(playerId: playerId, balance: balance)
+    bettingManager.syncHandsToFirebase(for: seat)
   }
 
   private func setupBetControlCallbacks(for seat: PlayerSeat) {
-    let betControl = seat.primaryHand.betControl
-
-    betControl.getSelectedChipValue = { [weak self] in
-      return self?.selectedChipValue ?? 5
-    }
-
-    betControl.getBalance = { [weak self] in
-      return self?.balance ?? 0
-    }
-
-    betControl.onBetPlaced = { [weak self] amount in
-      guard let self = self else { return }
-      let phase = self.lastGameSnapshot?.phase ?? ""
-      let canPlaceBet = phase.isEmpty || phase == MultiplayerBlackjackKeys.Phases.betting
-      if !canPlaceBet {
-        seat.primaryHand.betControl.betAmount -= amount
-        HapticsHelper.lightHaptic()
-        return
-      }
-      // Optimistic: deduct immediately so the UI feels instant
-      let expectedBalance = self.balance - amount
-      self.isBalanceFrozenForBetOperation = true
-      self.expectedBalanceAfterBetOperation = expectedBalance
-      self.balance -= amount
-      self.callPlaceBet(amount: amount, seat: seat) { [weak self] success in
-        guard let self = self else { return }
-        if success {
-          // Backend placeBet already updated Firebase correctly, so we don't need syncHandsToFirebase
-          // The Firebase listener will update the UI when the change propagates
-          // Clear the freeze flag once we get confirmation (or after timeout)
-          DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.isBalanceFrozenForBetOperation = false
-            self?.expectedBalanceAfterBetOperation = nil
-          }
-          print("✅ [placeBet] Success - backend updated Firebase, no need to sync")
-        } else {
-          // Rollback both the bet chip and the balance
-          seat.primaryHand.betControl.betAmount -= amount
-          self.balance += amount
-          self.isBalanceFrozenForBetOperation = false
-          self.expectedBalanceAfterBetOperation = nil
-        }
-      }
-    }
-
-    betControl.onBetRemoved = { [weak self] amount in
-      guard let self = self else { return }
-      let phase = self.lastGameSnapshot?.phase ?? ""
-      let canRemoveBet = phase.isEmpty || phase == MultiplayerBlackjackKeys.Phases.betting
-      if !canRemoveBet {
-        seat.primaryHand.betControl.betAmount += amount
-        HapticsHelper.lightHaptic()
-        return
-      }
-      // Optimistic: restore balance immediately so the UI feels instant
-      let expectedBalance = self.balance + amount
-      self.isBalanceFrozenForBetOperation = true
-      self.expectedBalanceAfterBetOperation = expectedBalance
-      self.balance += amount
-      self.callRemoveBet(amount: amount, seat: seat) { [weak self] success, _ in
-        guard let self = self else { return }
-        if success {
-          // Backend removeBet already updated Firebase correctly, so we don't need syncHandsToFirebase
-          // The Firebase listener will update the UI when the change propagates
-          // Clear the freeze flag once we get confirmation (or after timeout)
-          DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.isBalanceFrozenForBetOperation = false
-            self?.expectedBalanceAfterBetOperation = nil
-          }
-          print("✅ [removeBet] Success - backend updated Firebase, no need to sync")
-        } else {
-          // Rollback both the bet chip and the balance
-          seat.primaryHand.betControl.betAmount += amount
-          self.balance -= amount
-          self.isBalanceFrozenForBetOperation = false
-          self.expectedBalanceAfterBetOperation = nil
-        }
-      }
-    }
+    bettingManager.setupBetControlCallbacks(for: seat)
   }
 
   private func setupInstructionLabel() {
@@ -1503,6 +1659,7 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
       previousBonusBetsBySeat[seatIndex] = newAmount
     }
 
+    updateSeatReadyIndicators()
   }
 
   private func setupBalanceView() {
@@ -1560,51 +1717,31 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
     standButton.addTarget(self, action: #selector(standTapped), for: .touchUpInside)
     doubleButton.addTarget(self, action: #selector(doubleTapped), for: .touchUpInside)
 
-    newHandButton = UIButton(type: .system)
-    newHandButton.translatesAutoresizingMaskIntoConstraints = false
-    newHandButton.setTitle("New Hand", for: .normal)
-    newHandButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-    newHandButton.backgroundColor = HardwayColors.surfaceGray
-    newHandButton.setTitleColor(.white, for: .normal)
-    newHandButton.layer.cornerRadius = 16
-    newHandButton.layer.borderWidth = 1.5
-    newHandButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
-    newHandButton.isHidden = true
-    newHandButton.alpha = 0
-    newHandButton.addTarget(self, action: #selector(newHandTapped), for: .touchUpInside)
+    newHandButton = UIButton.createActionButton(
+      title: "New Hand",
+      target: self,
+      action: #selector(newHandTapped),
+      isInitiallyHidden: true,
+      initialAlpha: 0
+    )
 
-    dealButton = UIButton(type: .system)
-    dealButton.translatesAutoresizingMaskIntoConstraints = false
-    dealButton.setTitle("Deal", for: .normal)
-    dealButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-    dealButton.backgroundColor = HardwayColors.surfaceGray
-    dealButton.setTitleColor(.white, for: .normal)
-    dealButton.layer.cornerRadius = 16
-    dealButton.layer.borderWidth = 1.5
-    dealButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
-    dealButton.addTarget(self, action: #selector(dealTapped), for: .touchUpInside)
+    dealButton = UIButton.createActionButton(
+      title: "Deal",
+      target: self,
+      action: #selector(dealTapped)
+    )
 
-    nextHandButton = UIButton(type: .system)
-    nextHandButton.translatesAutoresizingMaskIntoConstraints = false
-    nextHandButton.setTitle("Next Hand", for: .normal)
-    nextHandButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-    nextHandButton.backgroundColor = HardwayColors.surfaceGray
-    nextHandButton.setTitleColor(.white, for: .normal)
-    nextHandButton.layer.cornerRadius = 16
-    nextHandButton.layer.borderWidth = 1.5
-    nextHandButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
-    nextHandButton.addTarget(self, action: #selector(nextHandTapped), for: .touchUpInside)
+    nextHandButton = UIButton.createActionButton(
+      title: "Next Hand",
+      target: self,
+      action: #selector(nextHandTapped)
+    )
 
-    continueButton = UIButton(type: .system)
-    continueButton.translatesAutoresizingMaskIntoConstraints = false
-    continueButton.setTitle("Continue", for: .normal)
-    continueButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-    continueButton.backgroundColor = HardwayColors.surfaceGray
-    continueButton.setTitleColor(.white, for: .normal)
-    continueButton.layer.cornerRadius = 16
-    continueButton.layer.borderWidth = 1.5
-    continueButton.layer.borderColor = HardwayColors.label.withAlphaComponent(0.35).cgColor
-    continueButton.addTarget(self, action: #selector(continueButtonTapped), for: .touchUpInside)
+    continueButton = UIButton.createActionButton(
+      title: "Continue",
+      target: self,
+      action: #selector(continueButtonTapped)
+    )
 
     let insuranceStatusLabel = UILabel()
     insuranceStatusLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1710,9 +1847,19 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
 
     if connected {
       connectionStatusView.hide()
+      // Recompute host status after reconnecting (in case it changed or needs refresh)
+      recomputeHostStatus()
       // Restore button visibility based on current game state
+      // Always refresh if we have a snapshot (recomputeHostStatus may not refresh if host status didn't change)
       if let snapshot = lastGameSnapshot {
         refreshButtonVisibility(for: snapshot)
+      } else if isHost {
+        // If we're the host but don't have a snapshot, fetch it to show deal button
+        tableState?.fetchGameState { [weak self] snapshot in
+          guard let self = self else { return }
+          self.lastGameSnapshot = snapshot
+          self.refreshButtonVisibility(for: snapshot)
+        }
       }
     } else {
       let work = DispatchWorkItem { [weak self] in
@@ -1826,6 +1973,10 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
 
     HapticsHelper.lightHaptic()
     hand.broadcastAction("Double!")
+
+    // Track double down in session manager
+    sessionManager?.recordDoubleDown()
+
     callPlayerAction(MultiplayerBlackjackKeys.Actions.double)
   }
 
@@ -1853,6 +2004,9 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
 
     HapticsHelper.lightHaptic()
     hand.broadcastAction("Split!")
+
+    // Track split in session manager
+    sessionManager?.recordSplit()
 
     balance -= betAmount
     hideSplitButton()
@@ -1944,114 +2098,27 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   private func callPlayerAction(_ action: String) {
     guard !isActionInFlight else { return }
     isActionInFlight = true
-    actionInFlightTimeoutWorkItem?.cancel()
+    playerActionHandler.cancelTimeout()
     standButton.setDisabled(true)
     doubleButton.setDisabled(true)
 
     let serverHandIndex = activeHandIndex
-    let deckCenter = view.convert(deckView.deckCenter, from: deckView)
     let seatHands = defaultSeat.hands
     let hand =
       activeHandIndex < seatHands.count ? seatHands[activeHandIndex] : defaultSeat.primaryHand
 
-    // Capture original bet for rollback in case of double failure
     let originalBetForDouble =
       (action == MultiplayerBlackjackKeys.Actions.double) ? hand.betControl.betAmount : nil
 
     if action == MultiplayerBlackjackKeys.Actions.hit
       || action == MultiplayerBlackjackKeys.Actions.double
     {
-      guard let provider = deckProvider,
-        let card = provider.card(at: optimisticDeckIndex),
-        let bjCard = blackjackCard(from: card)
-      else {
-        // Optimistic deck exhausted — skip optimistic animation but still send the
-        // action to the server, which can reshuffle mid-hand if needed.
-        print(
-          "⚠️ [MultiplayerBlackjack] Optimistic deck exhausted at index \(optimisticDeckIndex), sending action to server without animation"
-        )
-        sendPlayerActionToServer(
-          action: action, handIndex: serverHandIndex, originalBetForDouble: originalBetForDouble)
-        return
-      }
-      optimisticDeckIndex += 1
-      optimisticCardsForMyHand.append(bjCard)
-      if action == MultiplayerBlackjackKeys.Actions.double {
-        // Double card is ALWAYS dealt face up
-        hand.dealCard(bjCard, from: deckCenter, in: view)
-        let bet = originalBetForDouble ?? hand.betControl.betAmount
-        print("BAL_BUG [double] deducting bet \(bet) from balance \(balance) → \(balance - bet)")
-        balance -= bet
-        hand.betControl.setBetAmount(bet * 2, animated: true)
-        print("💰 [double] Optimistically updated bet to \(bet * 2)")
-      } else {
-        hand.dealCard(bjCard, from: deckCenter, in: view)
-      }
-      let newTotal = blackjackTotal(hand.currentCards)
-      if newTotal > 21 {
-        // Busted - turn is over
-        hand.broadcastAction("Bust!")
-
-        bustAnimatedSeatIndices.insert(mySeatIndex)
-        let bustBet = hand.betControl.betAmount
-        if bustBet > 0 {
-          let bustResult = MPBlackjackTableState.HandResult(
-            outcome: "lose", payout: 0, bet: bustBet)
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self, hand] in
-            guard let self = self else { return }
-            self.animateLocalBustForfeit(seat: self.defaultSeat, hand: hand, result: bustResult)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self, hand] in
-              guard let self = self else { return }
-              let topLeft = CGPoint(x: 0, y: 0)
-              hand.discardCards(to: topLeft, in: self.view) {}
-            }
-          }
-        }
-        // Optimistically advance to next split hand if available
-        let seatHands = defaultSeat.hands
-        if activeHandIndex + 1 < seatHands.count {
-          activeHandIndex += 1
-          updateTurnIndicatorDot(for: mySeatIndex, handIndex: activeHandIndex)
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self, let snapshot = self.lastGameSnapshot else { return }
-            self.isActionInFlight = false
-            self.refreshButtonVisibility(for: snapshot)
-          }
-        }
-      } else if newTotal == 21 {
-        // Hit to 21: brief pause so player sees 21, then we send hit and backend auto-advances
-        let seatHands = defaultSeat.hands
-        let hasNextSplitHand = activeHandIndex + 1 < seatHands.count
-        if hasNextSplitHand {
-          activeHandIndex += 1
-          updateTurnIndicatorDot(for: mySeatIndex, handIndex: activeHandIndex)
-        } else {
-          updateTurnIndicatorDot(for: nil)
-          hideTurnIndicatorDot()
-        }
-        let delayForHitTo21: TimeInterval = hasNextSplitHand ? 0.4 : 1.0
-        if hasNextSplitHand {
-          isActionInFlight = false
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delayForHitTo21) { [weak self] in
-          self?.sendPlayerActionToServer(
-            action: action, handIndex: serverHandIndex, originalBetForDouble: originalBetForDouble)
-          if hasNextSplitHand, let snapshot = self?.lastGameSnapshot {
-            self?.refreshButtonVisibility(for: snapshot)
-          }
-        }
-        return
-      } else if action == MultiplayerBlackjackKeys.Actions.double {
-        // Double - turn will end when backend confirms, but don't hide indicator yet
-        // Keep isActionInFlight true so buttons stay disabled until backend responds
-        // The Firebase listener will update the turn when backend confirms
-      } else if action == MultiplayerBlackjackKeys.Actions.hit {
-        // Re-enable buttons immediately after optimistic hit (hand not busted, still our turn)
-        isActionInFlight = false
-        // Double can only be done on first action (2 cards), so disable after hit
-        standButton.setDisabled(false)
-        doubleButton.setDisabled(true)
-      }
+      playerActionHandler.predictAndDealCard(
+        action: action,
+        hand: hand,
+        serverHandIndex: serverHandIndex,
+        originalBetForDouble: originalBetForDouble
+      )
     } else if action == MultiplayerBlackjackKeys.Actions.stand {
       let seatHands = defaultSeat.hands
       if activeHandIndex + 1 < seatHands.count {
@@ -2065,94 +2132,19 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
         updateTurnIndicatorDot(for: nil)
         hideTurnIndicatorDot()
       }
+      sendPlayerActionToServer(
+        action: action, handIndex: serverHandIndex, originalBetForDouble: originalBetForDouble)
     } else if action == MultiplayerBlackjackKeys.Actions.split {
-      // Split is handled entirely by the server; no optimistic card dealing.
-      // The Firebase seat listener will fire with the updated hands array
-      // and applyCardsWithoutDealAnimation will create the new hand views.
+      sendPlayerActionToServer(
+        action: action, handIndex: serverHandIndex, originalBetForDouble: originalBetForDouble)
     }
-
-    sendPlayerActionToServer(
-      action: action, handIndex: serverHandIndex, originalBetForDouble: originalBetForDouble)
   }
 
   private func sendPlayerActionToServer(
     action: String, handIndex serverHandIndex: Int? = nil, originalBetForDouble: Int?
   ) {
-    let functions = Functions.functions()
-    let params: [String: Any] = [
-      MultiplayerBlackjackKeys.FirebaseParams.tableCode: tableState.tableCode,
-      MultiplayerBlackjackKeys.FirebaseParams.seatIndex: mySeatIndex,
-      MultiplayerBlackjackKeys.FirebaseParams.handIndex: serverHandIndex ?? activeHandIndex,
-      MultiplayerBlackjackKeys.FirebaseParams.action: action,
-    ]
-    functions.httpsCallable("playerAction").call(params) {
-      [weak self, originalBetForDouble] _, error in
-      DispatchQueue.main.async {
-        guard let self = self else { return }
-        if let error = error {
-          self.instructionLabel.showMessage("\(action.capitalized) failed", shouldFade: true)
-          let ns = error as NSError
-          print(
-            "⚠️ [MultiplayerBlackjack] playerAction(\(action)) failed: \(error.localizedDescription) (domain=\(ns.domain), code=\(ns.code))"
-          )
-          if action == MultiplayerBlackjackKeys.Actions.split {
-            let seatHands = self.defaultSeat.hands
-            let hand =
-              self.activeHandIndex < seatHands.count
-              ? seatHands[self.activeHandIndex] : self.defaultSeat.primaryHand
-            let betAmount = hand.betControl.betAmount
-            self.balance += betAmount
-            print("💰 [split rollback] Restored bet \(betAmount) to balance \(self.balance)")
-          } else if !self.optimisticCardsForMyHand.isEmpty {
-            let seatHands = self.defaultSeat.hands
-            let hand =
-              self.activeHandIndex < seatHands.count
-              ? seatHands[self.activeHandIndex] : self.defaultSeat.primaryHand
-            let rollback = Array(hand.currentCards.dropLast(self.optimisticCardsForMyHand.count))
-            hand.setCardsWithoutAnimation(rollback)
-            if action == MultiplayerBlackjackKeys.Actions.double,
-              let originalBet = originalBetForDouble
-            {
-              print(
-                "BAL_BUG [double rollback] restoring bet \(originalBet) to balance \(self.balance) → \(self.balance + originalBet)"
-              )
-              self.balance += originalBet
-              hand.betControl.betAmount = originalBet
-              print("💰 [double rollback] Restored bet to \(originalBet)")
-            }
-          }
-          self.optimisticCardsForMyHand.removeAll()
-          self.optimisticDeckIndex = self.lastGameSnapshot?.deckIndex ?? 0
-          self.isActionInFlight = false
-          self.actionInFlightTimeoutWorkItem?.cancel()
-          if let s = self.lastGameSnapshot { self.refreshButtonVisibility(for: s) }
-        } else {
-          // Stand and split have no optimistic card state — unlock immediately on success
-          let noOptimisticState =
-            (action == MultiplayerBlackjackKeys.Actions.stand
-              || action == MultiplayerBlackjackKeys.Actions.split)
-          if noOptimisticState {
-            self.isActionInFlight = false
-            self.actionInFlightTimeoutWorkItem?.cancel()
-            self.actionInFlightTimeoutWorkItem = nil
-            if let s = self.lastGameSnapshot { self.refreshButtonVisibility(for: s) }
-          }
-        }
-      }
-    }
-
-    let timeout = DispatchWorkItem { [weak self] in
-      guard let self = self else { return }
-      DispatchQueue.main.async {
-        if self.isActionInFlight {
-          self.isActionInFlight = false
-          self.actionInFlightTimeoutWorkItem = nil
-          if let s = self.lastGameSnapshot { self.refreshButtonVisibility(for: s) }
-        }
-      }
-    }
-    actionInFlightTimeoutWorkItem = timeout
-    DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
+    playerActionHandler.sendPlayerActionToServer(
+      action: action, handIndex: serverHandIndex, originalBetForDouble: originalBetForDouble)
   }
 
   @objc private func newHandTapped() {
@@ -2167,134 +2159,101 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   }
 
   @objc private func dealTapped() {
+    if !isHost {
+      readyUpTapped()
+      return
+    }
+
     // Prevent double-tapping DEAL button
     guard !isDealInProgress else {
       HapticsHelper.lightHaptic()
       return
     }
 
+    let notReadyPlayers = nonHostPlayersNotReady()
+    guard notReadyPlayers.isEmpty else {
+      HapticsHelper.lightHaptic()
+      presentDealWithoutAllReadyAlert(notReadyPlayers: notReadyPlayers)
+      return
+    }
+
+    startDealFromHost()
+  }
+
+  private func readyUpTapped() {
+    let phase = lastGameSnapshot?.phase ?? ""
+    let isBetting = phase.isEmpty || phase == MultiplayerBlackjackKeys.Phases.betting
+    guard isBetting else {
+      HapticsHelper.lightHaptic()
+      return
+    }
+    guard !(currentSeatsData[mySeatIndex]?.ready ?? false) else {
+      HapticsHelper.lightHaptic()
+      return
+    }
+
+    dealButton.isEnabled = false
+    HapticsHelper.lightHaptic()
+    bettingManager.callSetReady { [weak self] success in
+      guard let self = self else { return }
+      if !success {
+        self.dealButton.isEnabled = true
+      } else {
+        self.applyReadyUpButtonAppearance(isReady: true)
+      }
+    }
+  }
+
+  private func startDealFromHost() {
     isDealInProgress = true
     dealButton.isEnabled = false
     HapticsHelper.lightHaptic()
     callStartDeal()
   }
 
-  private static let placeBetRemoveBetMaxRetries = 2  // 3 total attempts (helps with cold start)
+  private func nonHostPlayersNotReady() -> [String] {
+    let hostId = currentHostPlayerId
+    let myPlayerId = MultiplayerPlayerIdKey.value
+    let notReady = currentSeatsData
+      .sorted { $0.key < $1.key }
+      .compactMap { _, seatData -> String? in
+        guard let playerId = seatData.playerId, !playerId.isEmpty else { return nil }
+        if let hostId = hostId, playerId == hostId { return nil }
+        if isHost && playerId == myPlayerId { return nil }
+        return seatData.ready ? nil : seatData.displayLabel
+      }
+    return notReady
+  }
+
+  private func presentDealWithoutAllReadyAlert(notReadyPlayers: [String]) {
+    let message: String
+    if notReadyPlayers.count <= 3 {
+      message =
+        "The following players are not ready yet:\n\(notReadyPlayers.joined(separator: ", "))\n\nDeal anyway?"
+    } else {
+      message =
+        "\(notReadyPlayers.count) players are not ready yet.\n\nDeal anyway?"
+    }
+    let alert = UIAlertController(
+      title: "Not Everyone Is Ready",
+      message: message,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(UIAlertAction(title: "Deal Anyway", style: .destructive) { [weak self] _ in
+      self?.startDealFromHost()
+    })
+    present(alert, animated: true)
+  }
 
   private func callPlaceBet(amount: Int, seat: PlayerSeat, completion: @escaping (Bool) -> Void) {
-    let params: [String: Any] = [
-      MultiplayerBlackjackKeys.FirebaseParams.tableCode: tableState.tableCode,
-      MultiplayerBlackjackKeys.FirebaseParams.seatIndex: mySeatIndex,
-      MultiplayerBlackjackKeys.FirebaseParams.amount: amount,
-    ]
-
-    func attempt(_ tryIndex: Int) {
-      let currentBetBeforeCall = seat.primaryHand.betControl.betAmount
-      print(
-        "🔵 [placeBet] CALLING attempt \(tryIndex + 1) amount=\(amount), currentBet=\(currentBetBeforeCall)"
-      )
-      let functions = Functions.functions()
-      functions.httpsCallable("placeBet").call(params) { [weak self] result, error in
-        DispatchQueue.main.async {
-          guard let self = self else { return }
-          if let error = error {
-            if tryIndex < Self.placeBetRemoveBetMaxRetries {
-              let delay: TimeInterval = 2.0
-              print(
-                "⚠️ [MultiplayerBlackjack] placeBet attempt \(tryIndex + 1) failed (e.g. cold start), retrying in \(delay)s: \(error.localizedDescription)"
-              )
-              DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                attempt(tryIndex + 1)
-              }
-              return
-            }
-            self.instructionLabel.showMessage("Bet failed", shouldFade: true)
-            print(
-              "⚠️ [MultiplayerBlackjack] placeBet failed after \(Self.placeBetRemoveBetMaxRetries + 1) attempts: \(error.localizedDescription)"
-            )
-            completion(false)
-            return
-          }
-          if let data = result?.data as? [String: Any],
-            let newBalance = MPBlackjackTableState.intFromAny(
-              data[MultiplayerBlackjackKeys.FirebaseResponse.newBalance]),
-            let newBet = MPBlackjackTableState.intFromAny(
-              data[MultiplayerBlackjackKeys.FirebaseResponse.newBet])
-          {
-            print("BAL_BUG [placeBet] bet=\(amount), balance \(self.balance) → \(newBalance)")
-            print(
-              "💰 [MultiplayerBlackjack] Bet placed: \(amount), new balance: \(newBalance), newBet from backend: \(newBet)"
-            )
-            print(
-              "🔵 [placeBet] RESPONSE: backend says newBet=\(newBet), UI betAmount=\(seat.primaryHand.betControl.betAmount)"
-            )
-          }
-          completion(true)
-        }
-      }
-    }
-    attempt(0)
+    bettingManager.callPlaceBet(amount: amount, seat: seat, completion: completion)
   }
 
   private func callRemoveBet(
     amount: Int, seat: PlayerSeat, completion: @escaping (Bool, Int?) -> Void
   ) {
-    let params: [String: Any] = [
-      MultiplayerBlackjackKeys.FirebaseParams.tableCode: tableState.tableCode,
-      MultiplayerBlackjackKeys.FirebaseParams.seatIndex: mySeatIndex,
-      MultiplayerBlackjackKeys.FirebaseParams.amount: amount,
-    ]
-
-    func attempt(_ tryIndex: Int) {
-      let currentBetBeforeCall = seat.primaryHand.betControl.betAmount
-      print(
-        "🔴 [removeBet] CALLING attempt \(tryIndex + 1) amount=\(amount), currentBet=\(currentBetBeforeCall)"
-      )
-      let functions = Functions.functions()
-      functions.httpsCallable("removeBet").call(params) { [weak self] result, error in
-        DispatchQueue.main.async {
-          guard let self = self else { return }
-          if let error = error {
-            if tryIndex < Self.placeBetRemoveBetMaxRetries {
-              let delay: TimeInterval = 2.0
-              print(
-                "⚠️ [MultiplayerBlackjack] removeBet attempt \(tryIndex + 1) failed (e.g. cold start), retrying in \(delay)s: \(error.localizedDescription)"
-              )
-              DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                attempt(tryIndex + 1)
-              }
-              return
-            }
-            self.instructionLabel.showMessage("Could not return chips", shouldFade: true)
-            print(
-              "⚠️ [MultiplayerBlackjack] removeBet failed after \(Self.placeBetRemoveBetMaxRetries + 1) attempts: \(error.localizedDescription)"
-            )
-            completion(false, nil)
-            return
-          }
-          var newBet: Int?
-          if let data = result?.data as? [String: Any] {
-            if let nb = MPBlackjackTableState.intFromAny(
-              data[MultiplayerBlackjackKeys.FirebaseResponse.newBalance]),
-              let bet = MPBlackjackTableState.intFromAny(
-                data[MultiplayerBlackjackKeys.FirebaseResponse.newBet])
-            {
-              print("BAL_BUG [removeBet] amount=\(amount), balance \(self.balance) → \(nb)")
-              print(
-                "💰 [MultiplayerBlackjack] Bet removed: \(amount), new balance: \(nb), newBet from backend: \(bet)"
-              )
-              print(
-                "🔴 [removeBet] RESPONSE: backend says newBet=\(bet), UI betAmount=\(seat.primaryHand.betControl.betAmount)"
-              )
-            }
-            newBet = MPBlackjackTableState.intFromAny(
-              data[MultiplayerBlackjackKeys.FirebaseResponse.newBet])
-          }
-          completion(true, newBet)
-        }
-      }
-    }
-    attempt(0)
+    bettingManager.callRemoveBet(amount: amount, seat: seat, completion: completion)
   }
 
   // MARK: - Bonus Bet Cloud Function Calls
@@ -2438,288 +2397,27 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
     }
   }
 
-  // MARK: - Bonus Bet Resolution Animation
+  // MARK: - Bonus Bet Resolution Animation (delegated to chipAnimator)
 
   private func animateBonusBetResults(
     _ results: [Int: [Int: MPBlackjackTableState.BonusBetResultData]],
     isDealerOutcome: Bool,
     completion: @escaping () -> Void
   ) {
-    guard !results.isEmpty else {
-      completion()
-      return
-    }
-
-    isBonusBetResolutionAnimating = true
-
-    var styleToSeat: [MPSmallBetChipStyle: Int] = [:]
-    for (seatIndex, seatData) in currentSeatsData {
-      let style = chipStyleForColorName(seatData.chipColorName)
-      styleToSeat[style] = seatIndex
-    }
-
-    var winningSeatIndices: Set<Int> = []
-    var losingSeatIndices: Set<Int> = []
-    var winningsByIndex: [Int: Int] = [:]
-    var descriptionsByIndex: [Int: String] = [:]
-    for (seatIndex, betResults) in results {
-      let hasWin = betResults.values.contains { $0.isWin }
-      if hasWin {
-        winningSeatIndices.insert(seatIndex)
-        let totalWinnings = betResults.values.filter { $0.isWin }.reduce(0) { $0 + $1.payout }
-        winningsByIndex[seatIndex] = totalWinnings
-        // Get the first winning description (or combine if multiple)
-        let winningDescriptions = betResults.values.filter { $0.isWin }.map { $0.description }
-        descriptionsByIndex[seatIndex] = winningDescriptions.first ?? ""
-      } else {
-        losingSeatIndices.insert(seatIndex)
-      }
-    }
-
-    animateBonusBetDots(
-      styleToSeat: styleToSeat,
-      winningSeatIndices: winningSeatIndices,
-      losingSeatIndices: losingSeatIndices,
-      winningsByIndex: winningsByIndex,
-      descriptionsByIndex: descriptionsByIndex,
-      results: results
-    ) { [weak self] in
-      guard let self = self else { return }
-      self.mpBonusBetControl.clearAllBets()
-      self.hideBonusBetControl(animated: true)
-      self.isBonusBetResolutionAnimating = false
+    chipAnimator.animateBonusBetResults(results, isDealerOutcome: isDealerOutcome) { [weak self] in
+      self?.hideBonusBetControl(animated: true)
       completion()
     }
   }
 
-  /// Animate bonus bet chips following the same paradigm as ChipAnimationHelper:
-  /// - Losers: chip flies from bet position to house, shrinks, fades out (animateChipsAway).
-  /// - Winners: winnings chip flies FROM house, scales up to 1.5x, lands next to bet chip,
-  ///   pauses, then both winnings chip and bet chip fly to the player's balance (animateBonusBetWinningsWithOffset).
-  private func animateBonusBetDots(
-    styleToSeat: [MPSmallBetChipStyle: Int],
-    winningSeatIndices: Set<Int>,
-    losingSeatIndices: Set<Int>,
-    winningsByIndex: [Int: Int],
-    descriptionsByIndex: [Int: String],
-    results: [Int: [Int: MPBlackjackTableState.BonusBetResultData]],
-    completion: @escaping () -> Void
-  ) {
-    let chipPositions = mpBonusBetControl.chipPositions(in: view)
-    guard !chipPositions.isEmpty else {
-      completion()
-      return
-    }
-
-    let housePoint = CGPoint(x: view.bounds.midX, y: 0)
-    var longestDuration: TimeInterval = 0
-
-    for entry in chipPositions {
-      guard let seatIndex = styleToSeat[entry.style] else { continue }
-      let isWinner = winningSeatIndices.contains(seatIndex)
-      let isLoser = losingSeatIndices.contains(seatIndex)
-      guard isWinner || isLoser else { continue }
-
-      let chipCenter = entry.center
-      let betAmount = mpBonusBetControl.betAmount(for: entry.style)
-
-      if isLoser {
-        // Loss: chip flies from bet position to house — matches ChipAnimationHelper.animateChipsAway
-        mpBonusBetControl.setChipHidden(true, for: entry.style)
-
-        let chipView = createRemoteMPChip(style: entry.style, amount: betAmount)
-        chipView.center = chipCenter
-        view.addSubview(chipView)
-
-        let randomDelay = Double.random(in: 0...0.15)
-        UIView.animate(
-          withDuration: 0.5, delay: randomDelay, options: .curveEaseIn
-        ) {
-          chipView.center = housePoint
-          chipView.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
-        } completion: { _ in
-          UIView.animate(withDuration: 0.2) {
-            chipView.alpha = 0
-          } completion: { _ in
-            chipView.removeFromSuperview()
-          }
-        }
-        longestDuration = max(longestDuration, 0.5 + randomDelay + 0.2)
-      } else {
-        // Win: matches ChipAnimationHelper.animateBonusBetWinningsWithOffset
-        let isLocal = (seatIndex == mySeatIndex)
-        let winnings = winningsByIndex[seatIndex] ?? 0
-        let description = descriptionsByIndex[seatIndex] ?? ""
-        let winningsOffset = CGPoint(x: -35, y: 0)
-        let winningsPosition = CGPoint(
-          x: chipCenter.x + winningsOffset.x, y: chipCenter.y + winningsOffset.y)
-
-        // Step 1: Winnings chip flies from house, scales up to 1.5x, lands at offset position
-        let winChip = createRemoteMPChip(style: entry.style, amount: winnings)
-        winChip.center = housePoint
-        winChip.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-        view.addSubview(winChip)
-
-        let step1 = UIViewPropertyAnimator(
-          duration: 0.6, controlPoint1: CGPoint(x: 0.85, y: 0),
-          controlPoint2: CGPoint(x: 0.15, y: 1)
-        ) {
-          winChip.transform = CGAffineTransform(scaleX: 1.5, y: 1.5)
-          winChip.center = winningsPosition
-        }
-
-        step1.addCompletion { [weak self] _ in
-          guard let self = self else { return }
-
-          // Show bet result right after winnings chip lands (0.5 seconds sooner)
-          if isLocal {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-              self.showBetResult(
-                amount: winnings, isWin: true, showBonus: true,
-                description: description.isEmpty ? nil : description
-              )
-            }
-          }
-
-          // Step 2: Brief pause, then both chips fly to balance
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self = self else { return }
-
-            // Hide original chip and create animation clone at its position
-            self.mpBonusBetControl.setChipHidden(true, for: entry.style)
-            let betChip = self.createRemoteMPChip(style: entry.style, amount: betAmount)
-            betChip.center = chipCenter
-            self.view.addSubview(betChip)
-
-            let destination: CGPoint
-            var remoteSeat: PlayerSeat?
-
-            if isLocal {
-              destination = self.balanceView.convert(
-                CGPoint(x: self.balanceView.bounds.maxX - 30, y: self.balanceView.bounds.midY),
-                to: self.view
-              )
-            } else if let seat = self.seatViewsByIndex[seatIndex],
-              let balView = seat.subviews.compactMap({ $0 as? MPPlayerBalanceView }).first
-            {
-              remoteSeat = seat
-              destination = seat.convert(
-                CGPoint(x: balView.frame.midX, y: balView.frame.midY),
-                to: self.view
-              )
-            } else {
-              winChip.removeFromSuperview()
-              betChip.removeFromSuperview()
-              return
-            }
-
-            // Calculate new balance for remote players
-            // Backend adds payout + betAmount, so we need to add both
-            let totalPayout = winnings + betAmount
-            let newBalanceForRemote: Int?
-            if !isLocal,
-              let currentBalance = self.currentSeatsData[seatIndex]?.balance
-            {
-              newBalanceForRemote = currentBalance + totalPayout
-            } else {
-              newBalanceForRemote = nil
-            }
-
-            // Winnings chip flies to balance
-            let fly1 = UIViewPropertyAnimator(
-              duration: 0.5, controlPoint1: CGPoint(x: 0.85, y: 0),
-              controlPoint2: CGPoint(x: 0.15, y: 1)
-            ) {
-              winChip.center = destination
-              winChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
-            }
-            fly1.addCompletion { [weak self] _ in
-              guard let self = self else { return }
-              winChip.removeFromSuperview()
-
-              // Update balance for local player
-              // Backend adds payout + betAmount, so we add both here for optimistic update
-              if isLocal {
-                self.balance += totalPayout
-              } else {
-                // Update balance for remote player when animation completes
-                // setBalance will read the current displayed balance and animate from there
-                if let seat = remoteSeat, let newBalance = newBalanceForRemote {
-                  seat.setBalance(newBalance, animated: true)
-                }
-              }
-            }
-
-            // Bet chip flies to balance (slightly offset)
-            let fly2 = UIViewPropertyAnimator(
-              duration: 0.5, controlPoint1: CGPoint(x: 0.85, y: 0),
-              controlPoint2: CGPoint(x: 0.15, y: 1)
-            ) {
-              betChip.center = CGPoint(x: destination.x - 10, y: destination.y)
-              betChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
-            }
-            fly2.addCompletion { _ in
-              betChip.removeFromSuperview()
-            }
-
-            fly1.startAnimation()
-            fly2.startAnimation(afterDelay: 0.1)
-          }
-        }
-        step1.startAnimation()
-        // 0.6 (fly in) + 0.4 (pause) + 0.5 (fly out) + 0.1 (stagger)
-        longestDuration = max(longestDuration, 0.6 + 0.4 + 0.5 + 0.1)
-      }
-    }
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + longestDuration + 0.15) {
-      completion()
-    }
-  }
-
-  /// Re-add chips to the bonus bet control for seats that have dealer-outcome results,
-  /// so the control has something to animate before hiding again.
   private func reconstructBonusChipsForDealerOutcome(
     results: [Int: [Int: MPBlackjackTableState.BonusBetResultData]]
   ) {
-    mpBonusBetControl.clearAllBets()
-    for (seatIndex, _) in results {
-      guard let seatData = currentSeatsData[seatIndex] else { continue }
-      let chipStyle = chipStyleForColorName(seatData.chipColorName)
-      let totalBonusBet = seatData.bonusBets.values.reduce(0, +)
-      if totalBonusBet > 0 {
-        mpBonusBetControl.addBet(amount: totalBonusBet, chipStyle: chipStyle, animated: false)
-      }
-    }
+    chipAnimator.reconstructBonusChipsForDealerOutcome(results: results)
   }
 
   private func callStartDeal(debugSeed: Int? = nil) {
-    let functions = Functions.functions()
-    var params: [String: Any] = [
-      MultiplayerBlackjackKeys.FirebaseParams.tableCode: tableState.tableCode
-    ]
-    if let debugSeed = debugSeed {
-      params["debugSeed"] = debugSeed
-      print("🐛 [Debug] callStartDeal with debugSeed=\(debugSeed)")
-    }
-    functions.httpsCallable("startDeal").call(params) { [weak self] _, error in
-      DispatchQueue.main.async {
-        guard let self = self else { return }
-        // Re-enable deal button on error or when deal animation starts
-        if let error = error {
-          self.isDealInProgress = false
-          self.dealButton.isEnabled = true
-          self.instructionLabel.showMessage("Deal failed", shouldFade: true)
-          let ns = error as NSError
-          print(
-            "⚠️ [MultiplayerBlackjack] startDeal failed: \(error.localizedDescription) (domain=\(ns.domain), code=\(ns.code))"
-          )
-        } else {
-          self.instructionLabel.showMessage("Dealing...", shouldFade: true)
-          // isDealInProgress will be reset when deal animation completes
-        }
-      }
-    }
+    bettingManager.callStartDeal(debugSeed: debugSeed)
   }
 
   @objc private func showSettingsTapped() {
@@ -2806,288 +2504,20 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
     }
   #endif
 
-  /// Called when phase becomes dealer_turn so the backend runs dealer (reveal hole card, draw to 17+, resolve).
   private func callRunDealer() {
-    let functions = Functions.functions()
-    let params: [String: Any] = [
-      MultiplayerBlackjackKeys.FirebaseParams.tableCode: tableState.tableCode
-    ]
-    functions.httpsCallable("runDealer").call(params) { _, error in
-      DispatchQueue.main.async {
-        if let error = error {
-          let ns = error as NSError
-          print(
-            "⚠️ [MultiplayerBlackjack] runDealer failed: \(error.localizedDescription) (domain=\(ns.domain), code=\(ns.code))"
-          )
-        }
-      }
-    }
+    bettingManager.callRunDealer()
   }
 
-  /// Called when dealer blackjack is detected during player_actions phase.
-  /// Resolves all bets immediately and transitions game to between_hands.
   private func callResolveDealerBlackjack() {
-    let functions = Functions.functions()
-    let params: [String: Any] = [
-      MultiplayerBlackjackKeys.FirebaseParams.tableCode: tableState.tableCode
-    ]
-    functions.httpsCallable("resolveDealerBlackjack").call(params) { _, error in
-      DispatchQueue.main.async {
-        if let error = error {
-          let ns = error as NSError
-          print(
-            "⚠️ [MultiplayerBlackjack] resolveDealerBlackjack failed: \(error.localizedDescription) (domain=\(ns.domain), code=\(ns.code))"
-          )
-        }
-      }
-    }
+    bettingManager.callResolveDealerBlackjack()
   }
 
   private func callStartNextHand() {
-    let functions = Functions.functions()
-    let params: [String: Any] = [
-      MultiplayerBlackjackKeys.FirebaseParams.tableCode: tableState.tableCode,
-      MultiplayerBlackjackKeys.FirebaseParams.playerId: MultiplayerPlayerIdKey.value,
-    ]
-    functions.httpsCallable("startNextHand").call(params) { [weak self] _, error in
-      DispatchQueue.main.async {
-        guard let self = self else { return }
-        self.nextHandButton.isEnabled = true
-        if let error = error {
-          self.instructionLabel.showMessage("Next hand failed", shouldFade: true)
-          let ns = error as NSError
-          print(
-            "⚠️ [MultiplayerBlackjack] startNextHand failed: \(error.localizedDescription) (domain=\(ns.domain), code=\(ns.code))"
-          )
-        } else {
-          // clearAllCardsForNewHand will be triggered by applyGameStateSnapshot
-          // when Firebase confirms the phase has changed to betting.
-          print("💰 [MP-VC] startNextHand succeeded — waiting for phase→betting to clear cards")
-        }
-      }
-    }
+    bettingManager.callStartNextHand()
   }
 
   private func clearAllCardsForNewHand(isForcedReset: Bool = false, isBettingPhase: Bool = false) {
-    resetDealerCardQueue()
-
-    // Collect all cards that need to be discarded
-    let dealerCards = dealerHandView.currentCards
-    var playerHandsToDiscard: [(hand: CompactPlayerHandView, cards: [BlackjackHandView.Card])] = []
-    for (_, seatView) in seatViewsByIndex {
-      for hand in seatView.hands {
-        let cards = hand.handView.currentCards
-        if !cards.isEmpty {
-          playerHandsToDiscard.append((hand: hand, cards: cards))
-        }
-      }
-    }
-
-    // If no cards to discard, clear immediately
-    guard !dealerCards.isEmpty || !playerHandsToDiscard.isEmpty else {
-      performCardClearingCleanup(isForcedReset: isForcedReset, isBettingPhase: isBettingPhase)
-      return
-    }
-
-    // Animate cards off screen (similar to BlackjackGameplayViewController)
-    let topLeftPoint = CGPoint(x: 0, y: 0)
-    var completedDiscards = 0
-    let totalDiscards = (dealerCards.isEmpty ? 0 : 1) + playerHandsToDiscard.count
-
-    func checkCompletion() {
-      completedDiscards += 1
-      if completedDiscards >= totalDiscards {
-        // All cards discarded, now clear everything
-        performCardClearingCleanup(isForcedReset: isForcedReset, isBettingPhase: isBettingPhase)
-      }
-    }
-
-    // Discard dealer cards
-    if !dealerCards.isEmpty {
-      dealerHandView.discardCards(to: topLeftPoint, in: view) {
-        checkCompletion()
-      }
-    } else {
-      checkCompletion()
-    }
-
-    // Discard all player hands
-    for (hand, _) in playerHandsToDiscard {
-      hand.discardCards(to: topLeftPoint, in: view) {
-        checkCompletion()
-      }
-    }
-  }
-
-  private func performCardClearingCleanup(isForcedReset: Bool = false, isBettingPhase: Bool = false) {
-    resetDealerCardQueue()
-    dealerHandView.setCardsWithoutAnimation([])
-
-    // Collect seats that have split hands so we can animate their collapse
-    var seatsWithSplitHands: [(seatView: PlayerSeat, seatIndex: Int)] = []
-
-    for (seatIndex, seatView) in seatViewsByIndex {
-      for hand in seatView.hands {
-        hand.clearCards()
-      }
-
-      if seatView.hands.count > 1 {
-        seatsWithSplitHands.append((seatView: seatView, seatIndex: seatIndex))
-      } else {
-        // No split hands — just reset bet immediately
-        let primaryHand = seatView.primaryHand
-        // During forced reset, clear all bets including push bets
-        if isForcedReset {
-          primaryHand.betControl.betAmount = 0
-          pushBetsBySeatIndex.removeValue(forKey: seatIndex)
-          print("💰 [MP-VC] Forced reset: clearing bet for seat \(seatIndex)")
-        } else if let pushBet = pushBetsBySeatIndex[seatIndex], pushBet > 0 {
-          primaryHand.betControl.setBetAmount(pushBet, animated: true)
-          print("💰 [MP-VC] Restoring push bet \(pushBet) for seat \(seatIndex)")
-          if seatIndex == mySeatIndex {
-            syncHandsToFirebase(for: seatView)
-          }
-          pushBetsBySeatIndex.removeValue(forKey: seatIndex)
-        } else {
-          // Check if we're in betting phase and if there's a bet in Firebase
-          // This prevents clearing bets that were quickly placed before cards finished animating
-          let firebaseBet = currentSeatsData[seatIndex]?.hands.first?.bet ?? 0
-          
-          if isBettingPhase && firebaseBet > 0 {
-            // Preserve bet from Firebase instead of clearing it
-            primaryHand.betControl.setBetAmount(firebaseBet, animated: false)
-            print("💰 [MP-VC] Preserving Firebase bet \(firebaseBet) for seat \(seatIndex) during card clearing")
-          } else {
-            primaryHand.betControl.betAmount = 0
-          }
-        }
-      }
-    }
-
-    if seatsWithSplitHands.isEmpty {
-      finishCardClearingCleanup(isForcedReset: isForcedReset)
-    } else {
-      animateSplitHandCollapse(seats: seatsWithSplitHands, isForcedReset: isForcedReset, isBettingPhase: isBettingPhase) {
-        [weak self] in
-        self?.finishCardClearingCleanup(isForcedReset: isForcedReset)
-      }
-    }
-  }
-
-  /// Animate split hands fading/shrinking out, then collapse the seat back to single-hand width.
-  private func animateSplitHandCollapse(
-    seats: [(seatView: PlayerSeat, seatIndex: Int)],
-    isForcedReset: Bool = false,
-    isBettingPhase: Bool = false,
-    completion: @escaping () -> Void
-  ) {
-    // Step 1: Fade out and shrink additional hands
-    let additionalHands = seats.flatMap { $0.seatView.hands.dropFirst() }
-    UIView.animate(
-      withDuration: 0.25, delay: 0, options: .curveEaseIn,
-      animations: {
-        for hand in additionalHands {
-          hand.alpha = 0
-          hand.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-        }
-      }
-    ) { [weak self] _ in
-      guard let self = self else {
-        completion()
-        return
-      }
-
-      // Step 2: Remove them and animate the seat collapsing back
-      for (seatView, seatIndex) in seats {
-        seatView.removeAllAdditionalHands()
-
-        let primaryHand = seatView.primaryHand
-        // During forced reset, clear all bets including push bets
-        if isForcedReset {
-          primaryHand.betControl.betAmount = 0
-          self.pushBetsBySeatIndex.removeValue(forKey: seatIndex)
-          print("💰 [MP-VC] Forced reset: clearing bet for seat \(seatIndex)")
-        } else if let pushBet = self.pushBetsBySeatIndex[seatIndex], pushBet > 0 {
-          primaryHand.betControl.setBetAmount(pushBet, animated: true)
-          print("💰 [MP-VC] Restoring push bet \(pushBet) for seat \(seatIndex)")
-          if seatIndex == self.mySeatIndex {
-            self.syncHandsToFirebase(for: seatView)
-          }
-          self.pushBetsBySeatIndex.removeValue(forKey: seatIndex)
-        } else {
-          // Check if we're in betting phase and if there's a bet in Firebase
-          // This prevents clearing bets that were quickly placed before cards finished animating
-          let firebaseBet = self.currentSeatsData[seatIndex]?.hands.first?.bet ?? 0
-          
-          if isBettingPhase && firebaseBet > 0 {
-            // Preserve bet from Firebase instead of clearing it
-            primaryHand.betControl.setBetAmount(firebaseBet, animated: false)
-            print("💰 [MP-VC] Preserving Firebase bet \(firebaseBet) for seat \(seatIndex) during split hand collapse")
-          } else {
-            primaryHand.betControl.betAmount = 0
-          }
-        }
-      }
-
-      UIView.animate(
-        withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.5,
-        animations: {
-          for (seatView, _) in seats {
-            seatView.layoutIfNeeded()
-            seatView.superview?.layoutIfNeeded()
-          }
-        }
-      ) { _ in
-        completion()
-      }
-    }
-  }
-
-  private func finishCardClearingCleanup(isForcedReset: Bool = false) {
-    activeHandIndex = 0
-    previousHandsByIndex.removeAll()
-    previousBalanceByIndex.removeAll()
-    previousCardCountsBySeat.removeAll()
-    previousHasStoodBySeat.removeAll()
-    previousHandCountsBySeat.removeAll()
-    print(
-      "BAL_BUG [clearAllCards] unfreezing balance — current balance: \(balance), preBetSettlementBalance: \(preBetSettlementBalance)"
-    )
-    isBalanceFrozenForSettlement = false
-    preBetSettlementBalance = 0
-    lastGameSnapshot = nil
-    previousGameSnapshot = nil
-    isBetReconciliationRunning = false
-    optimisticCardsForMyHand.removeAll()
-    isActionInFlight = false
-    actionInFlightTimeoutWorkItem?.cancel()
-    actionInFlightTimeoutWorkItem = nil
-
-    // Reset insurance state
-    mpInsuranceControl.clearAllBets()
-    hideInsuranceControl(animated: false)
-    isInsurancePhaseActive = false
-    localInsuranceBetAmount = 0
-    previousInsuranceBySeat.removeAll()
-    pendingInsuranceSnapshot = nil
-    pendingInsuranceHoleCard = nil
-    pendingInsuranceUpCard = nil
-    tableState?.clearInsuranceForAllSeats()
-
-    // Reset bonus bet state and show the control for the new betting phase
-    mpBonusBetControl.clearAllBets()
-    localBonusBetAmount = 0
-    previousBonusBetsBySeat.removeAll()
-    isBonusBetResolutionAnimating = false
-    bonusBetResultsProcessed = false
-    tableState?.clearBonusBetsForAllSeats()
-    showBonusBetControl(animated: false)
-
-    // During forced reset, also clear push bets
-    if isForcedReset {
-      pushBetsBySeatIndex.removeAll()
-      print("💰 [MP-VC] Forced reset: cleared all push bets")
-    }
+    handResetManager.clearAllCardsForNewHand(isForcedReset: isForcedReset, isBettingPhase: isBettingPhase)
   }
 
   private func cardFromFirebase(_ dict: [String: Any]) -> BlackjackHandView.Card? {
@@ -3130,6 +2560,37 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
     return result
   }
 
+  private func shouldShowSeatReadyIndicators(for phase: String) -> Bool {
+    phase.isEmpty || phase == MultiplayerBlackjackKeys.Phases.betting
+  }
+
+  private func updateSeatReadyIndicators(for phase: String? = nil) {
+    let phaseToUse = phase ?? (lastGameSnapshot?.phase ?? "")
+    let shouldShow = shouldShowSeatReadyIndicators(for: phaseToUse)
+    for (seatIndex, seatView) in seatViewsByIndex {
+      let isReady = currentSeatsData[seatIndex]?.ready ?? false
+      seatView.showReadyCheckmark(shouldShow && isReady, animated: false)
+    }
+  }
+
+  private func applyReadyUpButtonAppearance(isReady: Bool) {
+    dealButton.tintColor = .white
+    if isReady {
+      dealButton.setTitle("", for: .normal)
+      let image = UIImage(systemName: "checkmark.circle.fill")
+      dealButton.setImage(image, for: .normal)
+      dealButton.backgroundColor = HardwayColors.surfaceGray.withAlphaComponent(0.3)
+    } else {
+      dealButton.setTitle("Ready Up", for: .normal)
+      dealButton.setImage(nil, for: .normal)
+      dealButton.backgroundColor = HardwayColors.surfaceGray
+    }
+    dealButton.semanticContentAttribute = .forceLeftToRight
+    dealButton.imageView?.contentMode = .scaleAspectFit
+    dealButton.contentHorizontalAlignment = .center
+    dealButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+  }
+
   /// Helper to update instruction label only when message changes
   private func updateInstructionLabelIfNeeded(_ message: String, shouldFade: Bool = false) {
     if lastInstructionMessage != message {
@@ -3160,6 +2621,7 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
     // Don't hide split button here - it will be shown/hidden based on conditions below
 
     if isInsurancePhaseActive {
+      updateSeatReadyIndicators(for: phase)
       continueButton.isHidden = false
       continueButton.alpha = 1
       view.bringSubviewToFront(continueButton)
@@ -3168,17 +2630,38 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
 
     if isBetting {
       hideSplitButton()
+      updateSeatReadyIndicators(for: phase)
       if isHost {
+        let notReadyCount = nonHostPlayersNotReady().count
         dealButton.isHidden = false
         dealButton.alpha = 1
+        dealButton.setTitle("Deal", for: .normal)
+        dealButton.setImage(nil, for: .normal)
+        dealButton.backgroundColor = HardwayColors.surfaceGray
         dealButton.isEnabled = !isDealInProgress
         view.bringSubviewToFront(dealButton)
-        updateInstructionLabelIfNeeded("Place your bet, then tap Deal", shouldFade: false)
+        if notReadyCount == 0 {
+          updateInstructionLabelIfNeeded("Place your bet, then tap Deal", shouldFade: false)
+        } else {
+          updateInstructionLabelIfNeeded(
+            "\(notReadyCount) player\(notReadyCount == 1 ? "" : "s") not ready — tap Deal to continue",
+            shouldFade: false)
+        }
       } else {
+        let amReady = currentSeatsData[mySeatIndex]?.ready ?? false
+        dealButton.isHidden = false
+        dealButton.alpha = 1
+        applyReadyUpButtonAppearance(isReady: amReady)
+        dealButton.isEnabled = !amReady
+        view.bringSubviewToFront(dealButton)
         updateInstructionLabelIfNeeded(
-          "Place your bet — waiting for host to deal", shouldFade: false)
+          amReady
+            ? "You are ready — waiting for host to deal"
+            : "Place your bet, then tap Ready Up",
+          shouldFade: false)
       }
     } else if phase == MultiplayerBlackjackKeys.Phases.playerActions {
+      updateSeatReadyIndicators(for: phase)
       let turn = snapshot.currentTurn
       let isMyTurn =
         (turn?.seatIndex == mySeatIndex) && !isActionInFlight
@@ -3309,9 +2792,11 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
         updateTurnIndicatorDot(for: turn?.seatIndex, handIndex: turn?.handIndex ?? 0)
       }
     } else if phase == MultiplayerBlackjackKeys.Phases.dealerTurn {
+      updateSeatReadyIndicators(for: phase)
       hideSplitButton()
       updateInstructionLabelIfNeeded("Dealer's turn", shouldFade: false)
     } else if isBetweenHands {
+      updateSeatReadyIndicators(for: phase)
       hideSplitButton()
       if isDealerCardAnimating || !dealerCardQueue.isEmpty {
         updateInstructionLabelIfNeeded("Dealer's turn", shouldFade: false)
@@ -3326,6 +2811,8 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
         updateInstructionLabelIfNeeded(
           "Hand over — waiting for host to start next hand", shouldFade: false)
       }
+    } else {
+      updateSeatReadyIndicators(for: phase)
     }
 
     // Hide turn indicator if not in player_actions phase OR if deal/blackjack payout animation is running
@@ -3494,6 +2981,10 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
         && prevPhase != MultiplayerBlackjackKeys.Phases.gameOver
       clearAllCardsForNewHand(isForcedReset: isForcedReset, isBettingPhase: true)
       showBonusBetControl(animated: true)
+
+      // Track hand completion (transitioning from end/betweenHands to betting = new hand starting)
+      sessionManager?.incrementHandCount()
+      sessionManager?.recordBalanceSnapshot()
     }
 
     // Scroll to user's hand when entering the betting phase
@@ -3535,10 +3026,8 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
         print("BAL_BUG [dealer_turn] freezing balance at \(balance) for settlement")
       }
 
-      dealerCardsRenderedCount = dealerHandView.currentCards.count
-      dealerHoleRevealed = false
-      isDealerCardAnimating = false
-      dealerCardQueue.removeAll()
+      dealerCardQueueManager.reset()
+      dealerCardQueueManager.setDealerCardsRenderedCount(dealerHandView.currentCards.count)
       // When coming directly from betting (all blackjacks), wait for deal + payout animation
       let fromBetting = (previous?.phase ?? "") == MultiplayerBlackjackKeys.Phases.betting
       let delayBeforeDealer: TimeInterval = fromBetting ? 5.0 : 0.3
@@ -3618,7 +3107,7 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
           guard let self = self else { return }
           let computed = self.computeHandResultsFromSeats(snapshot: snapshot)
           if !computed.isEmpty {
-            self.reconcileBetsWithResults(computed)
+            self.chipAnimator.reconcileBetsWithResults(computed)
           }
         }
       }
@@ -3694,372 +3183,11 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   private func runInitialDealAnimation(
     snapshot: MPBlackjackTableState.GameStateSnapshot, deckCenter: CGPoint
   ) {
-    isDealAnimationRunning = true
-    hideTurnIndicatorDot()
-    cardApplyGeneration += 1
-    updateInstructionLabelIfNeeded("Dealing cards...", shouldFade: false)
-
-    // Ensure bonus bet control remains visible during dealing (will be hidden after resolution)
-    if mpBonusBetControl.isHidden && mpBonusBetControl.chipCount > 0 {
-      showBonusBetControl(animated: false)
-    }
-
-    // Clear placeholder cards so real cards can be dealt in their place
-    let playerHands = getPlayerHandsFromSeats()
-    for (seatIndex, hands) in playerHands {
-      guard let seatView = seatViewsByIndex[seatIndex] else { continue }
-      for (handIndex, _) in hands.enumerated() {
-        let handView =
-          handIndex == 0
-          ? seatView.primaryHand
-          : (seatView.hands.count > handIndex ? seatView.hands[handIndex] : nil)
-        handView?.handView.clearCards()
-        // clearCards() already clears faceDownCardIndices, so cards will be face up when dealt
-      }
-    }
-    dealerHandView.setCardsWithoutAnimation([])
-
-    // Force layout so each hand's cardContainer has a valid frame before we animate
-    view.setNeedsLayout()
-    view.layoutIfNeeded()
-
-    // Scroll the first seat into view if needed so its hand has a valid frame
-    if let firstSeatIndex = playerHands.keys.sorted().first,
-      let firstSeatView = seatViewsByIndex[firstSeatIndex]
-    {
-      let seatRect = firstSeatView.convert(firstSeatView.bounds, to: seatsScrollView)
-      seatsScrollView.scrollRectToVisible(seatRect, animated: false)
-    }
-
-    // One more layout pass after scrolling to ensure cardContainer frames are correct
-    view.layoutIfNeeded()
-
-    // Small delay to ensure layout is fully complete before starting animations
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-      guard let self = self else { return }
-      self.startDealAnimationSteps(snapshot: snapshot)
-    }
-  }
-
-  private func startDealAnimationSteps(snapshot: MPBlackjackTableState.GameStateSnapshot) {
-    let playerHands = getPlayerHandsFromSeats()
-    let seatIndices = playerHands.keys.sorted()
-
-    // Scroll to user's seat at the start of dealing so they can see their cards
-    if playerHands.keys.contains(mySeatIndex) {
-      scrollToSeat(mySeatIndex, animated: true)
-    }
-
-    // Extract cards in deal order: each player first card, dealer first, each player second card, dealer second
-    var playerFirstCards:
-      [(card: BlackjackHandView.Card, hand: CompactPlayerHandView, seatIndex: Int)] = []
-    var playerSecondCards:
-      [(card: BlackjackHandView.Card, hand: CompactPlayerHandView, seatIndex: Int)] = []
-
-    for seatIndex in seatIndices {
-      guard let hands = playerHands[seatIndex], !hands.isEmpty,
-        let cardsRaw = hands[0][MultiplayerBlackjackKeys.HandData.cards] as? [[String: Any]],
-        let seatView = seatViewsByIndex[seatIndex]
-      else {
-        print("⚠️ [MultiplayerBlackjack] Skipping seat \(seatIndex) - no hands or seatView")
-        continue
-      }
-      let hand = seatView.primaryHand
-      if cardsRaw.count >= 1, let card = cardFromFirebase(cardsRaw[0]) {
-        playerFirstCards.append((card, hand, seatIndex))
-      }
-      if cardsRaw.count >= 2, let card = cardFromFirebase(cardsRaw[1]) {
-        playerSecondCards.append((card, hand, seatIndex))
-      }
-    }
-
-    let dealerCard1: BlackjackHandView.Card? = snapshot.dealerCards.first.flatMap {
-      cardFromFirebase($0)
-    }
-    let dealerCard2: BlackjackHandView.Card? =
-      (snapshot.dealerCards.count >= 2) ? cardFromFirebase(snapshot.dealerCards[1]) : nil
-
-    // Deal player's first cards (recalculate deck center for each card like single-player)
-    for (idx, step) in playerFirstCards.enumerated() {
-      let delay = Double(idx) * 0.3
-      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-        guard let self = self else { return }
-        // Scroll to user's seat right before their first card is dealt
-        if step.seatIndex == self.mySeatIndex {
-          self.scrollToSeat(self.mySeatIndex, animated: true)
-        }
-        let deckCenter = self.view.convert(self.deckView.deckCenter, from: self.deckView)
-        step.hand.dealCard(step.card, from: deckCenter, in: self.view)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-          // Ensure card is face up (reveal if it was dealt face down)
-          let cardCount = step.hand.currentCards.count
-          if cardCount > 0 {
-            step.hand.revealCard(at: cardCount - 1, animated: false)
-          }
-          if step.hand.currentCards.isEmpty {
-            print("❌ [MultiplayerBlackjack] Card not set after deal animation, setting directly")
-            step.hand.setCardsWithoutAnimation([step.card])
-          }
-        }
-      }
-    }
-
-    // Deal dealer's first card (face down) after all player first cards
-    if let card = dealerCard1 {
-      let delay = Double(playerFirstCards.count) * 0.3
-      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-        guard let self = self else { return }
-        let deckCenter = self.view.convert(self.deckView.deckCenter, from: self.deckView)
-        self.dealerHandView.dealCardFaceDown(card, from: deckCenter, in: self.view)
-      }
-    }
-
-    // Deal player's second cards
-    for (idx, step) in playerSecondCards.enumerated() {
-      let delay = Double(playerFirstCards.count + 1 + idx) * 0.3
-      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-        guard let self = self else { return }
-        // Scroll to user's seat right before their second card is dealt
-        if step.seatIndex == self.mySeatIndex {
-          self.scrollToSeat(self.mySeatIndex, animated: true)
-        }
-        print(
-          "🎴 [MultiplayerBlackjack] Dealing second card to seat \(step.seatIndex) at delay \(delay)"
-        )
-        let deckCenter = self.view.convert(self.deckView.deckCenter, from: self.deckView)
-        print(
-          "🎴 [MultiplayerBlackjack] Hand before deal: \(step.hand.currentCards.count) cards, card: \(step.card.rank) \(step.card.suit)"
-        )
-        step.hand.dealCard(step.card, from: deckCenter, in: self.view)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-          print(
-            "🎴 [MultiplayerBlackjack] Hand after deal animation: \(step.hand.currentCards.count) cards"
-          )
-          // Ensure card is face up (reveal if it was dealt face down)
-          let cardCount = step.hand.currentCards.count
-          if cardCount > 0 {
-            step.hand.revealCard(at: cardCount - 1, animated: false)
-          }
-          if step.hand.currentCards.count < 2 {
-            // Fallback: if second card wasn't set, get all cards from Firebase and set directly
-            let playerHands = self.getPlayerHandsFromSeats()
-            if let hands = playerHands[step.seatIndex], !hands.isEmpty,
-              let cardsRaw = hands[0][MultiplayerBlackjackKeys.HandData.cards] as? [[String: Any]]
-            {
-              let allCards = cardsRaw.compactMap { self.cardFromFirebase($0) }
-              step.hand.setCardsWithoutAnimation(allCards)
-              // Reveal all cards to ensure they're face up
-              for i in 0..<allCards.count {
-                step.hand.revealCard(at: i, animated: false)
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Deal dealer's second card (face up) after all player second cards
-    let lastCardDelay: Double
-    if let card = dealerCard2 {
-      lastCardDelay = Double(playerFirstCards.count + 1 + playerSecondCards.count) * 0.3
-      DispatchQueue.main.asyncAfter(deadline: .now() + lastCardDelay) { [weak self] in
-        guard let self = self else { return }
-        let deckCenter = self.view.convert(self.deckView.deckCenter, from: self.deckView)
-        self.dealerHandView.dealCard(card, from: deckCenter, in: self.view)
-      }
-    } else {
-      lastCardDelay = Double(playerFirstCards.count + 1 + playerSecondCards.count - 1) * 0.3
-    }
-
-    // After all cards are dealt, check for dealer blackjack, then detect player blackjacks and show turn UI
-    let completionDelay = lastCardDelay + 0.5
-    DispatchQueue.main.asyncAfter(deadline: .now() + completionDelay) { [weak self] in
-      guard let self = self else { return }
-      self.isDealAnimationRunning = false
-      self.isDealInProgress = false
-      self.dealButton.isEnabled = true
-      guard let snapshot = self.lastGameSnapshot else { return }
-
-      // Seed tracking BEFORE applying cards so that stood-transition detection works
-      // correctly. Every hand starts the deal as not-stood with 2 cards; if the server
-      // has already auto-resolved a blackjack by the time the deal animation finishes,
-      // applyCardsWithoutDealAnimation will see the stood transition and trigger payout.
-      let dealtHands = self.getPlayerHandsFromSeats()
-      for (seatIdx, hands) in dealtHands {
-        for (handIdx, handDict) in hands.enumerated() {
-          let cards = (handDict[MultiplayerBlackjackKeys.HandData.cards] as? [[String: Any]] ?? [])
-          let trackingKey = seatIdx * 10 + handIdx
-          self.previousCardCountsBySeat[trackingKey] = cards.count
-          // Always seed as not-stood so we detect the stood transition
-          self.previousHasStoodBySeat[trackingKey] = false
-        }
-      }
-
-      // Re-apply the latest snapshot's cards now that the animation is done.
-      // Snapshots that arrived during the deal animation were skipped to prevent
-      // duplicate cards; this catches up on any card changes (e.g. a fast player
-      // who acted while the deal animation was still running).
-      let deckCenter = self.view.convert(self.deckView.deckCenter, from: self.deckView)
-      self.applyCardsWithoutDealAnimation(snapshot: snapshot, deckCenter: deckCenter)
-
-      // Server already resolved dealer blackjack — animate the reveal without calling Cloud Function
-      if snapshot.dealerHasBlackjack {
-        self.animateServerResolvedDealerBlackjack(snapshot: snapshot)
-        return
-      }
-
-      let dealerCards = self.dealerHandView.currentCards
-      if dealerCards.count >= 2 {
-        let holeCard = dealerCards[0]
-        let upCard = dealerCards[1]
-        if upCard.rank == .ace {
-          self.resolvePairBonusBetsAfterDealIfNeeded(snapshot: snapshot) { [weak self] in
-            guard let self = self else { return }
-            self.startInsurancePhase(snapshot: snapshot, holeCard: holeCard, upCard: upCard)
-          }
-          return
-        }
-        if self.isTenValueRank(upCard.rank) {
-          self.peekForDealerBlackjack(
-            holeCard: holeCard,
-            upCard: upCard,
-            snapshot: snapshot
-          ) { [weak self] in
-            guard let self = self else { return }
-            // Blackjacks are now resolved when it's the player's turn, not immediately after dealing
-            self.runShowTurnUIAfterDeal(bjAnimDuration: 0)
-          }
-          return
-        }
-      }
-
-      // Normal flow (no peek-eligible upcard)
-      // Blackjacks are now resolved when it's the player's turn, not immediately after dealing
-      self.runShowTurnUIAfterDeal(bjAnimDuration: 0)
-    }
+    dealAnimationController.runInitialDealAnimation(snapshot: snapshot, deckCenter: deckCenter)
   }
 
   private func runShowTurnUIAfterDeal(bjAnimDuration: TimeInterval) {
-    let showTurnUI = { [weak self] in
-      guard let self = self else { return }
-      guard let snapshot = self.lastGameSnapshot else { return }
-      let phase = snapshot.phase ?? ""
-      let turn = snapshot.currentTurn
-      let isMyTurn = (turn?.seatIndex == self.mySeatIndex)
-
-      // After deal animation completes, check if current player has blackjack
-      // This ensures we wait for deal animation before calling stand (normal cadence)
-      if phase == MultiplayerBlackjackKeys.Phases.playerActions,
-        let turn = turn,
-        turn.seatIndex == self.mySeatIndex,
-        !self.isActionInFlight,
-        !self.isBlackjackPayoutAnimating
-      {
-        let myHandsData = self.currentSeatsData[self.mySeatIndex]?.hands ?? []
-        let myHandData =
-          turn.handIndex < myHandsData.count ? myHandsData[turn.handIndex] : myHandsData.first
-        if let handData = myHandData,
-          handData.cards.count == 2
-        {
-          let cards = handData.cards.compactMap { self.cardFromFirebase($0) }
-          if cards.count == 2 && self.blackjackTotal(cards) == 21 {
-            // Deal animation is done, player has blackjack - wait a moment for normal cadence, then call stand
-            // The payout will happen when the hand becomes stood (normal flow)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-              guard let self = self else { return }
-              // Double-check it's still our turn and we still have blackjack
-              if let currentSnapshot = self.lastGameSnapshot,
-                let currentTurn = currentSnapshot.currentTurn,
-                currentTurn.seatIndex == self.mySeatIndex,
-                currentTurn.handIndex == turn.handIndex,
-                !self.isActionInFlight,
-                !self.isBlackjackPayoutAnimating
-              {
-                self.callPlayerAction(MultiplayerBlackjackKeys.Actions.stand)
-              }
-            }
-          }
-        }
-      }
-
-      if phase == MultiplayerBlackjackKeys.Phases.playerActions {
-        let turnMessage: String
-        if isMyTurn {
-          turnMessage = "Tap your hand to Hit"
-        } else if let si = turn?.seatIndex, let name = self.currentSeatsData[si]?.displayLabel {
-          turnMessage = "\(name)'s turn"
-        } else {
-          turnMessage = "Waiting for other players"
-        }
-        self.updateInstructionLabelIfNeeded(turnMessage, shouldFade: false)
-        if let seatIndex = turn?.seatIndex {
-          let handIndex = turn?.handIndex ?? 0
-          self.scrollToSeatHand(seatIndex, handIndex: handIndex, animated: true)
-        }
-        self.updateTurnIndicatorDot(for: turn?.seatIndex, handIndex: turn?.handIndex ?? 0)
-        self.refreshButtonVisibility(for: snapshot)
-      } else if phase == MultiplayerBlackjackKeys.Phases.dealerTurn {
-        self.refreshButtonVisibility(for: snapshot)
-      } else if phase == MultiplayerBlackjackKeys.Phases.betweenHands {
-        self.refreshButtonVisibility(for: snapshot)
-      }
-    }
-
-    // Animate pair-based bonus bet results before showing turn UI
-    let afterBjDelay = max(bjAnimDuration, 0)
-    let runAfterBonusBets = { [weak self] in
-      guard let self = self else { return }
-      guard let snapshot = self.lastGameSnapshot else {
-        showTurnUI()
-        return
-      }
-
-      // Check if anyone placed a bonus bet - if not, hide the control
-      let totalBonusBets = self.currentSeatsData.values.reduce(0) { total, seatData in
-        total + (seatData.bonusBets[0] ?? 0)
-      }
-      if totalBonusBets == 0 {
-        self.hideBonusBetControl(animated: true)
-      }
-
-      if !snapshot.bonusBetResults.isEmpty && !self.bonusBetResultsProcessed {
-        self.bonusBetResultsProcessed = true
-        self.animateBonusBetResults(snapshot.bonusBetResults, isDealerOutcome: false) {
-          showTurnUI()
-        }
-      } else {
-        showTurnUI()
-      }
-    }
-
-    if afterBjDelay > 0 {
-      DispatchQueue.main.asyncAfter(deadline: .now() + afterBjDelay, execute: runAfterBonusBets)
-    } else {
-      runAfterBonusBets()
-    }
-  }
-
-  /// Resolve pair-based bonus bets after initial deal before progressing to insurance/turn UI.
-  private func resolvePairBonusBetsAfterDealIfNeeded(
-    snapshot: MPBlackjackTableState.GameStateSnapshot,
-    completion: @escaping () -> Void
-  ) {
-    // Check if anyone placed a bonus bet - if not, hide the control
-    let totalBonusBets = currentSeatsData.values.reduce(0) { total, seatData in
-      total + (seatData.bonusBets[0] ?? 0)
-    }
-    if totalBonusBets == 0 {
-      hideBonusBetControl(animated: true)
-    }
-
-    if !snapshot.bonusBetResults.isEmpty && !bonusBetResultsProcessed {
-      bonusBetResultsProcessed = true
-      animateBonusBetResults(snapshot.bonusBetResults, isDealerOutcome: false) {
-        completion()
-      }
-    } else {
-      completion()
-    }
+    dealAnimationController.runShowTurnUIAfterDeal(bjAnimDuration: bjAnimDuration)
   }
 
   /// Animate dealer blackjack that was already resolved server-side in startDeal.
@@ -4068,609 +3196,54 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   private func animateServerResolvedDealerBlackjack(
     snapshot: MPBlackjackTableState.GameStateSnapshot
   ) {
-    dealerHandView.revealHoleCard(animated: true)
-    updateInstructionLabelIfNeeded("Dealer Blackjack!", shouldFade: false)
-    dealerCardsRenderedCount = dealerHandView.currentCards.count
-
-    // Check if anyone placed a bonus bet - if not, hide the control
-    let totalBonusBets = currentSeatsData.values.reduce(0) { total, seatData in
-      total + (seatData.bonusBets[0] ?? 0)
-    }
-    if totalBonusBets == 0 {
-      hideBonusBetControl(animated: true)
-    }
-
-    if !isBalanceFrozenForSettlement {
-      isBalanceFrozenForSettlement = true
-      preBetSettlementBalance = balance
-    }
-
-    var animationDelay: TimeInterval = 0.6
-    let topLeft = CGPoint(x: 0, y: 0)
-    var maxDelay: TimeInterval = 0.6
-
-    for (seatIndex, seatData) in currentSeatsData {
-      guard let hand = seatData.hands.first, hand.bet > 0 else { continue }
-      guard let seatView = seatViewsByIndex[seatIndex] else { continue }
-      let cards = hand.cards.compactMap { cardFromFirebase($0) }
-      let playerIsBlackjack = cards.count == 2 && blackjackTotal(cards) == 21
-      if playerIsBlackjack {
-        seatView.primaryHand.broadcastAction("Blackjack!")
-      }
-      let bet = hand.bet
-      let result: MPBlackjackTableState.HandResult =
-        playerIsBlackjack
-        ? MPBlackjackTableState.HandResult(outcome: "push", payout: bet, bet: bet)
-        : MPBlackjackTableState.HandResult(outcome: "lose", payout: 0, bet: bet)
-
-      bustAnimatedSeatIndices.insert(seatIndex)
-      let isLocal = (seatIndex == mySeatIndex)
-      let delay = animationDelay
-
-      if result.isPush {
-        pushBetsBySeatIndex[seatIndex] = result.bet
-        // Broadcast "Push" message to the table
-        seatView.primaryHand.broadcastAction("Push")
-        if isLocal {
-          animateLocalPlayerPush(seat: seatView, result: result, delay: delay)
-        }
-      } else {
-        if isLocal {
-          animateLocalPlayerLoss(seat: seatView, result: result, delay: delay)
-          DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.3) { [weak self] in
-            self?.showBetResult(amount: result.bet, isWin: false)
-          }
-        } else {
-          animateRemotePlayerLoss(seat: seatView, result: result, delay: delay)
-        }
-      }
-
-      let discardDelay = delay + 1.2
-      DispatchQueue.main.asyncAfter(deadline: .now() + discardDelay) { [weak self] in
-        guard let self = self else { return }
-        seatView.primaryHand.discardCards(to: topLeft, in: self.view) {}
-      }
-      maxDelay = max(maxDelay, discardDelay + 0.5)
-      animationDelay += 0.15
-    }
-
-    // After all animations, show the between_hands UI and auto-advance if host
-    DispatchQueue.main.asyncAfter(deadline: .now() + maxDelay) { [weak self] in
-      guard let self = self else { return }
-      guard let snapshot = self.lastGameSnapshot else { return }
-      self.refreshButtonVisibility(for: snapshot)
-      self.scrollToSeat(self.mySeatIndex, animated: true)
-      if self.isHost {
-        self.callStartNextHand()
-      }
-    }
+    insuranceManager.animateServerResolvedDealerBlackjack(snapshot: snapshot)
   }
 
-  /// When dealer's upcard is a 10-value card or Ace, check the hole card for a complementary blackjack card.
-  /// If dealer has blackjack: reveal hole card, resolve all bets (losses/pushes), discard hands.
-  /// If not: play spread animation then continue with normal post-deal flow.
   private func peekForDealerBlackjack(
     holeCard: BlackjackHandView.Card,
     upCard: BlackjackHandView.Card,
     snapshot: MPBlackjackTableState.GameStateSnapshot,
-    continueWithNormalFlow: @escaping () -> Void
-  ) {
-    let hasDealerBlackjack = blackjackTotal([holeCard, upCard]) == 21
-
-    if hasDealerBlackjack {
-      dealerHandView.revealHoleCard(animated: true)
-
-      // Pay insurance (2:1) for the local player if they took insurance
-      let localSeatData = currentSeatsData[mySeatIndex]
-      let insuranceBet = max(localInsuranceBetAmount, localSeatData?.insuranceBet ?? 0)
-      let anyInsuranceBets = mpInsuranceControl.chipCount > 0 || insuranceBet > 0
-
-      if insuranceBet > 0 {
-        let insuranceWin = insuranceBet * 2
-        balance += insuranceWin
-        tableState.updateBalance(playerId: MultiplayerPlayerIdKey.value, balance: balance)
-      }
-      localInsuranceBetAmount = 0
-
-      // Sync rendered count so the observer doesn't re-deal existing cards
-      dealerCardsRenderedCount = dealerHandView.currentCards.count
-      callResolveDealerBlackjack()
-
-      if !isBalanceFrozenForSettlement {
-        isBalanceFrozenForSettlement = true
-        preBetSettlementBalance = balance
-      }
-
-      // Capture which seats have insurance bets before async work changes state
-      var styleToSeat: [MPSmallBetChipStyle: Int] = [:]
-      for (seatIndex, seatData) in currentSeatsData {
-        if seatData.insuranceBet > 0 {
-          styleToSeat[chipStyleForColorName(seatData.chipColorName)] = seatIndex
-        }
-      }
-
-      // Mark all seats as already-animated NOW so the observer-driven reconcileBets
-      // (which fires when between_hands arrives) skips them instead of double-animating.
-      for (seatIndex, seatData) in currentSeatsData {
-        guard seatData.hands.first?.bet ?? 0 > 0 else { continue }
-        bustAnimatedSeatIndices.insert(seatIndex)
-      }
-
-      // --- Phase 1: Insurance payout (visible to all players) ---
-      let insuranceDisplayDuration: TimeInterval
-      if anyInsuranceBets {
-        mpInsuranceControl.updateTitle("Insurance Pays!")
-        updateInstructionLabelIfNeeded("Dealer Blackjack! Insurance pays 2:1", shouldFade: false)
-        mpInsuranceControl.playWinAnimation()
-        if insuranceBet > 0 {
-          showBetResult(amount: insuranceBet * 2, isWin: true, description: "INSURANCE")
-        }
-        insuranceDisplayDuration = 2.0
-      } else {
-        updateInstructionLabelIfNeeded("Dealer Blackjack!", shouldFade: false)
-        insuranceDisplayDuration = 0.8
-      }
-
-      // --- Phase 2: Animate dots from chips to player balances, then hide control ---
-      DispatchQueue.main.asyncAfter(deadline: .now() + insuranceDisplayDuration) { [weak self] in
-        guard let self = self else { return }
-
-        self.animateInsurancePayoutDots(styleToSeat: styleToSeat) { [weak self] in
-          guard let self = self else { return }
-          self.mpInsuranceControl.animateChipsAway { [weak self] in
-            self?.hideInsuranceControl(animated: true)
-          }
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.resolveMainBetsAfterDealerBlackjack()
-          }
-        }
-      }
-    } else {
-      // No dealer blackjack — play spread animation first, then handle insurance loss
-      dealerHandView.playSpreadAnimation()
-
-      if localInsuranceBetAmount > 0 || mpInsuranceControl.chipCount > 0 {
-        instructionLabel.showMessage("No dealer blackjack. Insurance lost.", shouldFade: true)
-        localInsuranceBetAmount = 0
-        // Wait for spread to be visible, then animate chips away
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-          self?.mpInsuranceControl.animateChipsAway {
-            self?.hideInsuranceControl(animated: true)
-          }
-        }
-      } else {
-        hideInsuranceControl(animated: true)
-      }
-
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-        continueWithNormalFlow()
-      }
-    }
-  }
-
-  /// Resolve main bets (losses / pushes / discards) after dealer blackjack.
-  /// Called AFTER the insurance payout has been displayed and the control is hiding.
-  private func resolveMainBetsAfterDealerBlackjack() {
-    var animationDelay: TimeInterval = 0.3
-    let topLeft = CGPoint(x: 0, y: 0)
-
-    for (seatIndex, seatData) in currentSeatsData {
-      guard let hand = seatData.hands.first, hand.bet > 0 else { continue }
-      guard let seatView = seatViewsByIndex[seatIndex] else { continue }
-      let cards = hand.cards.compactMap { cardFromFirebase($0) }
-      let playerIsBlackjack = cards.count == 2 && blackjackTotal(cards) == 21
-      if playerIsBlackjack {
-        seatView.primaryHand.broadcastAction("Blackjack!")
-      }
-      let bet = hand.bet
-      let result: MPBlackjackTableState.HandResult =
-        playerIsBlackjack
-        ? MPBlackjackTableState.HandResult(outcome: "push", payout: bet, bet: bet)
-        : MPBlackjackTableState.HandResult(outcome: "lose", payout: 0, bet: bet)
-
-      bustAnimatedSeatIndices.insert(seatIndex)
-      let isLocal = (seatIndex == mySeatIndex)
-      let delay = animationDelay
-
-      if result.isPush {
-        pushBetsBySeatIndex[seatIndex] = result.bet
-        // Broadcast "Push" message to the table
-        seatView.primaryHand.broadcastAction("Push")
-        if isLocal {
-          animateLocalPlayerPush(seat: seatView, result: result, delay: delay)
-        }
-      } else {
-        if isLocal {
-          animateLocalPlayerLoss(seat: seatView, result: result, delay: delay)
-          DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.3) { [weak self] in
-            self?.showBetResult(amount: result.bet, isWin: false)
-          }
-        } else {
-          animateRemotePlayerLoss(seat: seatView, result: result, delay: delay)
-        }
-      }
-
-      let discardDelay = delay + 1.2
-      DispatchQueue.main.asyncAfter(deadline: .now() + discardDelay) { [weak self] in
-        guard let self = self else { return }
-        seatView.primaryHand.discardCards(to: topLeft, in: self.view) {}
-      }
-      animationDelay += 0.15
-    }
-  }
-
-  /// Animate colored dots from each insurance chip on the control down to the
-  /// corresponding player's balance area, then call completion.
-  private func animateInsurancePayoutDots(
-    styleToSeat: [MPSmallBetChipStyle: Int],
     completion: @escaping () -> Void
   ) {
-    let chipPositions = mpInsuranceControl.chipPositions(in: view)
-    guard !chipPositions.isEmpty else {
-      completion()
-      return
-    }
-
-    var longestFlight: TimeInterval = 0
-
-    for entry in chipPositions {
-      guard let seatIndex = styleToSeat[entry.style] else { continue }
-      let dotColor = entry.style.strokeColor
-      let isLocal = (seatIndex == mySeatIndex)
-
-      let destination: CGPoint
-      if isLocal {
-        destination = balanceView.convert(
-          CGPoint(x: balanceView.bounds.maxX - 30, y: balanceView.bounds.midY),
-          to: view
-        )
-      } else if let seat = seatViewsByIndex[seatIndex],
-        let balView = seat.subviews.compactMap({ $0 as? MPPlayerBalanceView }).first
-      {
-        destination = seat.convert(
-          CGPoint(x: balView.frame.midX, y: balView.frame.midY),
-          to: view
-        )
-      } else {
-        continue
-      }
-
-      let dot = createRemoteDot(color: dotColor)
-      dot.center = entry.center
-      dot.transform = CGAffineTransform(scaleX: 1.4, y: 1.4)
-      view.addSubview(dot)
-
-      let flightDuration: TimeInterval = 0.4
-      let fly = UIViewPropertyAnimator(
-        duration: flightDuration,
-        controlPoint1: CGPoint(x: 0.85, y: 0),
-        controlPoint2: CGPoint(x: 0.15, y: 1)
-      ) {
-        dot.center = destination
-        dot.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
-      }
-      fly.addCompletion { _ in
-        dot.removeFromSuperview()
-      }
-      fly.startAnimation()
-      longestFlight = max(longestFlight, flightDuration)
-    }
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + longestFlight + 0.1) {
-      completion()
-    }
+    insuranceManager.peekForDealerBlackjack(
+      holeCard: holeCard, upCard: upCard, snapshot: snapshot,
+      continueWithNormalFlow: completion)
   }
 
-  // MARK: - Insurance Phase
+  // MARK: - Insurance Phase (delegated to insuranceManager)
 
   private func startInsurancePhase(
     snapshot: MPBlackjackTableState.GameStateSnapshot,
     holeCard: BlackjackHandView.Card,
     upCard: BlackjackHandView.Card
   ) {
-    isInsurancePhaseActive = true
-    // Reset button color when insurance phase becomes active
-    continueButton.setTitleColor(.white, for: .normal)
-    localInsuranceBetAmount = 0
-    previousInsuranceBySeat.removeAll()
-    pendingInsuranceSnapshot = snapshot
-    pendingInsuranceHoleCard = holeCard
-    pendingInsuranceUpCard = upCard
-
-    // Check if anyone placed a bonus bet - if not, hide the control
     let totalBonusBets = currentSeatsData.values.reduce(0) { total, seatData in
       total + (seatData.bonusBets[0] ?? 0)
     }
     if totalBonusBets == 0 {
       hideBonusBetControl(animated: true)
     }
-
-    mpInsuranceControl.onTapped = { [weak self] in
-      self?.handleInsuranceControlTapped()
-    }
-
-    mpInsuranceControl.isHidden = false
-    mpInsuranceControl.alpha = 0
-    UIView.animate(withDuration: 0.3) {
-      self.mpInsuranceControl.alpha = 1
-      self.view.layoutIfNeeded()
-    }
-
-    updateInsuranceStatusLabel()
-    refreshButtonVisibility(for: snapshot)
-    updateInstructionLabelIfNeeded("Insurance? Tap the shield, or Continue", shouldFade: false)
-  }
-
-  private func handleInsuranceControlTapped() {
-    guard isInsurancePhaseActive else { return }
-
-    if localInsuranceBetAmount > 0 {
-      let refund = localInsuranceBetAmount
-      balance += refund
-      localInsuranceBetAmount = 0
-      let myStyle = chipStyleForColorName(myChipColorName)
-      mpInsuranceControl.removeInsuranceBet(for: myStyle)
-      previousInsuranceBySeat[mySeatIndex] = 0
-      tableState.placeInsuranceBet(seatIndex: mySeatIndex, amount: 0)
-      tableState.updateBalance(playerId: MultiplayerPlayerIdKey.value, balance: balance)
-      updateInsuranceStatusLabel()
-      return
-    }
-
-    let mainBet = defaultSeat.primaryHand.betControl.betAmount
-    let insuranceAmount = mainBet / 2
-    guard insuranceAmount > 0, balance >= insuranceAmount else {
-      HapticsHelper.lightHaptic()
-      return
-    }
-
-    balance -= insuranceAmount
-    localInsuranceBetAmount = insuranceAmount
-    let myStyle = chipStyleForColorName(myChipColorName)
-    mpInsuranceControl.addInsuranceBet(amount: insuranceAmount, chipStyle: myStyle)
-    previousInsuranceBySeat[mySeatIndex] = insuranceAmount
-    tableState.placeInsuranceBet(seatIndex: mySeatIndex, amount: insuranceAmount)
-    tableState.updateBalance(playerId: MultiplayerPlayerIdKey.value, balance: balance)
-    updateInsuranceStatusLabel()
+    insuranceManager.startInsurancePhase(snapshot: snapshot, holeCard: holeCard, upCard: upCard)
   }
 
   @objc private func continueButtonTapped() {
-    guard isInsurancePhaseActive else { return }
-    HapticsHelper.lightHaptic()
-
-    if localInsuranceBetAmount > 0 {
-      tableState.placeInsuranceBet(seatIndex: mySeatIndex, amount: localInsuranceBetAmount)
-    } else {
-      tableState.declineInsurance(seatIndex: mySeatIndex)
-    }
-
-    // Change button color to systemBlue to show selection state
-    UIView.animate(withDuration: 0.2) {
-      self.continueButton.setTitleColor(.systemBlue, for: .normal)
-    }
-
-    updateInsuranceStatusLabel()
-    checkIfAllPlayersDecidedInsurance()
+    insuranceManager.handleContinueButtonTapped()
   }
 
-  /// Check if every occupied seat has decided on insurance. If so, resolve after a brief pause.
   private func checkIfAllPlayersDecidedInsurance() {
-    guard isInsurancePhaseActive else { return }
-
-    let allDecided = currentSeatsData.allSatisfy { $0.value.insuranceDecided }
-    guard allDecided else { return }
-
-    // Brief pause so the last decision is visible before the reveal
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-      self?.resolveInsurancePhase()
-    }
-  }
-
-  private func resolveInsurancePhase() {
-    guard isInsurancePhaseActive else { return }
-    guard let snapshot = pendingInsuranceSnapshot,
-      let holeCard = pendingInsuranceHoleCard,
-      let upCard = pendingInsuranceUpCard
-    else { return }
-
-    isInsurancePhaseActive = false
-
-    // Reset button color when insurance phase resolves
-    continueButton.setTitleColor(.white, for: .normal)
-    continueButton.isHidden = true
-    continueButton.alpha = 0
-
-    // Peek first (reveal / spread), THEN hide the insurance control afterward
-    peekForDealerBlackjack(
-      holeCard: holeCard,
-      upCard: upCard,
-      snapshot: snapshot
-    ) { [weak self] in
-      guard let self = self else { return }
-      // Delay hiding the insurance control so the reveal/spread is visible first
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-        guard let self = self else { return }
-        self.hideInsuranceControl(animated: true)
-        // Blackjacks are now resolved when it's the player's turn, not immediately after dealing
-        self.runShowTurnUIAfterDeal(bjAnimDuration: 0)
-      }
-    }
-
-    pendingInsuranceSnapshot = nil
-    pendingInsuranceHoleCard = nil
-    pendingInsuranceUpCard = nil
+    insuranceManager.checkIfAllPlayersDecidedInsurance()
   }
 
   private func hideInsuranceControl(animated: Bool) {
-    guard !mpInsuranceControl.isHidden else { return }
-
-    if animated {
-      UIView.animate(
-        withDuration: 0.3,
-        animations: {
-          self.mpInsuranceControl.alpha = 0
-          self.view.layoutIfNeeded()
-        }
-      ) { _ in
-        self.mpInsuranceControl.isHidden = true
-        self.mpInsuranceControl.clearAllBets()
-        self.mpInsuranceControl.updateTitle("Insurance")
-      }
-    } else {
-      mpInsuranceControl.isHidden = true
-      mpInsuranceControl.alpha = 0
-      mpInsuranceControl.clearAllBets()
-      mpInsuranceControl.updateTitle("Insurance")
-    }
+    insuranceManager.hideInsuranceControl(animated: animated)
   }
 
-  private func updateInsuranceStatusLabel() {
-    guard let label = continueButton?.viewWithTag(999) as? UILabel else { return }
-    if isInsurancePhaseActive {
-      let hasInsurance = localInsuranceBetAmount > 0
-      label.text = hasInsurance ? "Insured" : "Not Insured"
-      label.textColor =
-        hasInsurance
-        ? HardwayColors.label.withAlphaComponent(0.9)
-        : HardwayColors.label.withAlphaComponent(0.5)
-    } else {
-      label.text = ""
-    }
-  }
 
-  /// Handle blackjack payout for a specific seat (called when a hand becomes stood with blackjack or when turn starts).
-  /// Returns the total animation duration.
   @discardableResult
   private func handleBlackjackPayoutForSeat(
     seatIndex: Int, snapshot: MPBlackjackTableState.GameStateSnapshot, handIndex: Int = 0
   ) -> TimeInterval {
-    guard let seatData = currentSeatsData[seatIndex],
-      handIndex < seatData.hands.count
-    else { return 0 }
-    let hand = seatData.hands[handIndex]
-    guard hand.cards.count == 2 else { return 0 }
-    let cards = hand.cards.compactMap { cardFromFirebase($0) }
-    guard cards.count == 2, blackjackTotal(cards) == 21 else { return 0 }
-    guard let seatView = seatViewsByIndex[seatIndex] else { return 0 }
-
-    // Skip if already animated
-    if bustAnimatedSeatIndices.contains(seatIndex) {
-      return 0
-    }
-
-    // Get the correct hand view (for split hands)
-    let handView =
-      handIndex < seatView.hands.count ? seatView.hands[handIndex] : seatView.primaryHand
-
-    handView.broadcastAction("Blackjack!")
-
-    bustAnimatedSeatIndices.insert(seatIndex)
-
-    let isLocal = (seatIndex == mySeatIndex)
-    let bet = hand.bet
-    let bjWin = Int(Double(bet) * 1.5)
-    let payout = bet + bjWin
-    let result = MPBlackjackTableState.HandResult(outcome: "blackjack", payout: payout, bet: bet)
-    let delay: TimeInterval = 0.3
-
-    if isLocal {
-      // Freeze balance for this early payout
-      if !isBalanceFrozenForSettlement {
-        isBalanceFrozenForSettlement = true
-        preBetSettlementBalance = balance
-      }
-      animateLocalPlayerWin(seat: seatView, result: result, delay: delay)
-      DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.3) { [weak self] in
-        self?.showBetResult(
-          amount: result.netWinnings, isWin: true, showBonus: true, description: "BLACKJACK")
-      }
-    } else {
-      animateRemotePlayerWin(seat: seatView, result: result, delay: delay)
-    }
-
-    // Discard the blackjack hand's cards after payout animation lands
-    let discardDelay = delay + 1.8
-    DispatchQueue.main.asyncAfter(deadline: .now() + discardDelay) { [weak self] in
-      guard let self = self else { return }
-      let topLeft = CGPoint(x: 0, y: 0)
-      handView.discardCards(to: topLeft, in: self.view) {}
-    }
-
-    let totalDuration = discardDelay + 0.5
-    isBlackjackPayoutAnimating = true
-    DispatchQueue.main.asyncAfter(deadline: .now() + totalDuration) { [weak self] in
-      self?.isBlackjackPayoutAnimating = false
-    }
-
-    return totalDuration
-  }
-
-  /// After the deal animation, detect seats with natural blackjack (2 cards, total 21, stood by server).
-  /// Immediately pay them out and discard their cards so the table moves on visually.
-  /// Returns the total animation duration (0 when no blackjacks were found).
-  @discardableResult
-  private func handlePostDealBlackjacks(snapshot: MPBlackjackTableState.GameStateSnapshot)
-    -> TimeInterval
-  {
-    var bjDelay: TimeInterval = 0.3
-    var totalDuration: TimeInterval = 0
-    var foundBlackjack = false
-    for (seatIndex, seatData) in currentSeatsData {
-      guard let hand = seatData.hands.first,
-        hand.stood,
-        hand.cards.count == 2
-      else { continue }
-      let cards = hand.cards.compactMap { cardFromFirebase($0) }
-      guard cards.count == 2, blackjackTotal(cards) == 21 else { continue }
-      guard let seatView = seatViewsByIndex[seatIndex] else { continue }
-
-      // Broadcast "Blackjack!" message
-      seatView.primaryHand.broadcastAction("Blackjack!")
-
-      bustAnimatedSeatIndices.insert(seatIndex)
-
-      let isLocal = (seatIndex == mySeatIndex)
-      let bet = hand.bet
-      let bjWin = Int(Double(bet) * 1.5)
-      let payout = bet + bjWin
-      let result = MPBlackjackTableState.HandResult(outcome: "blackjack", payout: payout, bet: bet)
-      let delay = bjDelay
-
-      if isLocal {
-        // Freeze balance for this early payout
-        if !isBalanceFrozenForSettlement {
-          isBalanceFrozenForSettlement = true
-          preBetSettlementBalance = balance
-        }
-        animateLocalPlayerWin(seat: seatView, result: result, delay: delay)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.3) { [weak self] in
-          self?.showBetResult(
-            amount: result.netWinnings, isWin: true, showBonus: true, description: "BLACKJACK")
-        }
-      } else {
-        animateRemotePlayerWin(seat: seatView, result: result, delay: delay)
-      }
-
-      // Discard the blackjack hand's cards after payout animation lands
-      let discardDelay = delay + 1.8
-      DispatchQueue.main.asyncAfter(deadline: .now() + discardDelay) { [weak self] in
-        guard let self = self else { return }
-        let topLeft = CGPoint(x: 0, y: 0)
-        seatView.primaryHand.discardCards(to: topLeft, in: self.view) {}
-      }
-
-      // discard animation takes ~0.5s after the discardDelay
-      totalDuration = discardDelay + 0.5
-      bjDelay += 0.3
-      foundBlackjack = true
-    }
-    if foundBlackjack {
-      isBlackjackPayoutAnimating = true
-      DispatchQueue.main.asyncAfter(deadline: .now() + totalDuration) { [weak self] in
-        self?.isBlackjackPayoutAnimating = false
-      }
-    }
-    return totalDuration
+    chipAnimator.handleBlackjackPayoutForSeat(seatIndex: seatIndex, snapshot: snapshot, handIndex: handIndex)
   }
 
   private func applyCardsWithoutDealAnimation(
@@ -4901,179 +3474,16 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
     }
   }
 
-  // MARK: - Bet reconciliation (payout / collect after dealer resolves)
+  // MARK: - Bet reconciliation (delegated to chipAnimator)
 
-  /// True while bet reconciliation animations are running (prevents duplicate triggers).
-  private var isBetReconciliationRunning = false
-
-  /// Reconcile bets using pre-parsed handResults from the snapshot.
   private func reconcileBets(snapshot: MPBlackjackTableState.GameStateSnapshot) {
-    reconcileBetsWithResults(snapshot.handResults)
+    chipAnimator.reconcileBets(snapshot: snapshot)
   }
 
-  /// Reconcile bets after the dealer has resolved all hands.
-  /// Animates wins (chips fly from house to player) and losses (chips fly from player to house).
-  private func reconcileBetsWithResults(_ results: [Int: [MPBlackjackTableState.HandResult]]) {
-    guard !isBetReconciliationRunning else { return }
-    guard !results.isEmpty else { return }
-    isBetReconciliationRunning = true
-    print(
-      "BAL_BUG [reconcileBets] settlement started — preBetSettlementBalance=\(preBetSettlementBalance), current balance=\(balance)"
-    )
-    print("💰 [MP-VC] reconcileBets: \(results.count) seats with results")
-
-    // Scroll to user's hand when bet resolution begins so they can see their payout
-    scrollToSeat(mySeatIndex, animated: true)
-
-    var animationDelay: TimeInterval = 0.4
-
-    for (seatIndex, handResults) in results {
-      guard let seatView = seatViewsByIndex[seatIndex] else { continue }
-      let isLocal = (seatIndex == mySeatIndex)
-
-      for (handIdx, result) in handResults.enumerated() {
-        let handView =
-          handIdx < seatView.hands.count ? seatView.hands[handIdx] : seatView.primaryHand
-        let alreadyAnimatedBust = bustAnimatedSeatIndices.contains(seatIndex) && result.isLoss
-
-        if alreadyAnimatedBust {
-          print("💰 [MP-VC] seat \(seatIndex) hand \(handIdx): SKIP (already animated bust)")
-          continue
-        }
-
-        // Skip blackjack results that were already paid out during player turn
-        if result.isBlackjack && bustAnimatedSeatIndices.contains(seatIndex) {
-          // Verify it's actually a blackjack (2 cards, stood) and not a bust
-          if let seatData = currentSeatsData[seatIndex],
-            handIdx < seatData.hands.count,
-            seatData.hands[handIdx].stood,
-            seatData.hands[handIdx].cards.count == 2
-          {
-            print("💰 [MP-VC] seat \(seatIndex) hand \(handIdx): SKIP (blackjack already paid out)")
-            continue
-          }
-        }
-
-        if result.isWin || result.isBlackjack {
-          let winnings = result.netWinnings
-          if isLocal {
-            animateLocalPlayerWin(
-              seat: seatView, hand: handView, result: result, delay: animationDelay)
-            let capturedDelay = animationDelay
-            DispatchQueue.main.asyncAfter(deadline: .now() + capturedDelay + 0.3) { [weak self] in
-              self?.showBetResult(
-                amount: winnings, isWin: true, showBonus: result.isBlackjack,
-                description: result.isBlackjack ? "BLACKJACK" : nil)
-            }
-          } else {
-            animateRemotePlayerWin(
-              seat: seatView, hand: handView, result: result, delay: animationDelay)
-          }
-          print(
-            "💰 [MP-VC] seat \(seatIndex) hand \(handIdx): WIN +\(winnings) (bet=\(result.bet), payout=\(result.payout))"
-          )
-        } else if result.isLoss {
-          if isLocal {
-            animateLocalPlayerLoss(
-              seat: seatView, hand: handView, result: result, delay: animationDelay)
-            let capturedDelay = animationDelay
-            DispatchQueue.main.asyncAfter(deadline: .now() + capturedDelay + 0.3) { [weak self] in
-              self?.showBetResult(amount: result.bet, isWin: false)
-            }
-          } else {
-            animateRemotePlayerLoss(
-              seat: seatView, hand: handView, result: result, delay: animationDelay)
-          }
-          print("💰 [MP-VC] seat \(seatIndex) hand \(handIdx): LOSS -\(result.bet)")
-        } else if result.isPush {
-          pushBetsBySeatIndex[seatIndex] = result.bet
-          handView.broadcastAction("Push")
-          if isLocal {
-            animateLocalPlayerPush(
-              seat: seatView, hand: handView, result: result, delay: animationDelay)
-          }
-          print(
-            "💰 [MP-VC] seat \(seatIndex) hand \(handIdx): PUSH (bet returned: \(result.bet))")
-        }
-
-        animationDelay += 0.15
-      }
-
-      // If ALL hands in this seat were already animated (bust), finalize balance
-      if isLocal
-        && handResults.allSatisfy({ bustAnimatedSeatIndices.contains(seatIndex) && $0.isLoss })
-      {
-        balance = preBetSettlementBalance
-        isBalanceFrozenForSettlement = false
-        print("💰 [MP-VC] seat \(seatIndex): all hands busted, finalizing balance")
-      }
-    }
-
-    let totalAnimDuration = animationDelay + 1.5
-    DispatchQueue.main.asyncAfter(deadline: .now() + totalAnimDuration) { [weak self] in
-      guard let self = self else { return }
-      self.isBetReconciliationRunning = false
-
-      // Scroll back to user's hand so they can place bets for next hand
-      self.scrollToSeat(self.mySeatIndex, animated: true)
-
-      // Refresh UI to update instruction message now that bet reconciliation is complete
-      if let snapshot = self.lastGameSnapshot {
-        self.refreshButtonVisibility(for: snapshot)
-      }
-
-      if self.isHost {
-        self.callStartNextHand()
-      }
-    }
-  }
-
-  /// Fallback: compute hand results client-side from seat data + dealer cards when Firebase handResults is missing.
   private func computeHandResultsFromSeats(snapshot: MPBlackjackTableState.GameStateSnapshot)
     -> [Int: [MPBlackjackTableState.HandResult]]
   {
-    let dealerCards = snapshot.dealerCards.compactMap { cardFromFirebase($0) }
-    let dealerTotal = blackjackTotal(dealerCards)
-    let dealerBusted = dealerTotal > 21
-    let dealerIsBlackjack = dealerCards.count == 2 && dealerTotal == 21
-    var results: [Int: [MPBlackjackTableState.HandResult]] = [:]
-
-    for (seatIndex, seatData) in currentSeatsData {
-      guard let hand = seatData.hands.first, hand.bet > 0 else { continue }
-      let playerCards = hand.cards.compactMap { cardFromFirebase($0) }
-      let playerTotal = blackjackTotal(playerCards)
-      let playerBusted = hand.busted || playerTotal > 21
-      let playerIsBlackjack = playerCards.count == 2 && playerTotal == 21
-      let bet = hand.bet
-
-      let result: MPBlackjackTableState.HandResult
-      if playerBusted {
-        result = MPBlackjackTableState.HandResult(outcome: "lose", payout: 0, bet: bet)
-      } else if playerIsBlackjack && !dealerIsBlackjack {
-        let bjWin = Int(Double(bet) * 1.5)
-        result = MPBlackjackTableState.HandResult(
-          outcome: "blackjack", payout: bet + bjWin, bet: bet)
-      } else if playerIsBlackjack && dealerIsBlackjack {
-        result = MPBlackjackTableState.HandResult(outcome: "push", payout: bet, bet: bet)
-      } else if dealerBusted {
-        result = MPBlackjackTableState.HandResult(outcome: "win", payout: bet * 2, bet: bet)
-      } else if playerTotal > dealerTotal {
-        result = MPBlackjackTableState.HandResult(outcome: "win", payout: bet * 2, bet: bet)
-      } else if playerTotal < dealerTotal {
-        result = MPBlackjackTableState.HandResult(outcome: "lose", payout: 0, bet: bet)
-      } else {
-        result = MPBlackjackTableState.HandResult(outcome: "push", payout: bet, bet: bet)
-      }
-      results[seatIndex] = [result]
-      print(
-        "💰 [MP-VC] computed result for seat \(seatIndex): \(result.outcome) bet=\(bet) payout=\(result.payout)"
-      )
-    }
-    return results
-  }
-
-  private func isTenValueRank(_ rank: PlayingCardView.Rank) -> Bool {
-    return rank == .ten || rank == .king || rank == .queen || rank == .jack
+    chipAnimator.computeHandResultsFromSeats(snapshot: snapshot)
   }
 
   private func blackjackTotal(_ cards: [BlackjackHandView.Card]) -> Int {
@@ -5102,447 +3512,51 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
     return total
   }
 
-  // MARK: - Local player win/loss animations
-  // Local player uses the same MPSmallBetChip / dot visual language as remote players,
-  // but targets the bottom-left balanceView instead of the seat's MPPlayerBalanceView.
-
-  private func animateLocalPlayerWin(
-    seat: PlayerSeat, hand targetHand: CompactPlayerHandView? = nil,
-    result: MPBlackjackTableState.HandResult, delay: TimeInterval
-  ) {
-    let hand = targetHand ?? seat.primaryHand
-    let winnings = result.netWinnings
-    let payout = result.payout
-    guard payout > 0 else { return }
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-      guard let self = self else { return }
-
-      let housePoint = CGPoint(x: self.view.bounds.midX, y: 0)
-      let betPosition = hand.betControl.getBetViewPosition(in: self.view)
-      let dotColor = seat.chipStyle.textColor
-
-      let winChip = self.createRemoteMPChip(style: seat.chipStyle, amount: winnings)
-      winChip.center = housePoint
-      winChip.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
-      self.view.addSubview(winChip)
-
-      let step1 = UIViewPropertyAnimator(
-        duration: 0.6, controlPoint1: CGPoint(x: 0.85, y: 0),
-        controlPoint2: CGPoint(x: 0.15, y: 1)
-      ) {
-        winChip.center = CGPoint(x: betPosition.x + 25, y: betPosition.y)
-        winChip.transform = .identity
-      }
-
-      step1.addCompletion { _ in
-        winChip.playChipShimmer()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-          guard let self = self else { return }
-          let balanceCenter = self.balanceView.convert(
-            CGPoint(x: self.balanceView.bounds.maxX - 30, y: self.balanceView.bounds.midY),
-            to: self.view
-          )
-
-          let winDot = self.createRemoteDot(color: dotColor)
-          winDot.center = winChip.center
-          self.view.addSubview(winDot)
-          winChip.removeFromSuperview()
-
-          hand.betControl.betView.alpha = 0
-          let betDot = self.createRemoteDot(color: dotColor)
-          betDot.center = betPosition
-          self.view.addSubview(betDot)
-
-          let fly1 = UIViewPropertyAnimator(
-            duration: 0.35, controlPoint1: CGPoint(x: 0.85, y: 0),
-            controlPoint2: CGPoint(x: 0.15, y: 1)
-          ) {
-            winDot.center = balanceCenter
-            winDot.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
-          }
-          fly1.addCompletion { _ in
-            winDot.removeFromSuperview()
-          }
-
-          let fly2 = UIViewPropertyAnimator(
-            duration: 0.35, controlPoint1: CGPoint(x: 0.85, y: 0),
-            controlPoint2: CGPoint(x: 0.15, y: 1)
-          ) {
-            betDot.center = balanceCenter
-            betDot.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
-          }
-          fly2.addCompletion { [weak self] _ in
-            betDot.removeFromSuperview()
-            hand.betControl.betAmount = 0
-            hand.betControl.betView.alpha = 1
-            if let self = self {
-              let finalBalance = self.preBetSettlementBalance + payout
-              print(
-                "BAL_BUG [win animation] payout=\(payout) (bet=\(result.bet)), preBetSettlementBalance=\(self.preBetSettlementBalance) → finalBalance=\(finalBalance)"
-              )
-              self.balance = finalBalance
-              self.isBalanceFrozenForSettlement = false
-            }
-          }
-
-          fly1.startAnimation()
-          fly2.startAnimation(afterDelay: 0.06)
-        }
-      }
-      step1.startAnimation()
-    }
-  }
+  // MARK: - Local/Remote player animation forwarding (delegated to chipAnimator)
 
   private func animateLocalPlayerLoss(
     seat: PlayerSeat, hand targetHand: CompactPlayerHandView? = nil,
     result: MPBlackjackTableState.HandResult, delay: TimeInterval
   ) {
-    let hand = targetHand ?? seat.primaryHand
-    guard result.bet > 0 else { return }
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-      guard let self = self else { return }
-
-      let betPosition = hand.betControl.getBetViewPosition(in: self.view)
-      let housePoint = CGPoint(x: self.view.bounds.midX, y: 0)
-
-      hand.betControl.betView.alpha = 0
-      let dot = self.createRemoteDot(color: seat.chipStyle.textColor)
-      dot.center = betPosition
-      self.view.addSubview(dot)
-
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-        hand.betControl.betAmount = 0
-      }
-
-      let animator = UIViewPropertyAnimator(
-        duration: 0.5, controlPoint1: CGPoint(x: 0.85, y: 0),
-        controlPoint2: CGPoint(x: 0.15, y: 1)
-      ) {
-        dot.center = housePoint
-        dot.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
-      }
-
-      animator.addCompletion { [weak self] _ in
-        UIView.animate(withDuration: 0.15) {
-          dot.alpha = 0
-        } completion: { [weak self] _ in
-          dot.removeFromSuperview()
-          hand.betControl.betView.alpha = 1
-          if let self = self {
-            print(
-              "BAL_BUG [loss animation] restoring preBetSettlementBalance=\(self.preBetSettlementBalance) (current=\(self.balance))"
-            )
-            self.balance = self.preBetSettlementBalance
-            self.isBalanceFrozenForSettlement = false
-          }
-        }
-      }
-      animator.startAnimation()
-    }
+    chipAnimator.animateLocalPlayerLoss(seat: seat, hand: targetHand, result: result, delay: delay)
   }
 
-  /// Animate the local player's bet chip flying to the house on a bust.
-  /// Unlike animateLocalPlayerLoss, this runs during player_actions (not settlement),
-  /// so it only handles the visual — end-of-hand reconciliation manages the balance.
   private func animateLocalBustForfeit(
     seat: PlayerSeat, hand targetHand: CompactPlayerHandView? = nil,
     result: MPBlackjackTableState.HandResult
   ) {
-    let hand = targetHand ?? seat.primaryHand
-    guard result.bet > 0 else { return }
-
-    let betPosition = hand.betControl.getBetViewPosition(in: view)
-    let housePoint = CGPoint(x: view.bounds.midX, y: 0)
-
-    hand.betControl.betView.alpha = 0
-    let dot = createRemoteDot(color: seat.chipStyle.textColor)
-    dot.center = betPosition
-    view.addSubview(dot)
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-      hand.betControl.betAmount = 0
-    }
-
-    let animator = UIViewPropertyAnimator(
-      duration: 0.5, controlPoint1: CGPoint(x: 0.85, y: 0),
-      controlPoint2: CGPoint(x: 0.15, y: 1)
-    ) {
-      dot.center = housePoint
-      dot.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
-    }
-
-    animator.addCompletion { _ in
-      UIView.animate(withDuration: 0.15) {
-        dot.alpha = 0
-      } completion: { _ in
-        dot.removeFromSuperview()
-        hand.betControl.betView.alpha = 1
-      }
-    }
-    animator.startAnimation()
-
-    showBetResult(amount: result.bet, isWin: false)
+    chipAnimator.animateLocalBustForfeit(seat: seat, hand: targetHand, result: result)
   }
 
   private func animateLocalPlayerPush(
     seat: PlayerSeat, hand targetHand: CompactPlayerHandView? = nil,
     result: MPBlackjackTableState.HandResult, delay: TimeInterval
   ) {
-    guard result.bet > 0 else { return }
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-      guard let self = self else { return }
-
-      // Push: the bet stays exactly where it is — no chip movement animation.
-      // Just restore the balance (it was deducted when the bet was placed).
-      let finalBalance = self.preBetSettlementBalance + result.payout
-      print(
-        "BAL_BUG [push settle] payout=\(result.payout) (bet=\(result.bet)), preBetSettlementBalance=\(self.preBetSettlementBalance) → finalBalance=\(finalBalance)"
-      )
-      self.balance = finalBalance
-      self.isBalanceFrozenForSettlement = false
-    }
-  }
-
-  // MARK: - Remote player win/loss animations
-
-  private func animateRemotePlayerWin(
-    seat: PlayerSeat, hand targetHand: CompactPlayerHandView? = nil,
-    result: MPBlackjackTableState.HandResult, delay: TimeInterval
-  ) {
-    let hand = targetHand ?? seat.primaryHand
-    let winnings = result.netWinnings
-    guard winnings > 0 else { return }
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-      guard let self = self else { return }
-
-      let housePoint = CGPoint(x: self.view.bounds.midX, y: 0)
-      let betPosition = hand.betControl.getBetViewPosition(in: self.view)
-      let dotColor = seat.chipStyle.textColor
-
-      let winChip = self.createRemoteMPChip(style: seat.chipStyle, amount: winnings)
-      winChip.center = housePoint
-      winChip.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
-      self.view.addSubview(winChip)
-
-      let step1 = UIViewPropertyAnimator(
-        duration: 0.6, controlPoint1: CGPoint(x: 0.85, y: 0),
-        controlPoint2: CGPoint(x: 0.15, y: 1)
-      ) {
-        winChip.center = CGPoint(x: betPosition.x + 25, y: betPosition.y)
-        winChip.transform = .identity
-      }
-
-      step1.addCompletion { _ in
-        winChip.playChipShimmer()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-          guard let self = self else { return }
-          guard let balView = seat.subviews.compactMap({ $0 as? MPPlayerBalanceView }).first else {
-            winChip.removeFromSuperview()
-            return
-          }
-          let balanceCenter = seat.convert(
-            CGPoint(x: balView.frame.midX, y: balView.frame.midY),
-            to: self.view
-          )
-
-          let winDot = self.createRemoteDot(color: dotColor)
-          winDot.center = winChip.center
-          self.view.addSubview(winDot)
-          winChip.removeFromSuperview()
-
-          hand.betControl.betView.alpha = 0
-          let betDot = self.createRemoteDot(color: dotColor)
-          betDot.center = betPosition
-          self.view.addSubview(betDot)
-
-          let fly1 = UIViewPropertyAnimator(
-            duration: 0.35, controlPoint1: CGPoint(x: 0.85, y: 0),
-            controlPoint2: CGPoint(x: 0.15, y: 1)
-          ) {
-            winDot.center = balanceCenter
-            winDot.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
-          }
-          fly1.addCompletion { _ in
-            winDot.removeFromSuperview()
-          }
-
-          let fly2 = UIViewPropertyAnimator(
-            duration: 0.35, controlPoint1: CGPoint(x: 0.85, y: 0),
-            controlPoint2: CGPoint(x: 0.15, y: 1)
-          ) {
-            betDot.center = balanceCenter
-            betDot.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
-          }
-          fly2.addCompletion { _ in
-            betDot.removeFromSuperview()
-            hand.betControl.betAmount = 0
-            hand.betControl.betView.alpha = 1
-          }
-
-          fly1.startAnimation()
-          fly2.startAnimation(afterDelay: 0.06)
-        }
-      }
-      step1.startAnimation()
-    }
+    chipAnimator.animateLocalPlayerPush(seat: seat, hand: targetHand, result: result, delay: delay)
   }
 
   private func animateRemotePlayerLoss(
     seat: PlayerSeat, hand targetHand: CompactPlayerHandView? = nil,
     result: MPBlackjackTableState.HandResult, delay: TimeInterval
   ) {
-    let hand = targetHand ?? seat.primaryHand
-    guard result.bet > 0 else { return }
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-      guard let self = self else { return }
-
-      let betPosition = hand.betControl.getBetViewPosition(in: self.view)
-      let housePoint = CGPoint(x: self.view.bounds.midX, y: 0)
-
-      hand.betControl.betView.alpha = 0
-      let dot = self.createRemoteDot(color: seat.chipStyle.textColor)
-      dot.center = betPosition
-      self.view.addSubview(dot)
-
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-        hand.betControl.betAmount = 0
-      }
-
-      let animator = UIViewPropertyAnimator(
-        duration: 0.5, controlPoint1: CGPoint(x: 0.85, y: 0),
-        controlPoint2: CGPoint(x: 0.15, y: 1)
-      ) {
-        dot.center = housePoint
-        dot.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
-      }
-
-      animator.addCompletion { _ in
-        UIView.animate(withDuration: 0.15) {
-          dot.alpha = 0
-        } completion: { _ in
-          dot.removeFromSuperview()
-          hand.betControl.betView.alpha = 1
-        }
-      }
-      animator.startAnimation()
-    }
+    chipAnimator.animateRemotePlayerLoss(
+      seat: seat, hand: targetHand, result: result, delay: delay)
   }
 
-  // MARK: - Animation helpers
-
-  private func createAnimationChip(amount: Int) -> SmallBetChip {
-    let chip = SmallBetChip()
-    chip.amount = amount
-    chip.translatesAutoresizingMaskIntoConstraints = true
-    let isIPad = UIDevice.current.userInterfaceIdiom == .pad
-    let size: CGFloat = isIPad ? 30 * 1.25 : 30
-    chip.frame = CGRect(x: 0, y: 0, width: size, height: size)
-    chip.isHidden = false
-    return chip
-  }
-
-  private func createRemoteMPChip(style: MPSmallBetChipStyle, amount: Int) -> MPSmallBetChip {
-    let chip = MPSmallBetChip(style: style)
-    chip.translatesAutoresizingMaskIntoConstraints = true
-    let chipSize: CGFloat = 30
-    chip.frame = CGRect(x: 0, y: 0, width: chipSize, height: chipSize)
-    chip.amount = amount
-    chip.isHidden = false
-    return chip
-  }
+  // MARK: - Animation helpers (delegated to chipAnimator)
 
   private func createRemoteDot(color: UIColor) -> UIView {
-    let dot = UIView(frame: CGRect(x: 0, y: 0, width: 8, height: 8))
-    dot.backgroundColor = color
-    dot.layer.cornerRadius = 4
-    dot.layer.shadowColor = UIColor.black.cgColor
-    dot.layer.shadowOpacity = 0.3
-    dot.layer.shadowRadius = 2
-    dot.layer.shadowOffset = CGSize(width: 0, height: 1)
-    return dot
+    chipAnimator.createRemoteDot(color: color)
   }
 
-  // MARK: - Dealer card queue animation
+  // MARK: - Dealer card queue animation (delegated to dealerCardQueueManager)
 
-  /// Enqueue new dealer cards discovered from a snapshot and kick off sequential dealing.
-  /// Only appends cards not already rendered or already in the queue (avoids duplicate cards when multiple snapshots arrive).
   private func enqueueDealerCards(_ allCards: [BlackjackHandView.Card], holeRevealed: Bool) {
-    let newCount = allCards.count
-    let committedCount = dealerCardsRenderedCount + dealerCardQueue.count
-    if newCount > committedCount {
-      let newCards = Array(allCards[committedCount..<newCount])
-      dealerCardQueue.append(contentsOf: newCards)
-    }
-    // Only set dealerHoleRevealed during dealer phase to prevent premature reveals
-    let phase = lastGameSnapshot?.phase ?? ""
-    let isDealerPhase =
-      (phase == MultiplayerBlackjackKeys.Phases.dealerTurn
-        || phase == MultiplayerBlackjackKeys.Phases.gameOver
-        || phase == MultiplayerBlackjackKeys.Phases.betweenHands)
-    if holeRevealed && !dealerHoleRevealed && isDealerPhase {
-      dealerHoleRevealed = true
-    }
-    processNextDealerCard()
+    dealerCardQueueManager.enqueueDealerCards(allCards, holeRevealed: holeRevealed)
   }
 
-  /// Pop the next card from the queue, animate it, then schedule the next one after a delay.
-  private func processNextDealerCard() {
-    guard !isDealerCardAnimating else { return }
-
-    // Only reveal hole card during dealer phase (dealerTurn, gameOver, or betweenHands)
-    let phase = lastGameSnapshot?.phase ?? ""
-    let isDealerPhase =
-      (phase == MultiplayerBlackjackKeys.Phases.dealerTurn
-        || phase == MultiplayerBlackjackKeys.Phases.gameOver
-        || phase == MultiplayerBlackjackKeys.Phases.betweenHands)
-
-    if dealerHoleRevealed && dealerHandView.isHoleCardHidden() && isDealerPhase {
-      isDealerCardAnimating = true
-      dealerHandView.revealHoleCard(animated: true)
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-        guard let self = self else { return }
-        self.isDealerCardAnimating = false
-        self.processNextDealerCard()
-      }
-      return
-    }
-
-    guard !dealerCardQueue.isEmpty else {
-      // Dealer card queue drained; if we're between hands, refresh instruction so it updates from "Dealer's turn" to "Hand over..."
-      if lastGameSnapshot?.phase == MultiplayerBlackjackKeys.Phases.betweenHands
-        || lastGameSnapshot?.phase == MultiplayerBlackjackKeys.Phases.gameOver
-      {
-        if let s = lastGameSnapshot { refreshButtonVisibility(for: s) }
-      }
-      return
-    }
-    let card = dealerCardQueue.removeFirst()
-    isDealerCardAnimating = true
-    dealerCardsRenderedCount += 1
-
-    let center = self.view.convert(self.deckView.deckCenter, from: self.deckView)
-    dealerHandView.dealCard(card, from: center, in: self.view)
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-      guard let self = self else { return }
-      self.isDealerCardAnimating = false
-      self.processNextDealerCard()
-    }
-  }
-
-  /// Reset dealer queue state when starting a new hand.
   private func resetDealerCardQueue() {
-    dealerCardQueue.removeAll()
-    isDealerCardAnimating = false
-    dealerCardsRenderedCount = 0
-    dealerHoleRevealed = false
+    dealerCardQueueManager.reset()
   }
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -5562,89 +3576,261 @@ final class MultiplayerBlackjackViewController: UIViewController, UIScrollViewDe
   }
 
   private func handlePlayerRemoved() {
-    // Remove observers to prevent further updates
-    if let handle = seatsObserverHandle {
-      tableState?.removeSeatsObserver(handle: handle)
-      seatsObserverHandle = nil
-    }
-    if let handle = gameStateObserverHandle {
-      tableState?.removeGameStateObserver(handle: handle)
-      gameStateObserverHandle = nil
-    }
-    if let handle = hostPlayerIdObserverHandle {
-      tableState?.removeHostPlayerIdObserver(handle: handle)
-      hostPlayerIdObserverHandle = nil
-    }
-    removeConnectionObserver()
-
-    // Show alert and dismiss
-    let alert = UIAlertController(
-      title: "Removed from Table",
-      message: "You have been removed from the table by the host.",
-      preferredStyle: .alert
-    )
-
-    alert.addAction(
-      UIAlertAction(title: "OK", style: .default) { [weak self] _ in
-        self?.navigationController?.popToRootViewController(animated: true)
-      })
-
-    present(alert, animated: true)
+    tableSessionManager.handlePlayerRemoved()
   }
 
   private func showLeaveTableConfirmation(popToRootOnLeave: Bool = true) {
-    let alert = UIAlertController(
-      title: "Leave Table?",
-      message:
-        "Are you sure you want to leave the table? Your seat will be freed for other players.",
-      preferredStyle: .alert
-    )
-
-    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-    alert.addAction(
-      UIAlertAction(title: "Leave", style: .destructive) { [weak self] _ in
-        self?.leaveTable(popToRoot: popToRootOnLeave)
-      })
-
-    present(alert, animated: true)
+    tableSessionManager.showLeaveTableConfirmation(popToRootOnLeave: popToRootOnLeave)
   }
 
   private func leaveTable(popToRoot: Bool = true) {
-    // Remove observers
-    if let handle = seatsObserverHandle {
-      tableState?.removeSeatsObserver(handle: handle)
-      seatsObserverHandle = nil
-    }
-    if let handle = hostPlayerIdObserverHandle {
-      tableState?.removeHostPlayerIdObserver(handle: handle)
-      hostPlayerIdObserverHandle = nil
-    }
-    removeConnectionObserver()
+    tableSessionManager.leaveTable(popToRoot: popToRoot)
+  }
 
-    // Leave the table in Firebase
-    let playerId = MultiplayerPlayerIdKey.value
-    tableState?.leaveTable(playerId: playerId) { [weak self] result in
-      DispatchQueue.main.async {
+}
+
+// MARK: - MPTableSessionManagerDelegate
+
+extension MultiplayerBlackjackViewController: MPTableSessionManagerDelegate {
+  func sessionManagerRemoveConnectionObserver() { removeConnectionObserver() }
+  func sessionManagerPresentAlert(_ alert: UIAlertController, animated: Bool) {
+    present(alert, animated: animated)
+  }
+  func sessionManagerPopToRoot(animated: Bool) {
+    navigationController?.popToRootViewController(animated: animated)
+  }
+  func sessionManagerPopViewController(animated: Bool) {
+    navigationController?.popViewController(animated: animated)
+  }
+}
+
+// MARK: - MPDealerCardQueueDelegate
+
+extension MultiplayerBlackjackViewController: MPDealerCardQueueDelegate {
+  func dealerCardQueueRefreshButtonVisibility() {
+    if let s = lastGameSnapshot { refreshButtonVisibility(for: s) }
+  }
+}
+
+// MARK: - MPPlayerActionHandlerDelegate
+
+extension MultiplayerBlackjackViewController: MPPlayerActionHandlerDelegate {
+  func actionHandlerRefreshButtonVisibility(
+    for snapshot: MPBlackjackTableState.GameStateSnapshot
+  ) {
+    refreshButtonVisibility(for: snapshot)
+  }
+  func actionHandlerUpdateTurnIndicatorDot(forSeatIndex: Int?, handIndex: Int) {
+    updateTurnIndicatorDot(for: forSeatIndex, handIndex: handIndex)
+  }
+  func actionHandlerHideTurnIndicatorDot() { hideTurnIndicatorDot() }
+  func actionHandlerSetStandButtonDisabled(_ disabled: Bool) { standButton.setDisabled(disabled) }
+  func actionHandlerSetDoubleButtonDisabled(_ disabled: Bool) { doubleButton.setDisabled(disabled) }
+  func actionHandlerHideSplitButton() { hideSplitButton() }
+  func actionHandlerShowInstructionMessage(_ message: String, shouldFade: Bool) {
+    instructionLabel.showMessage(message, shouldFade: shouldFade)
+  }
+  func actionHandlerAnimateLocalBustForfeit(
+    seat: PlayerSeat, hand: CompactPlayerHandView, result: MPBlackjackTableState.HandResult
+  ) {
+    animateLocalBustForfeit(seat: seat, hand: hand, result: result)
+  }
+  func actionHandlerWireHandTapHandlers(for hand: CompactPlayerHandView, handIndex: Int) {
+    wireHandTapHandlers(for: hand, handIndex: handIndex)
+  }
+}
+
+// MARK: - MPInsuranceManagerDelegate
+
+extension MultiplayerBlackjackViewController: MPInsuranceManagerDelegate {
+  func insuranceUpdateInstructionLabel(_ text: String, shouldFade: Bool) {
+    updateInstructionLabelIfNeeded(text, shouldFade: shouldFade)
+  }
+  func insuranceRefreshButtonVisibility(
+    for snapshot: MPBlackjackTableState.GameStateSnapshot
+  ) {
+    refreshButtonVisibility(for: snapshot)
+  }
+  func insuranceHideBonusBetControl(animated: Bool) {
+    hideBonusBetControl(animated: animated)
+  }
+  func insuranceCallResolveDealerBlackjack() { callResolveDealerBlackjack() }
+  func insuranceCallStartNextHand() { callStartNextHand() }
+  func insuranceScrollToSeat(_ index: Int, animated: Bool) {
+    scrollToSeat(index, animated: animated)
+  }
+  func insuranceShowBetResult(amount: Int, isWin: Bool, showBonus: Bool, description: String?) {
+    showBetResult(amount: amount, isWin: isWin, showBonus: showBonus, description: description)
+  }
+  func insuranceAnimateLocalPlayerLoss(
+    seat: PlayerSeat, result: MPBlackjackTableState.HandResult, delay: TimeInterval
+  ) {
+    animateLocalPlayerLoss(seat: seat, result: result, delay: delay)
+  }
+  func insuranceAnimateLocalPlayerPush(
+    seat: PlayerSeat, result: MPBlackjackTableState.HandResult, delay: TimeInterval
+  ) {
+    animateLocalPlayerPush(seat: seat, result: result, delay: delay)
+  }
+  func insuranceAnimateRemotePlayerLoss(
+    seat: PlayerSeat, result: MPBlackjackTableState.HandResult, delay: TimeInterval
+  ) {
+    animateRemotePlayerLoss(seat: seat, result: result, delay: delay)
+  }
+  func insuranceCreateRemoteDot(color: UIColor) -> UIView {
+    createRemoteDot(color: color)
+  }
+  func insurancePhaseResolved(
+    snapshot: MPBlackjackTableState.GameStateSnapshot,
+    holeCard: BlackjackHandView.Card,
+    upCard: BlackjackHandView.Card
+  ) {
+    peekForDealerBlackjack(holeCard: holeCard, upCard: upCard, snapshot: snapshot) { [weak self] in
+      guard let self = self else { return }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
         guard let self = self else { return }
-        switch result {
-        case .success:
-          print("✅ [MultiplayerBlackjack] Successfully left table")
-        case .failure(let error):
-          print("⚠️ [MultiplayerBlackjack] Error leaving table: \(error)")
-        }
-        if popToRoot {
-          self.navigationController?.popToRootViewController(animated: true)
-        } else {
-          self.navigationController?.popViewController(animated: true)
-        }
+        self.insuranceManager.hideInsuranceControl(animated: true)
+        self.runShowTurnUIAfterDeal(bjAnimDuration: 0)
       }
     }
   }
+}
 
+// MARK: - MPChipAnimationHelperDelegate
+
+extension MultiplayerBlackjackViewController: MPChipAnimationHelperDelegate {
+  func chipAnimationShowBetResult(amount: Int, isWin: Bool, showBonus: Bool, description: String?) {
+    showBetResult(amount: amount, isWin: isWin, showBonus: showBonus, description: description)
+  }
+  func chipAnimationScrollToSeat(_ index: Int, animated: Bool) {
+    scrollToSeat(index, animated: animated)
+  }
+  func chipAnimationRefreshButtonVisibility(
+    for snapshot: MPBlackjackTableState.GameStateSnapshot
+  ) {
+    refreshButtonVisibility(for: snapshot)
+  }
+  func chipAnimationCallStartNextHand() { callStartNextHand() }
+}
+
+// MARK: - MPBettingManagerDelegate
+
+extension MultiplayerBlackjackViewController: MPBettingManagerDelegate {
+  func bettingManagerShowInstructionMessage(_ message: String, shouldFade: Bool) {
+    instructionLabel.showMessage(message, shouldFade: shouldFade)
+  }
+  func bettingManagerRefreshButtonVisibility(
+    for snapshot: MPBlackjackTableState.GameStateSnapshot
+  ) {
+    refreshButtonVisibility(for: snapshot)
+  }
+  func bettingManagerDealButton() -> UIButton { dealButton }
+  func bettingManagerNextHandButton() -> UIButton { nextHandButton }
+  func bettingManagerSelectedChipValue() -> Int { selectedChipValue }
+  func bettingManagerShowDebugHandsSheet() {
+    #if DEBUG
+      showDebugHandsSheet()
+    #endif
+  }
+}
+
+// MARK: - MPHandResetManagerDelegate
+
+extension MultiplayerBlackjackViewController: MPHandResetManagerDelegate {
+  func handResetResetDealerCardQueue() { resetDealerCardQueue() }
+  func handResetSyncHandsToFirebase(for seatView: PlayerSeat) { syncHandsToFirebase(for: seatView) }
+  func handResetHideInsuranceControl(animated: Bool) { hideInsuranceControl(animated: animated) }
+  func handResetShowBonusBetControl(animated: Bool) { showBonusBetControl(animated: animated) }
+  func handResetResetInsuranceManager() { insuranceManager.resetForNewHand() }
+  func handResetClearTableInsurance() { tableState?.clearInsuranceForAllSeats() }
+  func handResetClearTableBonusBets() { tableState?.clearBonusBetsForAllSeats() }
+}
+
+// MARK: - MPDealAnimationControllerDelegate
+
+extension MultiplayerBlackjackViewController: MPDealAnimationControllerDelegate {
+  func dealAnimationHideTurnIndicatorDot() { hideTurnIndicatorDot() }
+  func dealAnimationUpdateTurnIndicatorDot(forSeatIndex: Int?, handIndex: Int) {
+    updateTurnIndicatorDot(for: forSeatIndex, handIndex: handIndex)
+  }
+  func dealAnimationUpdateInstructionLabel(_ message: String, shouldFade: Bool) {
+    updateInstructionLabelIfNeeded(message, shouldFade: shouldFade)
+  }
+  func dealAnimationShowBonusBetControl(animated: Bool) { showBonusBetControl(animated: animated) }
+  func dealAnimationHideBonusBetControl(animated: Bool) { hideBonusBetControl(animated: animated) }
+  func dealAnimationRefreshButtonVisibility(
+    for snapshot: MPBlackjackTableState.GameStateSnapshot
+  ) {
+    refreshButtonVisibility(for: snapshot)
+  }
+  func dealAnimationScrollToSeat(_ index: Int, animated: Bool) {
+    scrollToSeat(index, animated: animated)
+  }
+  func dealAnimationScrollToSeatHand(_ index: Int, handIndex: Int, animated: Bool) {
+    scrollToSeatHand(index, handIndex: handIndex, animated: animated)
+  }
+  func dealAnimationCallPlayerAction(_ action: String) { callPlayerAction(action) }
+  func dealAnimationStartInsurancePhase(
+    snapshot: MPBlackjackTableState.GameStateSnapshot,
+    holeCard: BlackjackHandView.Card, upCard: BlackjackHandView.Card
+  ) {
+    startInsurancePhase(snapshot: snapshot, holeCard: holeCard, upCard: upCard)
+  }
+  func dealAnimationPeekForDealerBlackjack(
+    holeCard: BlackjackHandView.Card, upCard: BlackjackHandView.Card,
+    snapshot: MPBlackjackTableState.GameStateSnapshot, completion: @escaping () -> Void
+  ) {
+    peekForDealerBlackjack(holeCard: holeCard, upCard: upCard, snapshot: snapshot, completion: completion)
+  }
+  func dealAnimationAnimateServerResolvedDealerBlackjack(
+    snapshot: MPBlackjackTableState.GameStateSnapshot
+  ) {
+    animateServerResolvedDealerBlackjack(snapshot: snapshot)
+  }
+  func dealAnimationApplyCardsWithoutDealAnimation(
+    snapshot: MPBlackjackTableState.GameStateSnapshot, deckCenter: CGPoint
+  ) {
+    applyCardsWithoutDealAnimation(snapshot: snapshot, deckCenter: deckCenter)
+  }
+  func dealAnimationAnimateBonusBetResults(
+    _ results: [Int: [Int: MPBlackjackTableState.BonusBetResultData]],
+    isDealerOutcome: Bool, completion: @escaping () -> Void
+  ) {
+    animateBonusBetResults(results, isDealerOutcome: isDealerOutcome, completion: completion)
+  }
+  func dealAnimationGetPlayerHandsFromSeats() -> [Int: [[String: Any]]] {
+    getPlayerHandsFromSeats()
+  }
+  func dealAnimationSeatsScrollView() -> UIScrollView { seatsScrollView }
+  func dealAnimationDealButton() -> UIButton { dealButton }
 }
 
 // MARK: - ChipSelectorDelegate
 
 extension MultiplayerBlackjackViewController: ChipSelectorDelegate {
   func chipSelector(_ selector: ChipSelector, didSelectChipWithValue value: Int) {}
+}
+
+// MARK: - MPBlackjackSessionManagerDelegate
+
+extension MultiplayerBlackjackViewController: MPBlackjackSessionManagerDelegate {
+  func mpSessionDidStart(id: String) {
+    print("📊 [MP Session] Started session with ID: \(id)")
+  }
+
+  func mpSessionWasSaved(session: GameSession) {
+    print("📊 [MP Session] Session saved - Duration: \(session.formattedDuration), Hands: \(session.handCountValue), Net: \(session.netResult > 0 ? "+" : "")\(session.netResult)")
+  }
+
+  func mpMetricsDidUpdate(metrics: BlackjackGameplayMetrics) {
+    // Metrics updated - could update UI here if needed
+  }
+
+  func mpBalanceDidChange(from oldBalance: Int, to newBalance: Int) {
+    // Balance change tracked
+  }
+
+  func mpHandCountDidChange(count: Int) {
+    // Hand count updated
+  }
 }

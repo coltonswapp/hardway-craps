@@ -1,27 +1,27 @@
 //
-//  BlackjackSessionManager.swift
+//  MPBlackjackSessionManager.swift
 //  hardway-craps
 //
-//  Created by Claude Code on 1/26/26.
+//  Manages local session tracking for multiplayer blackjack games
 //
 
 import Foundation
 
-/// Delegate protocol for session-related events
-protocol BlackjackSessionManagerDelegate: AnyObject {
-    func sessionDidStart(id: String)
-    func sessionWasSaved(session: GameSession)
-    func metricsDidUpdate(metrics: BlackjackGameplayMetrics)
-    func balanceDidChange(from oldBalance: Int, to newBalance: Int)
-    func handCountDidChange(count: Int)
+/// Delegate protocol for multiplayer session-related events
+protocol MPBlackjackSessionManagerDelegate: AnyObject {
+    func mpSessionDidStart(id: String)
+    func mpSessionWasSaved(session: GameSession)
+    func mpMetricsDidUpdate(metrics: BlackjackGameplayMetrics)
+    func mpBalanceDidChange(from oldBalance: Int, to newBalance: Int)
+    func mpHandCountDidChange(count: Int)
 }
 
-/// Manages session lifecycle, metrics collection, and persistence
-final class BlackjackSessionManager {
+/// Manages session lifecycle, metrics collection, and persistence for multiplayer blackjack
+final class MPBlackjackSessionManager {
 
     // MARK: - Properties
 
-    weak var delegate: BlackjackSessionManagerDelegate?
+    weak var delegate: MPBlackjackSessionManagerDelegate?
 
     private(set) var sessionId: String?
     private(set) var sessionStartTime: Date?
@@ -41,41 +41,22 @@ final class BlackjackSessionManager {
     var currentBalance: Int {
         didSet {
             if oldValue != currentBalance {
-                delegate?.balanceDidChange(from: oldValue, to: currentBalance)
+                delegate?.mpBalanceDidChange(from: oldValue, to: currentBalance)
             }
         }
     }
 
     // MARK: - Initialization
 
-    init(startingBalance: Int = 200, resumingSession: GameSession? = nil) {
+    init(startingBalance: Int = 200) {
         self.startingBalance = startingBalance
         self.currentBalance = startingBalance
         self.lastBalanceBeforeHand = startingBalance
-
-        if let resuming = resumingSession {
-            // Resume existing session
-            self.sessionId = resuming.id
-            self.sessionStartTime = resuming.date
-            self.accumulatedPlayTime = resuming.duration
-            self.currentPeriodStartTime = Date() // Start tracking active time from now
-            self.handCount = resuming.handCount ?? 0
-            self.blackjackMetrics = resuming.blackjackMetrics ?? BlackjackGameplayMetrics()
-            self.blackjackMetrics.lastBalanceBeforeHand = resuming.endingBalance
-            self.balanceHistory = resuming.balanceHistory ?? [resuming.endingBalance]
-            self.betSizeHistory = resuming.betSizeHistory ?? []
-            self.atmVisitIndices = resuming.atmVisitIndices ?? []
-            self.lastBalanceBeforeHand = resuming.endingBalance
-            self.currentBalance = resuming.endingBalance
-            self.hasBeenSaved = false
-        } else {
-            // Start new session
-            self.blackjackMetrics = BlackjackGameplayMetrics()
-            self.blackjackMetrics.lastBalanceBeforeHand = startingBalance
-            self.balanceHistory = [startingBalance]
-            self.betSizeHistory = []
-            self.atmVisitIndices = []
-        }
+        self.blackjackMetrics = BlackjackGameplayMetrics()
+        self.blackjackMetrics.lastBalanceBeforeHand = startingBalance
+        self.balanceHistory = [startingBalance]
+        self.betSizeHistory = []
+        self.atmVisitIndices = []
     }
 
     // MARK: - Public Methods
@@ -98,11 +79,11 @@ final class BlackjackSessionManager {
         hasBeenSaved = false
 
         if let id = sessionId {
-            delegate?.sessionDidStart(id: id)
+            delegate?.mpSessionDidStart(id: id)
         }
     }
 
-    /// Pause the session timer (when app backgrounds)
+    /// Pause the session timer (when app backgrounds or leaves table)
     func pauseSessionTimer() {
         guard let periodStart = currentPeriodStartTime else { return }
 
@@ -141,7 +122,7 @@ final class BlackjackSessionManager {
     /// Increment hand count
     func incrementHandCount() {
         handCount += 1
-        delegate?.handCountDidChange(count: handCount)
+        delegate?.mpHandCountDidChange(count: handCount)
     }
 
     /// Track a bet placed
@@ -167,14 +148,14 @@ final class BlackjackSessionManager {
             blackjackMetrics.largestBetPercent = betPercent
         }
 
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
 
     /// Update concurrent bet count
     func updateConcurrentBets(count: Int) {
         if count > blackjackMetrics.maxConcurrentBets {
             blackjackMetrics.maxConcurrentBets = count
-            delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+            delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
         }
     }
 
@@ -184,25 +165,31 @@ final class BlackjackSessionManager {
         if isBlackjack {
             blackjackMetrics.blackjacksHit += 1
         }
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
 
     /// Record a loss
     func recordLoss() {
         blackjackMetrics.losses += 1
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
 
     /// Record a push
     func recordPush() {
         blackjackMetrics.pushes += 1
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
 
     /// Record a double down
     func recordDoubleDown() {
         blackjackMetrics.doublesDown += 1
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
+    }
+
+    /// Record a split
+    func recordSplit() {
+        blackjackMetrics.splits += 1
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
 
     /// Record a bonus bet win
@@ -220,7 +207,7 @@ final class BlackjackSessionManager {
             break
         }
 
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
 
     /// Update detailed bonus metrics from evaluator
@@ -231,7 +218,7 @@ final class BlackjackSessionManager {
         blackjackMetrics.mixedPairsWon += mixedPairs
         blackjackMetrics.royalMatchesWon += royalMatches
         blackjackMetrics.suitedMatchesWon += suitedMatches
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
 
     /// Track an ATM visit (bankroll reload)
@@ -239,60 +226,17 @@ final class BlackjackSessionManager {
     func trackATMVisit() {
         blackjackMetrics.atmVisitsCount += 1
         // Record the index in balance history where ATM visit occurred
-        // This will be used to exclude ATM visits from biggest swing calculation
-        // Index is balanceHistory.count - 1 because snapshot was just recorded
         atmVisitIndices.append(balanceHistory.count - 1)
-        delegate?.metricsDidUpdate(metrics: blackjackMetrics)
+        delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
 
-    /// Update and save the current session (called after every hand)
-    /// This always saves, updating the existing session, so the app can be backgrounded/quit safely
-    func updateSession() {
-        guard let sessionId = sessionId,
-              let startTime = sessionStartTime else { return }
-
-        // Only save session if there was actual gameplay (bets placed or hands played)
-        guard handCount > 0 || blackjackMetrics.totalBetAmount > 0 else {
-            return
-        }
-
-        // Calculate total duration: accumulated time + current active period (if any)
-        var duration = accumulatedPlayTime
-        if let periodStart = currentPeriodStartTime {
-            duration += Date().timeIntervalSince(periodStart)
-        }
-
-        let endingBalance = currentBalance
-        finalizeBalanceHistory()
-
-        let session = GameSession(
-            id: sessionId,
-            date: startTime,
-            duration: duration,
-            startingBalance: startingBalance,
-            endingBalance: endingBalance,
-            rollCount: nil,
-            gameplayMetrics: nil,
-            sevensRolled: nil,
-            pointsHit: nil,
-            balanceHistory: balanceHistory,
-            betSizeHistory: betSizeHistory,
-            atmVisitIndices: atmVisitIndices,
-            handCount: handCount,
-            blackjackMetrics: blackjackMetrics,
-            gameType: .blackjack
-        )
-
-        SessionPersistenceManager.shared.saveSession(session)
-        // Note: Don't set hasBeenSaved = true here, so this can be called multiple times
-    }
-
-    /// Save the current session
+    /// Save the current session (called when leaving table or app backgrounding)
+    @discardableResult
     func saveCurrentSession() -> GameSession? {
         guard let sessionId = sessionId,
               let startTime = sessionStartTime else { return nil }
 
-        // If already saved (e.g., on background), don't save again unless explicitly ending
+        // If already saved, don't save again unless explicitly ending
         if hasBeenSaved {
             return nil
         }
@@ -326,16 +270,17 @@ final class BlackjackSessionManager {
             atmVisitIndices: atmVisitIndices,
             handCount: handCount,
             blackjackMetrics: blackjackMetrics,
-            gameType: .blackjack
+            gameType: .multiplayerBlackjack
         )
 
         SessionPersistenceManager.shared.saveSession(session)
         hasBeenSaved = true
-        delegate?.sessionWasSaved(session: session)
+        delegate?.mpSessionWasSaved(session: session)
         return session
     }
 
     /// Force save the current session (for explicit end session)
+    @discardableResult
     func saveCurrentSessionForced() -> GameSession? {
         guard let sessionId = sessionId,
               let startTime = sessionStartTime else { return nil }
@@ -369,16 +314,16 @@ final class BlackjackSessionManager {
             atmVisitIndices: atmVisitIndices,
             handCount: handCount,
             blackjackMetrics: blackjackMetrics,
-            gameType: .blackjack
+            gameType: .multiplayerBlackjack
         )
 
         SessionPersistenceManager.shared.saveSession(session)
         hasBeenSaved = true
-        delegate?.sessionWasSaved(session: session)
+        delegate?.mpSessionWasSaved(session: session)
         return session
     }
 
-    /// Get a snapshot of the current session
+    /// Get a snapshot of the current session (for displaying current game stats)
     func currentSessionSnapshot() -> GameSession? {
         guard let sessionId = sessionId, let startTime = sessionStartTime else { return nil }
 
@@ -428,7 +373,7 @@ final class BlackjackSessionManager {
             atmVisitIndices: atmVisitIndices,
             handCount: handCount,
             blackjackMetrics: blackjackMetrics,
-            gameType: .blackjack
+            gameType: .multiplayerBlackjack
         )
     }
 

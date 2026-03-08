@@ -9,313 +9,493 @@ import UIKit
 
 class MainViewController: UIViewController {
 
-    private var tableView: UITableView!
-    private var sessions: [GameSession] = []
-    private let startGameButton = NNPrimaryLabeledButton(title: "Craps")
-    private let blackjackButton = NNPrimaryLabeledButton(title: "Black Jack")
-    private let ctaContainer = UIView()
-    private let ctaStackView = UIStackView()
-    private var visualEffectView: UIVisualEffectView?
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-        title = "Game Sessions"
-        
-        setupNavigationBar()
-        setupTableView()
-        setupStartGameButtons()
-        loadSessions()
+  // MARK: - Game Definitions
+
+  private struct GamePage {
+    let title: String
+    let isBlackjack: Bool
+  }
+
+  private let gamePages: [GamePage] = [
+    GamePage(title: "Craps", isBlackjack: false),
+    GamePage(title: "Blackjack", isBlackjack: true),
+  ]
+
+  // MARK: - UI Components
+
+  private lazy var tabBar = GameCategoryTabBar(titles: gamePages.map(\.title))
+  private let pagingScrollView = UIScrollView()
+  private let pagesContainer = UIView()
+
+  private var pageTableViews: [UITableView] = []
+  private var pageSessions: [[GameSession]] = []
+  private var pageCtaContainers: [UIView] = []
+  private var pageBlurViews: [UIVisualEffectView] = []
+  private var tabBarBlurView: UIVisualEffectView?
+
+  private var isUpdatingFromScroll = false
+  private var hasSetInitialInsets = false
+
+  // MARK: - Lifecycle
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = .black
+    title = "Game Sessions"
+
+    pageSessions = gamePages.map { _ in [] }
+
+    setupNavigationBar()
+    setupPagingScrollView()
+    setupTabBarWithBlur()
+    setupPages()
+    loadSessions()
+  }
+
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    loadSessions()
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    let width = pagingScrollView.bounds.width
+    guard width > 0 else { return }
+    pagingScrollView.contentSize = CGSize(
+      width: width * CGFloat(gamePages.count),
+      height: pagingScrollView.bounds.height
+    )
+    for (i, _) in gamePages.enumerated() {
+      let pageView = pagesContainer.subviews[i]
+      pageView.frame = CGRect(
+        x: width * CGFloat(i),
+        y: 0,
+        width: width,
+        height: pagingScrollView.bounds.height
+      )
     }
-    
-    private func setupNavigationBar() {
-        let settingsButton = UIBarButtonItem(
-            image: UIImage(systemName: "gearshape"),
-            style: .plain,
-            target: self,
-            action: #selector(showSettings)
-        )
-        navigationItem.rightBarButtonItem = settingsButton
+    updateTableViewInsets()
+  }
+
+  // MARK: - Navigation Bar
+
+  private func setupNavigationBar() {
+    let settingsButton = UIBarButtonItem(
+      image: UIImage(systemName: "gearshape"),
+      style: .plain,
+      target: self,
+      action: #selector(showSettings)
+    )
+    navigationItem.rightBarButtonItem = settingsButton
+  }
+
+  @objc private func showSettings() {
+    let settingsVC = AppSettingsViewController()
+    let navController = UINavigationController(rootViewController: settingsVC)
+    present(navController, animated: true)
+  }
+
+  // MARK: - Tab Bar
+
+  private func setupTabBarWithBlur() {
+    tabBarBlurView = UIVisualEffectView()
+    if let maskImage = UIImage(named: "testBG3"),
+      let flipped = flipImageVertically(maskImage)
+    {
+      tabBarBlurView?.effect = UIBlurEffect.variableBlurEffect(radius: 16, maskImage: flipped)
+    }
+    tabBarBlurView?.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(tabBarBlurView!)
+
+    tabBar.delegate = self
+    view.addSubview(tabBar)
+
+    NSLayoutConstraint.activate([
+      tabBarBlurView!.topAnchor.constraint(equalTo: view.topAnchor),
+      tabBarBlurView!.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      tabBarBlurView!.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      tabBarBlurView!.bottomAnchor.constraint(equalTo: tabBar.bottomAnchor),
+
+      tabBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+      tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+    ])
+  }
+
+  private func flipImageVertically(_ image: UIImage) -> UIImage? {
+    guard let cgImage = image.cgImage else { return nil }
+    return UIImage(cgImage: cgImage, scale: image.scale, orientation: .downMirrored)
+  }
+
+  // MARK: - Paging Scroll View
+
+  private func setupPagingScrollView() {
+    pagingScrollView.translatesAutoresizingMaskIntoConstraints = false
+    pagingScrollView.isPagingEnabled = true
+    pagingScrollView.showsHorizontalScrollIndicator = false
+    pagingScrollView.bounces = true
+    pagingScrollView.delegate = self
+    pagingScrollView.backgroundColor = .clear
+    view.addSubview(pagingScrollView)
+
+    pagesContainer.translatesAutoresizingMaskIntoConstraints = false
+    pagingScrollView.addSubview(pagesContainer)
+
+    NSLayoutConstraint.activate([
+      pagingScrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+      pagingScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      pagingScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      pagingScrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+      pagesContainer.topAnchor.constraint(equalTo: pagingScrollView.topAnchor),
+      pagesContainer.leadingAnchor.constraint(equalTo: pagingScrollView.leadingAnchor),
+      pagesContainer.heightAnchor.constraint(equalTo: pagingScrollView.heightAnchor),
+      pagesContainer.widthAnchor.constraint(
+        equalTo: pagingScrollView.widthAnchor, multiplier: CGFloat(gamePages.count)),
+    ])
+  }
+
+  // MARK: - Page Setup
+
+  private func setupPages() {
+    for (index, page) in gamePages.enumerated() {
+      let pageView = UIView()
+      pageView.backgroundColor = .clear
+      pagesContainer.addSubview(pageView)
+
+      let tableView = createTableView(tag: index)
+      pageView.addSubview(tableView)
+      pageTableViews.append(tableView)
+
+      NSLayoutConstraint.activate([
+        tableView.topAnchor.constraint(equalTo: pageView.topAnchor),
+        tableView.leadingAnchor.constraint(equalTo: pageView.leadingAnchor),
+        tableView.trailingAnchor.constraint(equalTo: pageView.trailingAnchor),
+        tableView.bottomAnchor.constraint(equalTo: pageView.bottomAnchor),
+      ])
+
+      let (ctaContainer, blurView) = createCtaArea(for: page, in: pageView)
+      pageCtaContainers.append(ctaContainer)
+      pageBlurViews.append(blurView)
+    }
+  }
+
+  private func createTableView(tag: Int) -> UITableView {
+    let tv = UITableView(frame: .zero, style: .plain)
+    tv.translatesAutoresizingMaskIntoConstraints = false
+    tv.backgroundColor = .black
+    tv.separatorColor = .darkGray
+    tv.delegate = self
+    tv.dataSource = self
+    tv.tag = tag
+    tv.register(SessionTableViewCell.self, forCellReuseIdentifier: "SessionCell")
+    return tv
+  }
+
+  private func createCtaArea(for page: GamePage, in pageView: UIView) -> (
+    UIView, UIVisualEffectView
+  ) {
+    let blurView = UIVisualEffectView()
+    if let maskImage = UIImage(named: "testBG3") {
+      blurView.effect = UIBlurEffect.variableBlurEffect(radius: 16, maskImage: maskImage)
+    }
+    blurView.translatesAutoresizingMaskIntoConstraints = false
+    pageView.addSubview(blurView)
+
+    let container = UIView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.backgroundColor = .clear
+    pageView.addSubview(container)
+
+    let stack = UIStackView()
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.axis = .vertical
+    stack.alignment = .fill
+    stack.distribution = .fillEqually
+    stack.spacing = 12
+    container.addSubview(stack)
+
+    if page.isBlackjack {
+      let soloButton = NNPrimaryLabeledButton(title: "Solo")
+      soloButton.addTarget(self, action: #selector(blackjackSoloTapped), for: .touchUpInside)
+
+      let multiButton = NNPrimaryLabeledButton(title: "Multiplayer")
+      multiButton.addTarget(
+        self, action: #selector(blackjackMultiplayerTapped), for: .touchUpInside)
+
+      stack.addArrangedSubview(soloButton)
+      stack.addArrangedSubview(multiButton)
+
+      soloButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
+      multiButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
+    } else {
+      let newGameButton = NNPrimaryLabeledButton(title: "New Game")
+      newGameButton.addTarget(self, action: #selector(crapsNewGameTapped), for: .touchUpInside)
+      stack.addArrangedSubview(newGameButton)
+      newGameButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
     }
 
-    @objc private func showSettings() {
-        let settingsVC = AppSettingsViewController()
-        let navController = UINavigationController(rootViewController: settingsVC)
-        present(navController, animated: true)
+    NSLayoutConstraint.activate([
+      blurView.leadingAnchor.constraint(equalTo: pageView.leadingAnchor),
+      blurView.trailingAnchor.constraint(equalTo: pageView.trailingAnchor),
+      blurView.topAnchor.constraint(equalTo: container.topAnchor),
+      blurView.bottomAnchor.constraint(equalTo: pageView.bottomAnchor),
+
+      container.leadingAnchor.constraint(equalTo: pageView.leadingAnchor),
+      container.trailingAnchor.constraint(equalTo: pageView.trailingAnchor),
+      container.bottomAnchor.constraint(equalTo: pageView.bottomAnchor),
+
+      stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+      stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+      stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+      stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 40),
+    ])
+
+    return (container, blurView)
+  }
+
+  private func updateTableViewInsets() {
+    let tabBarHeight = tabBar.bounds.height
+    for (i, container) in pageCtaContainers.enumerated() {
+      container.layoutIfNeeded()
+      let ctaHeight = container.bounds.height
+      guard ctaHeight > 0 else { continue }
+      pageTableViews[i].contentInset = UIEdgeInsets(
+        top: tabBarHeight,
+        left: 0,
+        bottom: ctaHeight + 20,
+        right: 0
+      )
+      pageTableViews[i].verticalScrollIndicatorInsets = UIEdgeInsets(
+        top: tabBarHeight,
+        left: 0,
+        bottom: ctaHeight - 20,
+        right: 0
+      )
     }
-    
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        loadSessions()
+    if !hasSetInitialInsets, tabBarHeight > 0 {
+      hasSetInitialInsets = true
+      for tv in pageTableViews {
+        tv.contentOffset.y = -tabBarHeight
+      }
     }
-    
-    private func setupTableView() {
-        tableView = UITableView(frame: .zero, style: .plain)
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.backgroundColor = .black
-        tableView.separatorColor = .darkGray
-        tableView.delegate = self
-        tableView.dataSource = self
-        tableView.register(SessionTableViewCell.self, forCellReuseIdentifier: "SessionCell")
+  }
 
-        view.addSubview(tableView)
+  // MARK: - Actions
 
-        NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+  @objc private func crapsNewGameTapped() {
+    let gameplayVC = CrapsGameplayViewController()
+    navigationController?.pushViewController(gameplayVC, animated: true)
+  }
+
+  @objc private func blackjackSoloTapped() {
+    let vc = BlackjackGameplayViewController()
+    navigationController?.pushViewController(vc, animated: true)
+  }
+
+  @objc private func blackjackMultiplayerTapped() {
+    let vc = MPBlackjackLobbyViewController()
+    navigationController?.pushViewController(vc, animated: true)
+  }
+
+  // MARK: - Data Loading
+
+  private func loadSessions() {
+    let allSessions = SessionPersistenceManager.shared.loadAllSessions()
+    for (i, page) in gamePages.enumerated() {
+      if page.isBlackjack {
+        pageSessions[i] = allSessions.filter { $0.isBlackjackSession }
+      } else {
+        pageSessions[i] = allSessions.filter { !$0.isBlackjackSession }
+      }
+      pageTableViews[i].reloadData()
     }
-    
-    private func setupStartGameButtons() {
-        // Configure buttons
-        startGameButton.addTarget(self, action: #selector(startGameTapped), for: .touchUpInside)
-        configureBlackjackMenu()
-
-        // Setup variable blur effect view
-        visualEffectView = UIVisualEffectView()
-        guard let visualEffectView = visualEffectView,
-              let maskImage = UIImage(named: "testBG3") else { return }
-
-        visualEffectView.effect = UIBlurEffect.variableBlurEffect(radius: 16, maskImage: maskImage)
-        visualEffectView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(visualEffectView)
-
-        // Setup container
-        ctaContainer.translatesAutoresizingMaskIntoConstraints = false
-        ctaContainer.backgroundColor = .clear
-        view.addSubview(ctaContainer)
-
-        // Setup stack view
-        ctaStackView.translatesAutoresizingMaskIntoConstraints = false
-        ctaStackView.axis = .vertical
-        ctaStackView.alignment = .fill
-        ctaStackView.distribution = .fillEqually
-        ctaStackView.spacing = 12
-        ctaStackView.addArrangedSubview(startGameButton)
-        ctaStackView.addArrangedSubview(blackjackButton)
-
-        ctaContainer.addSubview(ctaStackView)
-
-        NSLayoutConstraint.activate([
-            // Blur view extends from bottom of container to bottom of screen
-            visualEffectView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            visualEffectView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            visualEffectView.topAnchor.constraint(equalTo: ctaContainer.topAnchor),
-            visualEffectView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            // Container stretches to bottom
-            ctaContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            ctaContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ctaContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            // Stack view positioned within container with more top padding for taller blur
-            ctaStackView.leadingAnchor.constraint(equalTo: ctaContainer.leadingAnchor, constant: 16),
-            ctaStackView.trailingAnchor.constraint(equalTo: ctaContainer.trailingAnchor, constant: -16),
-            ctaStackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
-            ctaStackView.topAnchor.constraint(equalTo: ctaContainer.topAnchor, constant: 40),
-
-            // Button heights
-            startGameButton.heightAnchor.constraint(equalToConstant: 55),
-            blackjackButton.heightAnchor.constraint(equalToConstant: 55)
-        ])
-
-        // Add bottom content inset to table view to prevent content from going under the CTA container
-        // Calculate the height dynamically after layout
-        view.layoutIfNeeded()
-        let containerHeight = ctaStackView.frame.height + 56 // 40pt top + 16pt bottom padding
-        tableView.contentInset.bottom = containerHeight + 20 // Add extra 20pt buffer
-        tableView.verticalScrollIndicatorInsets.bottom = containerHeight - 20// Match scroll indicator to content inset
-    }
-    
-    @objc private func startGameTapped() {
-        let gameplayVC = CrapsGameplayViewController()
-        navigationController?.pushViewController(gameplayVC, animated: true)
-    }
-    
-    private func configureBlackjackMenu() {
-        // Override tap to show menu as action sheet
-        blackjackButton.removeTarget(nil, action: nil, for: .touchUpInside)
-        blackjackButton.addTarget(self, action: #selector(blackjackButtonTapped), for: .touchUpInside)
-    }
-    
-    @objc private func blackjackButtonTapped() {
-        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        
-        let soloAction = UIAlertAction(title: "Solo", style: .default) { [weak self] _ in
-            let vc = BlackjackGameplayViewController()
-            self?.navigationController?.pushViewController(vc, animated: true)
-        }
-        
-        let multiplayerAction = UIAlertAction(title: "Multiplayer", style: .default) { [weak self] _ in
-            let vc = MPBlackjackLobbyViewController()
-            self?.navigationController?.pushViewController(vc, animated: true)
-        }
-        
-        alert.addAction(soloAction)
-        alert.addAction(multiplayerAction)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        
-        // For iPad support
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = blackjackButton
-            popover.sourceRect = blackjackButton.bounds
-        }
-        
-        present(alert, animated: true)
-    }
-    
-    private func loadSessions() {
-        sessions = SessionPersistenceManager.shared.loadAllSessions()
-        tableView.reloadData()
-    }
+  }
 }
+
+// MARK: - GameCategoryTabBarDelegate
+
+extension MainViewController: GameCategoryTabBarDelegate {
+  func tabBar(_ tabBar: GameCategoryTabBar, didSelectTabAt index: Int) {
+    let offsetX = pagingScrollView.bounds.width * CGFloat(index)
+    isUpdatingFromScroll = true
+    pagingScrollView.setContentOffset(CGPoint(x: offsetX, y: 0), animated: true)
+  }
+}
+
+// MARK: - UIScrollViewDelegate
+
+extension MainViewController: UIScrollViewDelegate {
+  func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    guard scrollView === pagingScrollView, !isUpdatingFromScroll else { return }
+    let width = scrollView.bounds.width
+    guard width > 0 else { return }
+    let page = Int(round(scrollView.contentOffset.x / width))
+    let clampedPage = max(0, min(page, gamePages.count - 1))
+    if clampedPage != tabBar.selectedIndex {
+      tabBar.selectTab(at: clampedPage, animated: true)
+    }
+  }
+
+  func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+    if scrollView === pagingScrollView {
+      isUpdatingFromScroll = false
+    }
+  }
+
+  func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+    if scrollView === pagingScrollView {
+      isUpdatingFromScroll = false
+    }
+  }
+}
+
+// MARK: - UITableViewDataSource
 
 extension MainViewController: UITableViewDataSource {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return sessions.count
-    }
-    
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "SessionCell", for: indexPath) as! SessionTableViewCell
-        cell.configure(with: sessions[indexPath.row])
-        return cell
-    }
+  func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    let pageIndex = tableView.tag
+    return pageSessions[pageIndex].count
+  }
+
+  func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+    let cell =
+      tableView.dequeueReusableCell(withIdentifier: "SessionCell", for: indexPath)
+      as! SessionTableViewCell
+    let pageIndex = tableView.tag
+    cell.configure(with: pageSessions[pageIndex][indexPath.row])
+    return cell
+  }
 }
 
+// MARK: - UITableViewDelegate
+
 extension MainViewController: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 80
+  func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+    return 80
+  }
+
+  func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    tableView.deselectRow(at: indexPath, animated: true)
+    let pageIndex = tableView.tag
+    let session = pageSessions[pageIndex][indexPath.row]
+    let detailViewController = GameDetailViewController(session: session, canContinueSession: true)
+
+    detailViewController.onContinueSession = { [weak self] in
+      guard let self = self,
+        let navController = self.navigationController
+      else { return }
+
+      let gameplayVC: UIViewController
+      if session.isBlackjackSession {
+        gameplayVC = BlackjackGameplayViewController(resumingSession: session)
+      } else {
+        gameplayVC = CrapsGameplayViewController(resumingSession: session)
+      }
+
+      navController.popViewController(animated: false)
+      navController.pushViewController(gameplayVC, animated: true)
     }
 
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        let session = sessions[indexPath.row]
-        let detailViewController = GameDetailViewController(session: session, canContinueSession: true)
-
-        // Set up callback for continuing session
-        detailViewController.onContinueSession = { [weak self] in
-            guard let self = self,
-                  let navController = self.navigationController else { return }
-
-            // Create appropriate gameplay view controller with the resumed session
-            let gameplayVC: UIViewController
-            if session.isBlackjackSession {
-                gameplayVC = BlackjackGameplayViewController(resumingSession: session)
-            } else {
-                gameplayVC = CrapsGameplayViewController(resumingSession: session)
-            }
-
-            // Pop the detail view controller and push the gameplay view controller
-            navController.popViewController(animated: false)
-            navController.pushViewController(gameplayVC, animated: true)
-        }
-
-        navigationController?.pushViewController(detailViewController, animated: true)
-    }
+    navigationController?.pushViewController(detailViewController, animated: true)
+  }
 }
 
 // MARK: - Session Table View Cell
 
 class SessionTableViewCell: UITableViewCell {
-    
-    private let gameTypeLabel = UILabel()
-    private let dateLabel = UILabel()
-    private let durationLabel = UILabel()
-    private let playerTypeLabel = UILabel()
-    private let resultLabel = UILabel()
-    private let stackView = UIStackView()
-    
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupCell()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    private func setupCell() {
-        backgroundColor = .black
-        contentView.backgroundColor = .black
-        selectionStyle = .none
-        
-        // Configure game type label
-        gameTypeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        gameTypeLabel.textColor = HardwayColors.yellow
-        gameTypeLabel.numberOfLines = 1
-        
-        // Configure date label
-        dateLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        dateLabel.textColor = .lightGray
-        dateLabel.numberOfLines = 1
-        
-        // Configure duration label
-        durationLabel.font = .systemFont(ofSize: 16, weight: .medium)
-        durationLabel.textColor = .white
-        durationLabel.numberOfLines = 1
-        
-        // Configure result label
-        resultLabel.translatesAutoresizingMaskIntoConstraints = false
-        resultLabel.font = .systemFont(ofSize: 16, weight: .medium)
-        resultLabel.textAlignment = .right
-        
-        // Configure stack view
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.axis = .vertical
-        stackView.distribution = .fill
-        stackView.spacing = 4
-        stackView.alignment = .leading
-        stackView.addArrangedSubview(gameTypeLabel)
-        stackView.addArrangedSubview(dateLabel)
-        stackView.addArrangedSubview(durationLabel)
-        
-        contentView.addSubview(stackView)
-        contentView.addSubview(resultLabel)
-        
-        NSLayoutConstraint.activate([
-            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            stackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: resultLabel.leadingAnchor, constant: -16),
-            
-            resultLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            resultLabel.bottomAnchor.constraint(equalTo: stackView.bottomAnchor),
-            resultLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 70),
-        ])
-    }
-    
-    func configure(with session: GameSession) {
-        // Configure game type label
-        gameTypeLabel.text = session.isBlackjackSession ? "BLACKJACK" : "CRAPS"
-        
-        dateLabel.text = session.formattedDate
-        let durationPart = session.formattedDurationWithRolls
-        let playerType = session.playerType
-        
-        durationLabel.text = "\(durationPart), \(playerType.rawValue)"
-        
-        // Configure result label to show starting and ending balance
-        // Format: "$500 → $650" or "$500 → $350"
-        let startingBalance = session.startingBalance
-        let endingBalance = session.endingBalance
-        resultLabel.text = "$\(startingBalance) → $\(endingBalance)"
-        
-        // Color based on profit/loss: green if profit, red if loss, white if break-even
-        if endingBalance > startingBalance {
-            resultLabel.textColor = .systemGreen
-        } else if endingBalance < startingBalance {
-            resultLabel.textColor = .systemRed
-        } else {
-            resultLabel.textColor = .white
-        }
-        resultLabel.backgroundColor = .clear
-        
-        // Ensure labels are visible
-        gameTypeLabel.isHidden = false
-        dateLabel.isHidden = false
-        durationLabel.isHidden = false
-        resultLabel.isHidden = false
-    }
-}
 
+  private let gameTypeLabel = UILabel()
+  private let dateLabel = UILabel()
+  private let durationLabel = UILabel()
+  private let playerTypeLabel = UILabel()
+  private let resultLabel = UILabel()
+  private let stackView = UIStackView()
+
+  override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+    super.init(style: style, reuseIdentifier: reuseIdentifier)
+    setupCell()
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  private func setupCell() {
+    backgroundColor = .black
+    contentView.backgroundColor = .black
+    selectionStyle = .none
+
+    gameTypeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+    gameTypeLabel.textColor = HardwayColors.yellow
+    gameTypeLabel.numberOfLines = 1
+
+    dateLabel.font = .systemFont(ofSize: 12, weight: .regular)
+    dateLabel.textColor = .lightGray
+    dateLabel.numberOfLines = 1
+
+    durationLabel.font = .systemFont(ofSize: 16, weight: .medium)
+    durationLabel.textColor = .white
+    durationLabel.numberOfLines = 1
+
+    resultLabel.translatesAutoresizingMaskIntoConstraints = false
+    resultLabel.font = .systemFont(ofSize: 16, weight: .medium)
+    resultLabel.textAlignment = .right
+
+    stackView.translatesAutoresizingMaskIntoConstraints = false
+    stackView.axis = .vertical
+    stackView.distribution = .fill
+    stackView.spacing = 4
+    stackView.alignment = .leading
+    stackView.addArrangedSubview(gameTypeLabel)
+    stackView.addArrangedSubview(dateLabel)
+    stackView.addArrangedSubview(durationLabel)
+
+    contentView.addSubview(stackView)
+    contentView.addSubview(resultLabel)
+
+    NSLayoutConstraint.activate([
+      stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+      stackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+      stackView.trailingAnchor.constraint(
+        lessThanOrEqualTo: resultLabel.leadingAnchor, constant: -16),
+
+      resultLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+      resultLabel.bottomAnchor.constraint(equalTo: stackView.bottomAnchor),
+      resultLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 70),
+    ])
+  }
+
+  func configure(with session: GameSession) {
+    // Distinguish between solo and multiplayer blackjack
+    if session.isBlackjackSession {
+      gameTypeLabel.text = session.isMultiplayerSession ? "MULTIPLAYER BLACKJACK" : "SOLO BLACKJACK"
+    } else {
+      gameTypeLabel.text = "CRAPS"
+    }
+
+    dateLabel.text = session.formattedDate
+    let durationPart = session.formattedDurationWithRolls
+    let playerType = session.playerType
+
+    durationLabel.text = "\(durationPart), \(playerType.rawValue)"
+
+    let startingBalance = session.startingBalance
+    let endingBalance = session.endingBalance
+    resultLabel.text = "$\(startingBalance) → $\(endingBalance)"
+
+    if endingBalance > startingBalance {
+      resultLabel.textColor = .systemGreen
+    } else if endingBalance < startingBalance {
+      resultLabel.textColor = .systemRed
+    } else {
+      resultLabel.textColor = .white
+    }
+    resultLabel.backgroundColor = .clear
+
+    gameTypeLabel.isHidden = false
+    dateLabel.isHidden = false
+    durationLabel.isHidden = false
+    resultLabel.isHidden = false
+  }
+}

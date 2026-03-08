@@ -7,6 +7,12 @@
 
 import Foundation
 
+enum GameType: String, Codable {
+    case craps = "Craps"
+    case blackjack = "Blackjack"
+    case multiplayerBlackjack = "Multiplayer Blackjack"
+}
+
 struct GameSession: Codable {
     let id: String
     let date: Date
@@ -24,6 +30,9 @@ struct GameSession: Codable {
     // Blackjack-specific fields
     let handCount: Int?
     let blackjackMetrics: BlackjackGameplayMetrics?
+
+    // Game type (for filtering/display)
+    let gameType: GameType?
     
     var netResult: Int {
         return endingBalance - startingBalance
@@ -76,7 +85,14 @@ struct GameSession: Codable {
     }
     
     var isBlackjackSession: Bool {
+        if let type = gameType {
+            return type == .blackjack || type == .multiplayerBlackjack
+        }
         return handCount != nil
+    }
+
+    var isMultiplayerSession: Bool {
+        return gameType == .multiplayerBlackjack
     }
 
     var rollCountValue: Int {

@@ -581,6 +581,12 @@ export const startDeal = onCall<StartDealData>(async (request) => {
   const dealerCard2 = dealCard();
   // Write cards to seats (don't auto-stand blackjacks)
   const updates: Record<string, unknown> = {};
+  // New hand has started: clear ready flags so players can ready up again.
+  for (let i = 0; i < MAX_SEATS; i++) {
+    if (seatsData[i]?.playerId) {
+      updates[`${i}/ready`] = false;
+    }
+  }
   for (let i = 0; i < seatKeys.length; i++) {
     const seatIndex = seatKeys[i];
     const seat = seatsData[seatIndex];
