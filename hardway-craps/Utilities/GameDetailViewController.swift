@@ -142,6 +142,65 @@ final class GameDetailViewController: UIViewController {
             statGrid.addArrangedSubview(row2)
             statGrid.addArrangedSubview(row3)
             statGrid.addArrangedSubview(row4)
+        } else if session.isBaccaratSession {
+            // Baccarat-specific stats
+            let row1 = UIStackView()
+            row1.axis = .horizontal
+            row1.spacing = 8
+            row1.distribution = .fillEqually
+            row1.addArrangedSubview(StatCardView(title: "Hands", value: "\(session.handCountValue)"))
+            row1.addArrangedSubview(StatCardView(title: "Time Playing", value: session.formattedDuration))
+            row1.addArrangedSubview(StatCardView(title: "Win Rate", value: formatPercent(session.winRate)))
+
+            let row2 = UIStackView()
+            row2.axis = .horizontal
+            row2.spacing = 8
+            row2.distribution = .fillEqually
+            row2.addArrangedSubview(StatCardView(title: "Avg Bet", value: formatCurrency(session.averageBetSize)))
+            row2.addArrangedSubview(StatCardView(title: "Biggest Swing", value: formatCurrency(Double(session.biggestSwing))))
+            row2.addArrangedSubview(StatCardView(title: "Time / Hand", value: formatTimePerHand(session.timePerHand)))
+
+            let row3 = UIStackView()
+            row3.axis = .horizontal
+            row3.spacing = 8
+            row3.distribution = .fillEqually
+            if let metrics = session.baccaratMetrics {
+                row3.addArrangedSubview(StatCardView(title: "Banker Wins", value: "\(metrics.bankerWins)"))
+                row3.addArrangedSubview(StatCardView(title: "Player Wins", value: "\(metrics.playerWins)"))
+                row3.addArrangedSubview(StatCardView(title: "Ties", value: "\(metrics.ties)"))
+            } else {
+                row3.addArrangedSubview(StatCardView(title: "Banker Wins", value: "0"))
+                row3.addArrangedSubview(StatCardView(title: "Player Wins", value: "0"))
+                row3.addArrangedSubview(StatCardView(title: "Ties", value: "0"))
+            }
+
+            let row4 = UIStackView()
+            row4.axis = .horizontal
+            row4.spacing = 8
+            row4.distribution = .fillEqually
+            if let metrics = session.baccaratMetrics {
+                row4.addArrangedSubview(StatCardView(title: "Naturals", value: "\(metrics.naturals)"))
+            } else {
+                row4.addArrangedSubview(StatCardView(title: "Naturals", value: "0"))
+            }
+            if session.atmVisitsCount > 0 {
+                row4.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
+                let spacer = UIView()
+                spacer.translatesAutoresizingMaskIntoConstraints = false
+                row4.addArrangedSubview(spacer)
+            } else {
+                let spacer1 = UIView()
+                spacer1.translatesAutoresizingMaskIntoConstraints = false
+                let spacer2 = UIView()
+                spacer2.translatesAutoresizingMaskIntoConstraints = false
+                row4.addArrangedSubview(spacer1)
+                row4.addArrangedSubview(spacer2)
+            }
+
+            statGrid.addArrangedSubview(row1)
+            statGrid.addArrangedSubview(row2)
+            statGrid.addArrangedSubview(row3)
+            statGrid.addArrangedSubview(row4)
         } else {
             // Craps-specific stats
             let row1 = UIStackView()
@@ -175,12 +234,10 @@ final class GameDetailViewController: UIViewController {
             row4.addArrangedSubview(StatCardView(title: "Points Hit", value: "\(session.pointsHitValue)"))
             if session.atmVisitsCount > 0 {
                 row4.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
-                // Add empty spacer to keep layout balanced
                 let spacer = UIView()
                 spacer.translatesAutoresizingMaskIntoConstraints = false
                 row4.addArrangedSubview(spacer)
             } else {
-                // Add two empty spacers to keep layout balanced
                 let spacer1 = UIView()
                 spacer1.translatesAutoresizingMaskIntoConstraints = false
                 let spacer2 = UIView()
@@ -198,7 +255,7 @@ final class GameDetailViewController: UIViewController {
         stackView.addArrangedSubview(statGrid)
 
         let graphTitle = UILabel()
-        graphTitle.text = session.isBlackjackSession ? "Balance Over Hands" : "Balance Over Rolls"
+        graphTitle.text = (session.isBlackjackSession || session.isBaccaratSession) ? "Balance Over Hands" : "Balance Over Rolls"
         graphTitle.textColor = .white
         graphTitle.font = .systemFont(ofSize: 16, weight: .semibold)
         stackView.addArrangedSubview(graphTitle)
@@ -213,7 +270,7 @@ final class GameDetailViewController: UIViewController {
             balanceHistory: session.balanceHistoryValue,
             betSizeHistory: session.betSizeHistoryValue,
             atmVisitIndices: session.atmVisitIndices ?? [],
-            isBlackjack: session.isBlackjackSession
+            isBlackjack: session.isBlackjackSession || session.isBaccaratSession
         )
         let hostingController = UIHostingController(rootView: chartView)
         chartHostingController = hostingController
@@ -233,7 +290,7 @@ final class GameDetailViewController: UIViewController {
         stackView.addArrangedSubview(chartContainer)
 
         let xAxisLabel = UILabel()
-        xAxisLabel.text = session.isBlackjackSession ? "Hands" : "Rolls"
+        xAxisLabel.text = (session.isBlackjackSession || session.isBaccaratSession) ? "Hands" : "Rolls"
         xAxisLabel.textColor = .lightGray
         xAxisLabel.font = .systemFont(ofSize: 12, weight: .regular)
         xAxisLabel.textAlignment = .center

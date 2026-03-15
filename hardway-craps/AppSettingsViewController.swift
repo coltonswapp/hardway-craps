@@ -69,6 +69,7 @@ final class AppSettingsViewController: UITableViewController {
         case blackjackHand
         case multiplayerBet
         case multiplayerBlackjack
+        case baccaratCard
 
         var title: String {
             switch self {
@@ -79,6 +80,7 @@ final class AppSettingsViewController: UITableViewController {
             case .blackjackHand: return "Blackjack Hand Playground"
             case .multiplayerBet: return "Multiplayer Bet Playground"
             case .multiplayerBlackjack: return "Multiplayer Blackjack"
+            case .baccaratCard: return "Baccarat Card Playground"
             }
         }
 
@@ -91,6 +93,7 @@ final class AppSettingsViewController: UITableViewController {
             case .blackjackHand: return "rectangle.stack"
             case .multiplayerBet: return "person.2.fill"
             case .multiplayerBlackjack: return "person.3.fill"
+            case .baccaratCard: return "suit.club.fill"
             }
         }
 
@@ -103,6 +106,7 @@ final class AppSettingsViewController: UITableViewController {
             case .blackjackHand: return false
             case .multiplayerBet: return false
             case .multiplayerBlackjack: return false
+            case .baccaratCard: return false
             }
         }
     }
@@ -570,6 +574,11 @@ final class AppSettingsViewController: UITableViewController {
             present(nav, animated: true)
         case .multiplayerBlackjack:
             let vc = MPBlackjackLobbyViewController()
+            let nav = UINavigationController(rootViewController: vc)
+            nav.isModalInPresentation = true
+            present(nav, animated: true)
+        case .baccaratCard:
+            let vc = BaccaratCardPlayground()
             let nav = UINavigationController(rootViewController: vc)
             nav.isModalInPresentation = true
             present(nav, animated: true)
