@@ -11,14 +11,21 @@ class MainViewController: UIViewController {
 
   // MARK: - Game Definitions
 
+  private enum GameType {
+    case craps
+    case blackjack
+    case baccarat
+  }
+
   private struct GamePage {
     let title: String
-    let isBlackjack: Bool
+    let type: GameType
   }
 
   private let gamePages: [GamePage] = [
-    GamePage(title: "Craps", isBlackjack: false),
-    GamePage(title: "Blackjack", isBlackjack: true),
+    GamePage(title: "Craps", type: .craps),
+    GamePage(title: "Blackjack", type: .blackjack),
+    GamePage(title: "Baccarat", type: .baccarat),
   ]
 
   // MARK: - UI Components
@@ -215,7 +222,8 @@ class MainViewController: UIViewController {
     stack.spacing = 12
     container.addSubview(stack)
 
-    if page.isBlackjack {
+    switch page.type {
+    case .blackjack:
       let soloButton = NNPrimaryLabeledButton(title: "Solo")
       soloButton.addTarget(self, action: #selector(blackjackSoloTapped), for: .touchUpInside)
 
@@ -228,7 +236,14 @@ class MainViewController: UIViewController {
 
       soloButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
       multiButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
-    } else {
+
+    case .baccarat:
+      let newGameButton = NNPrimaryLabeledButton(title: "New Game")
+      newGameButton.addTarget(self, action: #selector(baccaratNewGameTapped), for: .touchUpInside)
+      stack.addArrangedSubview(newGameButton)
+      newGameButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
+
+    case .craps:
       let newGameButton = NNPrimaryLabeledButton(title: "New Game")
       newGameButton.addTarget(self, action: #selector(crapsNewGameTapped), for: .touchUpInside)
       stack.addArrangedSubview(newGameButton)
@@ -298,15 +313,23 @@ class MainViewController: UIViewController {
     navigationController?.pushViewController(vc, animated: true)
   }
 
+  @objc private func baccaratNewGameTapped() {
+    let gameplayVC = BaccaratGameplayViewController()
+    navigationController?.pushViewController(gameplayVC, animated: true)
+  }
+
   // MARK: - Data Loading
 
   private func loadSessions() {
     let allSessions = SessionPersistenceManager.shared.loadAllSessions()
     for (i, page) in gamePages.enumerated() {
-      if page.isBlackjack {
+      switch page.type {
+      case .blackjack:
         pageSessions[i] = allSessions.filter { $0.isBlackjackSession }
-      } else {
-        pageSessions[i] = allSessions.filter { !$0.isBlackjackSession }
+      case .craps:
+        pageSessions[i] = allSessions.filter { !$0.isBlackjackSession && !$0.isBaccaratSession }
+      case .baccarat:
+        pageSessions[i] = allSessions.filter { $0.isBaccaratSession }
       }
       pageTableViews[i].reloadData()
     }
@@ -321,19 +344,30 @@ extension MainViewController: GameCategoryTabBarDelegate {
     isUpdatingFromScroll = true
     pagingScrollView.setContentOffset(CGPoint(x: offsetX, y: 0), animated: true)
   }
+
+  func tabBar(_ tabBar: GameCategoryTabBar, didScrollToPageProgress progress: CGFloat) {
+    let width = pagingScrollView.bounds.width
+    guard width > 0 else { return }
+    let offsetX = progress * width
+    isUpdatingFromScroll = true
+    pagingScrollView.contentOffset.x = offsetX
+  }
+
+  func tabBarDidEndScrolling(_ tabBar: GameCategoryTabBar) {
+    isUpdatingFromScroll = false
+  }
 }
 
 // MARK: - UIScrollViewDelegate
 
 extension MainViewController: UIScrollViewDelegate {
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
-    guard scrollView === pagingScrollView, !isUpdatingFromScroll else { return }
+    guard scrollView === pagingScrollView else { return }
     let width = scrollView.bounds.width
     guard width > 0 else { return }
-    let page = Int(round(scrollView.contentOffset.x / width))
-    let clampedPage = max(0, min(page, gamePages.count - 1))
-    if clampedPage != tabBar.selectedIndex {
-      tabBar.selectTab(at: clampedPage, animated: true)
+    let progress = scrollView.contentOffset.x / width
+    if !isUpdatingFromScroll {
+      tabBar.setPageProgress(progress, animated: false)
     }
   }
 
@@ -389,6 +423,8 @@ extension MainViewController: UITableViewDelegate {
       let gameplayVC: UIViewController
       if session.isBlackjackSession {
         gameplayVC = BlackjackGameplayViewController(resumingSession: session)
+      } else if session.isBaccaratSession {
+        gameplayVC = BaccaratGameplayViewController(resumingSession: session)
       } else {
         gameplayVC = CrapsGameplayViewController(resumingSession: session)
       }
@@ -467,9 +503,11 @@ class SessionTableViewCell: UITableViewCell {
   }
 
   func configure(with session: GameSession) {
-    // Distinguish between solo and multiplayer blackjack
+    // Distinguish between game types
     if session.isBlackjackSession {
       gameTypeLabel.text = session.isMultiplayerSession ? "MULTIPLAYER BLACKJACK" : "SOLO BLACKJACK"
+    } else if session.isBaccaratSession {
+      gameTypeLabel.text = "BACCARAT"
     } else {
       gameTypeLabel.text = "CRAPS"
     }

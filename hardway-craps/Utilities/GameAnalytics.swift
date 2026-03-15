@@ -12,6 +12,7 @@ enum GameAnalyticsEvent: String {
     case crapsGameStarted = "craps_game_started"
     case blackjackGameStarted = "blackjack_game_started"
     case mpBlackjackGameStarted = "mp_blackjack_game_started"
+    case baccaratGameStarted = "baccarat_game_started"
     
     /// Log this analytics event
     func log() {

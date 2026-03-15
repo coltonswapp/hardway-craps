@@ -11,6 +11,7 @@ enum GameType: String, Codable {
     case craps = "Craps"
     case blackjack = "Blackjack"
     case multiplayerBlackjack = "Multiplayer Blackjack"
+    case baccarat = "Baccarat"
 }
 
 struct GameSession: Codable {
@@ -33,6 +34,9 @@ struct GameSession: Codable {
 
     // Game type (for filtering/display)
     let gameType: GameType?
+
+    // Baccarat-specific fields
+    let baccaratMetrics: BaccaratGameplayMetrics?
     
     var netResult: Int {
         return endingBalance - startingBalance
@@ -95,6 +99,10 @@ struct GameSession: Codable {
         return gameType == .multiplayerBlackjack
     }
 
+    var isBaccaratSession: Bool {
+        return gameType == .baccarat
+    }
+
     var rollCountValue: Int {
         return rollCount ?? 0
     }
@@ -110,6 +118,8 @@ struct GameSession: Codable {
     var atmVisitsCount: Int {
         if isBlackjackSession {
             return blackjackMetrics?.atmVisitsCount ?? 0
+        } else if isBaccaratSession {
+            return baccaratMetrics?.atmVisitsCount ?? 0
         } else {
             return gameplayMetrics?.atmVisitsCount ?? 0
         }
@@ -146,11 +156,21 @@ struct GameSession: Codable {
     }
     
     var winningHandsCount: Int {
+        if isBaccaratSession {
+            guard let metrics = baccaratMetrics else { return 0 }
+            return metrics.bankerWins + metrics.playerWins
+        }
         guard let metrics = blackjackMetrics else { return 0 }
         return metrics.wins
     }
-    
+
     var losingHandsCount: Int {
+        if isBaccaratSession {
+            // In baccarat, a "loss" for tracking is hands where the player lost money
+            // This is approximated by total hands - wins - ties
+            guard let metrics = baccaratMetrics else { return 0 }
+            return metrics.totalHandsPlayed - metrics.bankerWins - metrics.playerWins
+        }
         guard let metrics = blackjackMetrics else { return 0 }
         return metrics.losses
     }
@@ -161,6 +181,12 @@ struct GameSession: Codable {
             let totalHands = metrics.wins + metrics.losses + metrics.pushes
             guard totalHands > 0 else { return 0 }
             return Double(metrics.wins) / Double(totalHands)
+        } else if isBaccaratSession {
+            guard let metrics = baccaratMetrics, handCountValue > 0 else { return 0 }
+            let totalHands = metrics.totalHandsPlayed
+            guard totalHands > 0 else { return 0 }
+            // Win rate based on hands where player won money
+            return Double(metrics.bankerWins + metrics.playerWins) / Double(totalHands)
         } else {
             guard rollCountValue > 0 else { return 0 }
             return Double(winningRollsCount) / Double(rollCountValue)
@@ -206,7 +232,18 @@ struct GameSession: Codable {
     }
 
     var betMixBreakdown: [(label: String, amount: Int, percent: Double)] {
-        if isBlackjackSession {
+        if isBaccaratSession {
+            guard let metrics = baccaratMetrics, metrics.totalBetAmount > 0 else { return [] }
+            let total = Double(metrics.totalBetAmount)
+            let items: [(String, Int)] = [
+                ("Banker", metrics.totalBankerBetAmount),
+                ("Player", metrics.totalPlayerBetAmount)
+            ]
+            return items.map { label, amount in
+                let percent = total > 0 ? Double(amount) / total : 0
+                return (label: label, amount: amount, percent: percent)
+            }
+        } else if isBlackjackSession {
             guard let metrics = blackjackMetrics, metrics.totalBetAmount > 0 else { return [] }
             let total = Double(metrics.totalBetAmount)
             let items: [(String, Int)] = [
