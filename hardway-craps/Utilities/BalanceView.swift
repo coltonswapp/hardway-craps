@@ -27,6 +27,7 @@ class BalanceView: UIView {
     var balance: Int = 200 {
         didSet {
             animateBalanceChange(from: oldValue, to: balance)
+            accessibilityValue = "\(balance)"
         }
     }
 
@@ -46,6 +47,8 @@ class BalanceView: UIView {
     private func setupView() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear
+        isAccessibilityElement = true
+        accessibilityValue = "\(balance)"
 
         addSubview(amountLabel)
 

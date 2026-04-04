@@ -14,6 +14,8 @@ class FlipDiceScene: NSObject, SCNSceneRendererDelegate {
     private var cameraNode: SCNNode!
     private var diceNode1: SCNNode!
     private var diceNode2: SCNNode!
+    
+    var diceFaceColor: UIColor = HardwayColors.surfaceDropZone
 
     override init() {
         super.init()
@@ -29,18 +31,20 @@ class FlipDiceScene: NSObject, SCNSceneRendererDelegate {
 
         // First die - positioned on the left (negative X)
         let diceGeometry1 = SCNBox(width: diceSize, height: diceSize, length: diceSize, chamferRadius: 0.25)
-        diceGeometry1.materials = createDiceMaterials(value: 1)  // Start with 1
+        diceGeometry1.materials = createDiceMaterials(value: 1)
 
         diceNode1 = SCNNode(geometry: diceGeometry1)
         diceNode1.position = SCNVector3(-2.0, 0, 0)  // Left side
+        diceNode1.eulerAngles = SCNVector3Zero
         scene.rootNode.addChildNode(diceNode1)
 
         // Second die - positioned on the right (positive X)
         let diceGeometry2 = SCNBox(width: diceSize, height: diceSize, length: diceSize, chamferRadius: 0.15)
-        diceGeometry2.materials = createDiceMaterials(value: 1)  // Start with 1
+        diceGeometry2.materials = createDiceMaterials(value: 1)
 
         diceNode2 = SCNNode(geometry: diceGeometry2)
         diceNode2.position = SCNVector3(2.0, 0, 0)  // Right side
+        diceNode2.eulerAngles = SCNVector3Zero
         scene.rootNode.addChildNode(diceNode2)
 
         // Camera - orthographic top-down view (no perspective, only see top faces)
@@ -61,11 +65,18 @@ class FlipDiceScene: NSObject, SCNSceneRendererDelegate {
     }
 
     private func createDiceMaterials(value: Int) -> [SCNMaterial] {
-        // Simple approach: put the same value on all 6 faces
-        // We'll just change which material set we use when rolling
-        return (0..<6).map { _ in
+        // SCNBox face order is [front, right, back, left, top, bottom].
+        // Set top directly to rolled value so the visual always matches game logic.
+        let topFace = value
+        let bottomFace = 7 - value
+        let sideFaces = [1, 2, 3, 4, 5, 6]
+            .filter { $0 != topFace && $0 != bottomFace }
+            .shuffled()
+        let faceValues = [sideFaces[0], sideFaces[1], sideFaces[2], sideFaces[3], topFace, bottomFace]
+
+        return faceValues.map { faceValue in
             let material = SCNMaterial()
-            material.diffuse.contents = createDiceFaceImage(number: value)
+            material.diffuse.contents = createDiceFaceImage(number: faceValue)
             material.locksAmbientWithDiffuse = true
             return material
         }
@@ -77,7 +88,7 @@ class FlipDiceScene: NSObject, SCNSceneRendererDelegate {
 
         return renderer.image { context in
             // Dark gray background
-            HardwayColors.surfaceDropZone.setFill()
+            diceFaceColor.setFill()
             context.fill(CGRect(origin: .zero, size: size))
 
             // Draw black dots
@@ -123,28 +134,6 @@ class FlipDiceScene: NSObject, SCNSceneRendererDelegate {
         }
     }
 
-    private func getRotationFor(face: Int) -> SCNVector3 {
-        // Return euler angles to show the desired face on top when viewed from above
-        // Materials: [6, 1, 2, 5, 3, 4] = [right(+X), left(-X), top(+Y), bottom(-Y), front(+Z), back(-Z)]
-        // We need to rotate the dice so the desired face is on top (+Y facing up toward camera)
-        switch face {
-        case 1:
-            return SCNVector3(0, 0, Float.pi / 2)  // Rotate left face to top
-        case 2:
-            return SCNVector3(0, 0, 0)  // Top face (no rotation needed)
-        case 3:
-            return SCNVector3(-Float.pi / 2, 0, 0)  // Rotate front face to top
-        case 4:
-            return SCNVector3(Float.pi / 2, 0, 0)  // Rotate back face to top
-        case 5:
-            return SCNVector3(Float.pi, 0, 0)  // Rotate bottom face to top
-        case 6:
-            return SCNVector3(0, 0, -Float.pi / 2)  // Rotate right face to top
-        default:
-            return SCNVector3(0, 0, 0)
-        }
-    }
-
     func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
         // No per-frame updates needed
     }
@@ -159,27 +148,22 @@ class FlipDiceScene: NSObject, SCNSceneRendererDelegate {
         // Animate die 2
         animateDie(diceNode2, toValue: value2)
 
-        // Call completion after animation finishes (0.6s total: 0.4s tumble + 0.2s settle)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        GameAnimationTiming.after(GameAnimationTiming.Dice.completionDelay) {
             completion(value1, value2)
         }
     }
     
     func rollFixed(die1: Int, die2: Int, completion: @escaping (Int, Int) -> Void) {
-        // Animate die 1 to fixed value
         animateDie(diceNode1, toValue: die1)
-
-        // Animate die 2 to fixed value
         animateDie(diceNode2, toValue: die2)
 
-        // Call completion after animation finishes (0.6s total: 0.4s tumble + 0.2s settle)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        GameAnimationTiming.after(GameAnimationTiming.Dice.completionDelay) {
             completion(die1, die2)
         }
     }
 
     private func animateDie(_ dieNode: SCNNode, toValue: Int) {
-        // Update the materials to show the new value
+        // Update materials so the top face is the requested value
         if let geometry = dieNode.geometry as? SCNBox {
             geometry.materials = createDiceMaterials(value: toValue)
         }
@@ -189,15 +173,15 @@ class FlipDiceScene: NSObject, SCNSceneRendererDelegate {
         let tumbleY = CGFloat.random(in: 2...3) * .pi
         let tumbleZ = CGFloat.random(in: 2...3) * .pi
 
-        let tumble = SCNAction.rotateBy(x: tumbleX, y: tumbleY, z: tumbleZ, duration: 0.4)
+        let tumble = SCNAction.rotateBy(x: tumbleX, y: tumbleY, z: tumbleZ, duration: GameAnimationTiming.Dice.tumbleDuration)
         tumble.timingMode = .easeOut
 
-        // Step 2: Snap back to flat orientation (0.2s)
+        // Step 2: Snap back to fixed orientation
         let settle = SCNAction.rotateTo(
             x: 0,
             y: 0,
             z: 0,
-            duration: 0.2,
+            duration: GameAnimationTiming.Dice.settleDuration,
             usesShortestUnitArc: true
         )
         settle.timingMode = .easeInEaseOut

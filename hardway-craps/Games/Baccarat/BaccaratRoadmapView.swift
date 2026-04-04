@@ -335,11 +335,23 @@ final class BaccaratRoadmapView: UIView {
         return layer
     }
 
+    /// Scroll so the newest column is visible when history overflows the viewport.
+    /// `contentSize` is often padded wider than actual data (`minCols`); scrolling by full
+    /// content width hid all beads on the left — users had to drag back to see anything.
     private func scrollToEnd() {
-        let maxOffset = max(scrollView.contentSize.width - scrollView.bounds.width, 0)
-        if maxOffset > 0 {
-            scrollView.setContentOffset(CGPoint(x: maxOffset, y: 0), animated: true)
+        let viewport = scrollView.bounds.width
+        guard viewport > 0, scrollView.contentSize.width > 0 else { return }
+
+        let stride = cellSize + cellSpacing
+        let dataWidth = CGFloat(columns.count) * stride
+        let maxContentOffset = max(scrollView.contentSize.width - viewport, 0)
+        let targetOffset: CGFloat
+        if dataWidth <= viewport {
+            targetOffset = 0
+        } else {
+            targetOffset = dataWidth - viewport
         }
+        scrollView.setContentOffset(CGPoint(x: min(targetOffset, maxContentOffset), y: 0), animated: true)
     }
 
     // MARK: - Sizing

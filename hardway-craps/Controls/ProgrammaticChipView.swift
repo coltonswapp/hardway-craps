@@ -11,13 +11,14 @@ class ProgrammaticChipView: UIControl {
     
     // MARK: - Properties
     
+    private static let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+    
     let value: Int
     
     private let valueLabel: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 14, weight: .bold)
         return label
     }()
     
@@ -75,8 +76,9 @@ class ProgrammaticChipView: UIControl {
     
     private func setupView(size: CGFloat) {
         backgroundColor = .clear
-        
-        // Configure label
+
+        let fontSize: CGFloat = Self.isIPad ? size * (18 / 66) : size * (14 / 60)
+        valueLabel.font = .systemFont(ofSize: fontSize, weight: .bold)
         valueLabel.text = "\(value)"
         valueLabel.textColor = textColor
         addSubview(valueLabel)
@@ -111,6 +113,18 @@ class ProgrammaticChipView: UIControl {
         // Add pan gesture for dragging
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(pan)
+        
+        // Add tap gesture for selection. Tap only fires when pan fails (no drag),
+        // which fixes tap-to-select not working on iPad where the pan gesture
+        // was consuming touches before touchUpInside could fire.
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTapForSelection(_:)))
+        tap.require(toFail: pan)
+        addGestureRecognizer(tap)
+    }
+    
+    @objc private func handleTapForSelection(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended else { return }
+        sendActions(for: .touchUpInside)
     }
     
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -176,16 +190,14 @@ class ProgrammaticChipView: UIControl {
         
         let center = CGPoint(x: squareRect.midX, y: squareRect.midY)
         let radius = size / 2
-        let lineWidth: CGFloat = 4.2
+        let lineWidth: CGFloat = Self.isIPad ? 4.8 : 4.2
         
         // Draw background circle in square rect to prevent stretching
         context.setFillColor(chipBackgroundColor.cgColor)
         context.fillEllipse(in: squareRect)
         
-        // Dash pattern: [8, 8] means 8 points dash, 8 points gap = 16 points total cycle
-        let dashLength: CGFloat = 8
-        let gapLength: CGFloat = 8
-        let cycleLength = dashLength + gapLength // 20 points
+        let dashLength: CGFloat = Self.isIPad ? 9 : 8
+        let gapLength: CGFloat = Self.isIPad ? 9 : 8
         
         // Calculate stroke radius so outer edge aligns with circle edge
         // Arc centerline should be at: radius - (lineWidth / 2)

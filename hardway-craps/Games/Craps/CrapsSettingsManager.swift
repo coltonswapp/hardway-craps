@@ -2,22 +2,19 @@
 //  CrapsSettingsManager.swift
 //  hardway-craps
 //
-//  Created by Claude Code on 1/28/26.
-//
 
 import Foundation
 
-/// Settings structure containing all Craps game configuration
-struct CrapsSettings {
+/// Unified settings for both standard craps and crapless craps.
+struct CrapsGameSettings {
     var rebetEnabled: Bool
     var rebetAmount: Int
     var hardwaysEnabled: Bool
     var makeEmEnabled: Bool
     var hornEnabled: Bool
 
-    /// Default settings configuration
-    static var defaultSettings: CrapsSettings {
-        return CrapsSettings(
+    static var defaultSettings: CrapsGameSettings {
+        CrapsGameSettings(
             rebetEnabled: false,
             rebetAmount: 10,
             hardwaysEnabled: true,
@@ -27,154 +24,122 @@ struct CrapsSettings {
     }
 }
 
-/// Delegate protocol for settings changes
-protocol CrapsSettingsManagerDelegate: AnyObject {
-    func settingsDidChange(_ settings: CrapsSettings)
+/// Backward-compatible aliases so existing code compiles unchanged.
+typealias CrapsSettings = CrapsGameSettings
+typealias CraplessSettings = CrapsGameSettings
+
+protocol CrapsGameSettingsManagerDelegate: AnyObject {
+    func settingsDidChange(_ settings: CrapsGameSettings)
 }
 
-/// Manages persistence and coordination of Craps game settings
+typealias CrapsSettingsManagerDelegate = CrapsGameSettingsManagerDelegate
+typealias CraplessSettingsManagerDelegate = CrapsGameSettingsManagerDelegate
+
+/// Single settings manager for all craps variants, parameterized by `CrapsVariant`.
+/// Each variant gets its own UserDefaults key namespace so preferences stay independent.
 final class CrapsSettingsManager {
 
-    // MARK: - Properties
+    weak var delegate: CrapsGameSettingsManagerDelegate?
 
-    weak var delegate: CrapsSettingsManagerDelegate?
+    private(set) var currentSettings: CrapsGameSettings
 
-    private(set) var currentSettings: CrapsSettings
+    private let keys: KeySet
 
-    // MARK: - Initialization
-
-    init() {
-        // Load settings from UserDefaults on initialization
-        self.currentSettings = CrapsSettingsManager.loadSettingsFromUserDefaults()
+    init(variant: CrapsVariant = .standard) {
+        self.keys = KeySet(variant: variant)
+        self.currentSettings = Self.load(keys: keys)
     }
 
-    // MARK: - Public Methods
-
-    /// Load settings from UserDefaults
     func loadSettings() {
-        currentSettings = CrapsSettingsManager.loadSettingsFromUserDefaults()
+        currentSettings = Self.load(keys: keys)
     }
 
-    /// Save current settings to UserDefaults
     func saveSettings() {
-        CrapsSettingsManager.saveSettingsToUserDefaults(currentSettings)
+        Self.save(currentSettings, keys: keys)
     }
 
-    /// Update settings and notify delegate
-    func updateSettings(_ settings: CrapsSettings) {
+    func updateSettings(_ settings: CrapsGameSettings) {
         currentSettings = settings
         saveSettings()
         delegate?.settingsDidChange(settings)
     }
 
-    /// Set rebet enabled state
     func setRebetEnabled(_ enabled: Bool) {
         currentSettings.rebetEnabled = enabled
         saveSettings()
         delegate?.settingsDidChange(currentSettings)
     }
 
-    /// Set rebet amount
     func setRebetAmount(_ amount: Int) {
         currentSettings.rebetAmount = amount
         saveSettings()
         delegate?.settingsDidChange(currentSettings)
     }
 
-    /// Set hardways enabled state
     func setHardwaysEnabled(_ enabled: Bool) {
         currentSettings.hardwaysEnabled = enabled
         saveSettings()
         delegate?.settingsDidChange(currentSettings)
     }
 
-    /// Set Make Em enabled state
     func setMakeEmEnabled(_ enabled: Bool) {
         currentSettings.makeEmEnabled = enabled
         saveSettings()
         delegate?.settingsDidChange(currentSettings)
     }
 
-    /// Set horn enabled state
     func setHornEnabled(_ enabled: Bool) {
         currentSettings.hornEnabled = enabled
         saveSettings()
         delegate?.settingsDidChange(currentSettings)
     }
 
-    // MARK: - Private Helper Methods
+    // MARK: - Persistence
 
-    /// Load settings from UserDefaults
-    private static func loadSettingsFromUserDefaults() -> CrapsSettings {
+    private static func load(keys: KeySet) -> CrapsGameSettings {
         let defaults = UserDefaults.standard
 
-        // Load rebetEnabled (default: false)
-        let rebetEnabled: Bool
-        if defaults.object(forKey: CrapsSettingsKeys.rebetEnabled) != nil {
-            rebetEnabled = defaults.bool(forKey: CrapsSettingsKeys.rebetEnabled)
-        } else {
-            rebetEnabled = false
+        func bool(for key: String, default defaultValue: Bool) -> Bool {
+            defaults.object(forKey: key) != nil ? defaults.bool(forKey: key) : defaultValue
+        }
+        func int(for key: String, default defaultValue: Int) -> Int {
+            defaults.object(forKey: key) != nil ? defaults.integer(forKey: key) : defaultValue
         }
 
-        // Load rebetAmount (default: 10)
-        let rebetAmount: Int
-        if defaults.object(forKey: CrapsSettingsKeys.rebetAmount) != nil {
-            rebetAmount = defaults.integer(forKey: CrapsSettingsKeys.rebetAmount)
-        } else {
-            rebetAmount = 10
-        }
-
-        // Load hardwaysEnabled (default: true)
-        let hardwaysEnabled: Bool
-        if defaults.object(forKey: CrapsSettingsKeys.hardwaysEnabled) != nil {
-            hardwaysEnabled = defaults.bool(forKey: CrapsSettingsKeys.hardwaysEnabled)
-        } else {
-            hardwaysEnabled = true
-        }
-
-        // Load makeEmEnabled (default: true)
-        let makeEmEnabled: Bool
-        if defaults.object(forKey: CrapsSettingsKeys.makeEmEnabled) != nil {
-            makeEmEnabled = defaults.bool(forKey: CrapsSettingsKeys.makeEmEnabled)
-        } else {
-            makeEmEnabled = true
-        }
-
-        // Load hornEnabled (default: true)
-        let hornEnabled: Bool
-        if defaults.object(forKey: CrapsSettingsKeys.hornEnabled) != nil {
-            hornEnabled = defaults.bool(forKey: CrapsSettingsKeys.hornEnabled)
-        } else {
-            hornEnabled = true
-        }
-
-        return CrapsSettings(
-            rebetEnabled: rebetEnabled,
-            rebetAmount: rebetAmount,
-            hardwaysEnabled: hardwaysEnabled,
-            makeEmEnabled: makeEmEnabled,
-            hornEnabled: hornEnabled
+        return CrapsGameSettings(
+            rebetEnabled: bool(for: keys.rebetEnabled, default: false),
+            rebetAmount: int(for: keys.rebetAmount, default: 10),
+            hardwaysEnabled: bool(for: keys.hardwaysEnabled, default: true),
+            makeEmEnabled: bool(for: keys.makeEmEnabled, default: true),
+            hornEnabled: bool(for: keys.hornEnabled, default: true)
         )
     }
 
-    /// Save settings to UserDefaults
-    private static func saveSettingsToUserDefaults(_ settings: CrapsSettings) {
+    private static func save(_ settings: CrapsGameSettings, keys: KeySet) {
         let defaults = UserDefaults.standard
-        defaults.set(settings.rebetEnabled, forKey: CrapsSettingsKeys.rebetEnabled)
-        defaults.set(settings.rebetAmount, forKey: CrapsSettingsKeys.rebetAmount)
-        defaults.set(settings.hardwaysEnabled, forKey: CrapsSettingsKeys.hardwaysEnabled)
-        defaults.set(settings.makeEmEnabled, forKey: CrapsSettingsKeys.makeEmEnabled)
-        defaults.set(settings.hornEnabled, forKey: CrapsSettingsKeys.hornEnabled)
+        defaults.set(settings.rebetEnabled, forKey: keys.rebetEnabled)
+        defaults.set(settings.rebetAmount, forKey: keys.rebetAmount)
+        defaults.set(settings.hardwaysEnabled, forKey: keys.hardwaysEnabled)
+        defaults.set(settings.makeEmEnabled, forKey: keys.makeEmEnabled)
+        defaults.set(settings.hornEnabled, forKey: keys.hornEnabled)
     }
-}
 
-// MARK: - Settings Keys
+    // MARK: - Key Namespace
 
-/// UserDefaults keys for Craps settings
-private struct CrapsSettingsKeys {
-    static let rebetEnabled = "CrapsRebetEnabled"
-    static let rebetAmount = "CrapsRebetAmount"
-    static let hardwaysEnabled = "CrapsHardwaysEnabled"
-    static let makeEmEnabled = "CrapsMakeEmEnabled"
-    static let hornEnabled = "CrapsHornEnabled"
+    private struct KeySet {
+        let rebetEnabled: String
+        let rebetAmount: String
+        let hardwaysEnabled: String
+        let makeEmEnabled: String
+        let hornEnabled: String
+
+        init(variant: CrapsVariant) {
+            let prefix = variant == .standard ? "Craps" : "Crapless"
+            rebetEnabled = "\(prefix)RebetEnabled"
+            rebetAmount = "\(prefix)RebetAmount"
+            hardwaysEnabled = "\(prefix)HardwaysEnabled"
+            makeEmEnabled = "\(prefix)MakeEmEnabled"
+            hornEnabled = "\(prefix)HornEnabled"
+        }
+    }
 }

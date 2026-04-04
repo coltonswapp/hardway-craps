@@ -110,7 +110,7 @@ class OddsBetStack: UIView {
             // - During payout: animation chip is visible, original chip is already hidden (alpha=0)
             // - During bet collection: chip is already hidden (alpha=0), no need to fade
             if newValue == 0 && !isAnimatingPayout && !isCollectingBet {
-                if layout == .horizontal && betChipTrailingConstraint.constant != LayoutConstants.betChipTrailingNormal {
+                if layout == .horizontal && !isBetChipAtNormalPosition {
                     animateBetChipSlide(left: false)
                 }
                 UIView.animate(withDuration: AnimationConstants.fadeDuration) {
@@ -122,8 +122,7 @@ class OddsBetStack: UIView {
                 // Chip is already hidden (alpha=0) by animation code, just ensure state is correct
                 // DO NOT set alpha=0 again here - the animation code handles visibility
                 oddsChip.isHidden = true
-                // Trigger bet chip slide-back animation
-                if layout == .horizontal && betChipTrailingConstraint.constant != LayoutConstants.betChipTrailingNormal {
+                if layout == .horizontal && !isBetChipAtNormalPosition {
                     animateBetChipSlide(left: false)
                 }
             }
@@ -416,7 +415,7 @@ class OddsBetStack: UIView {
                             oddsChipCenterYConstraint
                         ])
                     }
-                    if betChipTrailingConstraint.constant == LayoutConstants.betChipTrailingNormal {
+                    if isBetChipAtNormalPosition {
                         animateBetChipSlide(left: true)
                     }
                 } else {
@@ -440,7 +439,7 @@ class OddsBetStack: UIView {
                 if isDroppingOnChipSelector && self.oddsAmount == 0 {
                     self.oddsChip.alpha = 0
                     self.oddsChip.isHidden = true
-                    if self.layout == .horizontal && self.betChipTrailingConstraint.constant != LayoutConstants.betChipTrailingNormal {
+                    if self.layout == .horizontal && !self.isBetChipAtNormalPosition {
                         self.animateBetChipSlide(left: false)
                     }
                 }
@@ -605,7 +604,7 @@ class OddsBetStack: UIView {
                         oddsChipCenterYConstraint
                     ])
                 }
-                if wasEmpty && betChipTrailingConstraint.constant == LayoutConstants.betChipTrailingNormal {
+                if wasEmpty && isBetChipAtNormalPosition {
                     animateBetChipSlide(left: true)
                 }
             } else {
@@ -620,7 +619,6 @@ class OddsBetStack: UIView {
             
             onOddsPlaced?(amount, previousOddsAmount)
             bringSubviewToFront(oddsChip)
-            // Also ensure parent brings this stack to front
             if let parentView = parentControl as? UIView {
                 parentView.bringSubviewToFront(self)
             }
@@ -630,17 +628,15 @@ class OddsBetStack: UIView {
     func addOddsWithAnimation(_ amount: Int) {
         guard !isDraggingOdds else { return }
 
-        // CRITICAL: Only allow odds when bet is locked (i.e., point is set)
         guard isLocked else { return }
 
         let wasEmpty = oddsAmount == 0
-        let previousOddsAmount = oddsAmount  // Capture previous amount BEFORE adding
+        let previousOddsAmount = oddsAmount
         oddsChip.addToBet(amount)
         oddsChip.alpha = 1
         oddsChip.isHidden = false
-        oddsChip.isUserInteractionEnabled = true  // Ensure interaction is enabled
+        oddsChip.isUserInteractionEnabled = true
         
-        // Ensure pan gesture is still attached (should be from setupGestures, but verify)
         let hasPanGesture = oddsChip.gestureRecognizers?.contains { $0 is UIPanGestureRecognizer } ?? false
         if !hasPanGesture {
             let oddsPanGesture = UIPanGestureRecognizer(target: self, action: #selector(handleOddsChipPan(_:)))
@@ -648,7 +644,6 @@ class OddsBetStack: UIView {
             oddsChip.addGestureRecognizer(oddsPanGesture)
         }
         
-        // Activate constraints if needed
         if layout == .horizontal {
             if oddsChipLeadingConstraint.isActive == false {
                 NSLayoutConstraint.activate([
@@ -656,8 +651,7 @@ class OddsBetStack: UIView {
                     oddsChipCenterYConstraint
                 ])
             }
-            // Slide betChip left if this is the first odds bet (only if not already shifted)
-            if wasEmpty && betChipTrailingConstraint.constant == LayoutConstants.betChipTrailingNormal {
+            if wasEmpty && isBetChipAtNormalPosition {
                 animateBetChipSlide(left: true)
             }
         } else {
@@ -721,9 +715,41 @@ class OddsBetStack: UIView {
         }
     }
     
+    private var isCenteredLayout = false
+    private var betChipCenterXConstraint: NSLayoutConstraint?
+    private let centeredShiftAmount: CGFloat = 12
+
+    private var isBetChipAtNormalPosition: Bool {
+        if isCenteredLayout {
+            return (betChipCenterXConstraint?.constant ?? 0) == 0
+        }
+        return betChipTrailingConstraint.constant == LayoutConstants.betChipTrailingNormal
+    }
+
+    /// Reconfigures horizontal layout to center the betChip instead of trailing-anchoring it.
+    /// When odds are added the bet+odds pair shifts so the group stays visually centered.
+    func useCenteredHorizontalLayout() {
+        guard layout == .horizontal else { return }
+        isCenteredLayout = true
+        betChipTrailingConstraint.isActive = false
+        let cx = betChip.centerXAnchor.constraint(equalTo: centerXAnchor)
+        cx.isActive = true
+        betChipCenterXConstraint = cx
+    }
+
     // MARK: - Animation
     
     private func animateBetChipSlide(left: Bool) {
+        if isCenteredLayout {
+            guard let cx = betChipCenterXConstraint else { return }
+            let target: CGFloat = left ? -centeredShiftAmount : 0
+            UIView.animate(withDuration: AnimationConstants.slideDuration, delay: 0, usingSpringWithDamping: AnimationConstants.slideSpringDamping, initialSpringVelocity: AnimationConstants.slideInitialVelocity, options: .curveEaseInOut) {
+                cx.constant = target
+                self.layoutIfNeeded()
+            }
+            return
+        }
+
         guard layout == .horizontal else { return }
         
         let targetConstant: CGFloat = left ? LayoutConstants.betChipTrailingShifted : LayoutConstants.betChipTrailingNormal
@@ -743,8 +769,7 @@ class OddsBetStack: UIView {
     func animateBetSlideForOdds() {
         guard layout == .horizontal else { return }
         guard isLocked && betAmount > 0 else { return }
-        guard betChipTrailingConstraint.constant == LayoutConstants.betChipTrailingNormal else { return }
-        
+        guard isBetChipAtNormalPosition else { return }
         animateBetChipSlide(left: true)
     }
     
@@ -752,8 +777,7 @@ class OddsBetStack: UIView {
         guard layout == .horizontal else { return }
         guard isLocked && betAmount > 0 else { return }
         guard oddsAmount == 0 else { return }
-        guard betChipTrailingConstraint.constant != LayoutConstants.betChipTrailingNormal else { return }
-        
+        guard !isBetChipAtNormalPosition else { return }
         animateBetChipSlide(left: false)
     }
     
@@ -783,7 +807,7 @@ class OddsBetStack: UIView {
                         oddsChipCenterYConstraint
                     ])
                 }
-                if betChipTrailingConstraint.constant == LayoutConstants.betChipTrailingNormal {
+                if isBetChipAtNormalPosition {
                     animateBetChipSlide(left: true)
                 }
             } else {
@@ -796,7 +820,6 @@ class OddsBetStack: UIView {
             }
             
             bringSubviewToFront(oddsChip)
-            // Also ensure parent brings this stack to front
             if let parentView = parentControl as? UIView {
                 parentView.bringSubviewToFront(self)
             }

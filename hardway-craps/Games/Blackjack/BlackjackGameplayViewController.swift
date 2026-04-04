@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class BlackjackGameplayViewController: UIViewController {
+class BlackjackGameplayViewController: BaseGameplayViewController {
 
     // Use SideBetType from BlackjackSettingsViewController
     typealias SideBetType = BlackjackSettingsViewController.SideBetType
@@ -16,11 +16,11 @@ final class BlackjackGameplayViewController: UIViewController {
     private var startingBalance: Int {
         return AppSettingsViewController.startingBankroll
     }
-    private var initialBalance: Int = AppSettingsViewController.startingBankroll // Store the initial balance to set after UI is ready
+    private var initialBalance: Int = AppSettingsViewController.startingBankroll
 
     private let dealerHandView = DealerHandView()
     private let playerHandView = PlayerHandView()
-    private var splitHandView: PlayerHandView? // Second hand for split
+    private var splitHandView: PlayerHandView?
 
     // Action buttons
     private let standButton = ActionButton(title: "Stand")
@@ -28,10 +28,6 @@ final class BlackjackGameplayViewController: UIViewController {
     private let splitButton = CircularActionButton(systemIconName: "arrow.triangle.branch")
     private let insuranceControl = InsuranceControl()
     private var rightButtonStack: UIStackView!
-    private var balanceView: BalanceView!
-    private var chipSelector: ChipSelector!
-    private var bottomStackView: UIStackView!
-    private var instructionLabel: InstructionLabel!
     private var newHandButton: UIButton!
     private var readyButton: UIButton!
     private var bonusStackView: UIStackView!
@@ -181,7 +177,7 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     var selectedChipValue: Int {
-        return chipSelector?.selectedValue ?? 5
+        return chipSelector.selectedValue
     }
 
     /// Spacing between split hands when displayed side by side
@@ -191,7 +187,6 @@ final class BlackjackGameplayViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
         title = "Blackjack"
 
         // Disable interactive pop gesture to prevent accidental dismissal when dragging bets
@@ -235,14 +230,8 @@ final class BlackjackGameplayViewController: UIViewController {
             object: nil
         )
 
-        setupNavigationBarMenu()
-        setupInstructionLabel()
-        setupDeckView()
         setupDealerHandView()
         setupBonusStackView()
-        setupBalanceView()
-        setupChipSelector()
-        setupBottomStackView()
 
         // Initialize chip animation helper after balanceView is created
         chipAnimator = ChipAnimationHelper(containerView: view, balanceView: balanceView)
@@ -272,9 +261,6 @@ final class BlackjackGameplayViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-
-        // Initialize chip selector indicator position after layout
-        chipSelector?.initializeIndicatorPosition()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -285,7 +271,7 @@ final class BlackjackGameplayViewController: UIViewController {
         showTips()
     }
 
-    deinit {
+    @MainActor deinit {
         NotificationCenter.default.removeObserver(self)
     }
     
@@ -332,21 +318,7 @@ final class BlackjackGameplayViewController: UIViewController {
         }
     }
     
-    private func setupNavigationBarMenu() {
-        updateNavigationBarMenu()
-    }
-    
-    private func updateNavigationBarMenu() {
-        let settingsButton = UIBarButtonItem(
-            image: UIImage(systemName: "gearshape"),
-            style: .plain,
-            target: self,
-            action: #selector(showSettings)
-        )
-        navigationItem.rightBarButtonItem = settingsButton
-    }
-
-    @objc private func showSettings() {
+    override func settingsButtonTapped() {
         showSettingsViewController()
     }
     
@@ -410,38 +382,27 @@ final class BlackjackGameplayViewController: UIViewController {
         instructionLabel.showMessage("Deck count set to \(count)", shouldFade: true)
     }
     
-    private func setupInstructionLabel() {
-        instructionLabel = InstructionLabel()
-        instructionLabel.translatesAutoresizingMaskIntoConstraints = false
-        // Give instructionLabel lower horizontal priority so it can compress if needed
-        instructionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        // Set higher vertical hugging priority so it doesn't expand unnecessarily
-        instructionLabel.setContentHuggingPriority(.defaultHigh, for: .vertical)
-        
-        view.addSubview(instructionLabel)
-        
-        NSLayoutConstraint.activate([
-            instructionLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            instructionLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            instructionLabel.heightAnchor.constraint(lessThanOrEqualToConstant: 44) // Limit maximum height
-        ])
-    }
-    
-    private func setupDeckView() {
-        view.addSubview(deckView)
+    // MARK: - Base Class Hooks
 
+    override func configureTopBarTrailingView() -> UIView? {
+        deckView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            deckView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-            deckView.topAnchor.constraint(equalTo: instructionLabel.topAnchor),
             deckView.widthAnchor.constraint(equalToConstant: 80),
             deckView.heightAnchor.constraint(equalToConstant: 110),
-            // Prevent instruction label from overlapping deck
-            instructionLabel.trailingAnchor.constraint(lessThanOrEqualTo: deckView.leadingAnchor, constant: -12)
         ])
-
-        // Note: setCardCount will be called after managers are set up and deckCount is initialized
+        return deckView
     }
-    
+
+    override func createChipSelector() -> ChipSelector {
+        let cs = ChipSelector()
+        cs.delegate = self
+        cs.onBetReturned = { [weak self] amount in
+            guard let self = self else { return }
+            self.balance += amount
+        }
+        return cs
+    }
+
     private func setupDealerHandView() {
         dealerHandView.translatesAutoresizingMaskIntoConstraints = false
         dealerHandView.isUserInteractionEnabled = true // Enable for pan gesture
@@ -494,55 +455,6 @@ final class BlackjackGameplayViewController: UIViewController {
         ])
     }
 
-    private func setupBalanceView() {
-        balanceView = BalanceView()
-    }
-
-    private func setupChipSelector() {
-        chipSelector = ChipSelector()
-        chipSelector.delegate = self
-        chipSelector.onBetReturned = { [weak self] amount in
-            guard let self = self else { return }
-            self.balance += amount
-        }
-    }
-    
-    private func setupBottomStackView() {
-        // Create stack view with BalanceView on top and ChipSelector below
-        bottomStackView = UIStackView()
-        bottomStackView.translatesAutoresizingMaskIntoConstraints = false
-        bottomStackView.axis = .vertical
-        bottomStackView.distribution = .fill
-        bottomStackView.alignment = .leading
-        bottomStackView.spacing = 8
-        
-        // Add views to stack
-        bottomStackView.addArrangedSubview(balanceView)
-        bottomStackView.addArrangedSubview(chipSelector)
-        
-        view.addSubview(bottomStackView)
-        
-        // Set high content hugging priority so bottomStackView stays at its intrinsic size
-        bottomStackView.setContentHuggingPriority(.required, for: .vertical)
-        // Lower compression resistance to allow compression when needed (but still resist more than other views)
-        bottomStackView.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
-        
-        // Set even higher compression resistance on balanceView to prevent it from getting smushed
-        balanceView.setContentCompressionResistancePriority(.required, for: .vertical)
-        
-        // Height: chips are 70pt, plus 13pt for selection indicator below
-        let chipSelectorHeight: CGFloat = 60
-        
-        NSLayoutConstraint.activate([
-            bottomStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            bottomStackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
-            bottomStackView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6, constant: -16),
-            chipSelector.heightAnchor.constraint(equalToConstant: chipSelectorHeight),
-            chipSelector.widthAnchor.constraint(equalTo: bottomStackView.widthAnchor)
-        ])
-    }
-    
-    
     private func setupPlayerHandView() {
         // Create the scroll view for hands
         handsScrollView = UIScrollView()
@@ -621,7 +533,7 @@ final class BlackjackGameplayViewController: UIViewController {
             handsScrollView.topAnchor.constraint(equalTo: bonusStackView.bottomAnchor, constant: 16),
             handsScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             handsScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            handsScrollView.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -24),
+            handsScrollView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -24),
 
             // Content stack view: pin to content layout guide (content size = stack width when split)
             handsContentStackView.topAnchor.constraint(equalTo: handsScrollView.contentLayoutGuide.topAnchor),
@@ -793,20 +705,20 @@ final class BlackjackGameplayViewController: UIViewController {
         NSLayoutConstraint.activate([
             // Right button stack (Stand/Double) in bottom right corner
             rightButtonStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            rightButtonStack.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
-            rightButtonStack.topAnchor.constraint(equalTo: bottomStackView.topAnchor),
+            rightButtonStack.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
+            rightButtonStack.topAnchor.constraint(equalTo: bottomBar.topAnchor),
             rightButtonStack.widthAnchor.constraint(equalToConstant: 120),
 
             // New Hand button in bottom RIGHT (same position as Stand/Double stack)
             newHandButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            newHandButton.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
-            newHandButton.topAnchor.constraint(equalTo: bottomStackView.topAnchor),
+            newHandButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
+            newHandButton.topAnchor.constraint(equalTo: bottomBar.topAnchor),
             newHandButton.widthAnchor.constraint(equalToConstant: 120),
 
             // Ready button in bottom RIGHT (same position as New Hand button)
             readyButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            readyButton.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
-            readyButton.topAnchor.constraint(equalTo: bottomStackView.topAnchor),
+            readyButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
+            readyButton.topAnchor.constraint(equalTo: bottomBar.topAnchor),
             readyButton.widthAnchor.constraint(equalToConstant: 120),
 
             // Split button positioned on right side
@@ -824,11 +736,11 @@ final class BlackjackGameplayViewController: UIViewController {
     }
     
     var balance: Int {
-        get { sessionManager?.currentBalance ?? (balanceView?.balance ?? startingBalance) }
+        get { sessionManager?.currentBalance ?? (balanceView.balance) }
         set {
             sessionManager?.currentBalance = newValue
-            balanceView?.balance = newValue
-            chipSelector?.updateAvailableChips(balance: newValue)
+            balanceView.balance = newValue
+            chipSelector.updateAvailableChips(balance: newValue)
         }
     }
     
@@ -909,10 +821,11 @@ final class BlackjackGameplayViewController: UIViewController {
             }
         }
 
-        // Set callback to hit the ATM
-        settingsViewController.onHitATM = { [weak self] in
+        settingsViewController.onHitATM = { [weak self] amount in
             guard let self = self else { return }
-            self.hitATM()
+            navigationController.dismiss(animated: true) {
+                self.hitATM(amount: amount)
+            }
         }
 
         present(navigationController, animated: true)
@@ -925,27 +838,13 @@ final class BlackjackGameplayViewController: UIViewController {
         settingsManager.delegate?.settingsDidChange(settingsManager.currentSettings)
     }
     
-    private func hitATM() {
-        // Add $200 to the bankroll
-        let amount = 200
-        
-        let messages: [String] = [
-            "Cash acquired! $\(amount) added!",
-            "Don't tell your spouse! $\(amount) added!",
-            "You're a lucky bastard! $\(amount) added!",
-            "Shhh... $\(amount) added!",
-            "Added \(amount) to bankroll!"
-        ]
-        
+    private func hitATM(amount: Int) {
         balance += amount
-        
-        // Record balance snapshot before tracking ATM visit so index is correct
+
         recordBalanceSnapshot()
-        
-        // Track ATM visit (records the index we just added)
-        sessionManager.trackATMVisit()
-        
-        instructionLabel.showMessage(messages.randomElement() ?? "Cash acquired! $\(amount) added!", shouldFade: true)
+        sessionManager.trackATMVisit(amount: amount)
+
+        instructionLabel.showMessage(ATMWithdrawalPresenter.randomMessage(for: amount), shouldFade: true)
         HapticsHelper.successHaptic()
     }
 
@@ -3397,7 +3296,7 @@ extension BlackjackGameplayViewController: BlackjackSettingsManagerDelegate {
             createAndShuffleDeck()
         }
 
-        updateNavigationBarMenu()
+        configureNavigationBar()
         updateControls()
     }
 }

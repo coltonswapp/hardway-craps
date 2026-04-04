@@ -23,6 +23,10 @@ class GameCategoryTabBar: UIView {
   private var titles: [String] = []
   /// When true, we're updating contentOffset from setPageProgress; don't report back to delegate.
   private var isProgrammaticScroll = false
+  /// When true, `selectedIndex` and pill styling are driven only by explicit selection APIs — not by
+  /// `scrollViewDidScroll`. Prevents intermediate scroll positions during `scrollToItem` animations from
+  /// briefly selecting the wrong tab (visible flashing).
+  private var suspendSelectionSyncFromScroll = false
 
   private lazy var collectionView: UICollectionView = {
     let layout = UICollectionViewFlowLayout()
@@ -91,11 +95,17 @@ class GameCategoryTabBar: UIView {
     }
 
     // Scroll to center the selected tab
+    if animated {
+      suspendSelectionSyncFromScroll = true
+    }
     collectionView.scrollToItem(
       at: IndexPath(item: index, section: 0),
       at: .centeredHorizontally,
       animated: animated
     )
+    if !animated {
+      suspendSelectionSyncFromScroll = false
+    }
   }
 
   /// Sync tab bar scroll position to a continuous page progress (0...titles.count-1). Used when the underlying page view is scrolled.
@@ -107,10 +117,14 @@ class GameCategoryTabBar: UIView {
     let offsetX = centerX - cv.bounds.width / 2
     let clampedOffset = min(max(range.min, offsetX), range.max)
     isProgrammaticScroll = true
-    cv.setContentOffset(CGPoint(x: clampedOffset, y: 0), animated: animated)
-    if !animated {
+    let offsetChanged = abs(cv.contentOffset.x - clampedOffset) > 0.5
+    let actuallyAnimate = animated && offsetChanged
+    cv.setContentOffset(CGPoint(x: clampedOffset, y: 0), animated: actuallyAnimate)
+    if !actuallyAnimate {
       DispatchQueue.main.async { [weak self] in
-        self?.isProgrammaticScroll = false
+        guard let self else { return }
+        self.isProgrammaticScroll = false
+        self.suspendSelectionSyncFromScroll = false
       }
     }
   }
@@ -173,6 +187,7 @@ class GameCategoryTabBar: UIView {
     }
 
     isProgrammaticScroll = true
+    suspendSelectionSyncFromScroll = true
     setPageProgress(CGFloat(roundedIndex), animated: true)
     delegate?.tabBar(self, didSelectTabAt: roundedIndex)
   }
@@ -234,7 +249,7 @@ extension GameCategoryTabBar: UICollectionViewDelegate {
     let clampedProgress = max(0, min(progress, CGFloat(titles.count - 1)))
     let newIndex = Int(round(clampedProgress))
     let clamped = max(0, min(newIndex, titles.count - 1))
-    if clamped != selectedIndex {
+    if !suspendSelectionSyncFromScroll, clamped != selectedIndex {
       let previousIndex = selectedIndex
       selectedIndex = clamped
       UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseInOut) {
@@ -272,6 +287,7 @@ extension GameCategoryTabBar: UICollectionViewDelegate {
   func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
     if scrollView === collectionView {
       isProgrammaticScroll = false
+      suspendSelectionSyncFromScroll = false
       delegate?.tabBarDidEndScrolling(self)
     }
   }
@@ -296,6 +312,7 @@ extension GameCategoryTabBar: UICollectionViewDelegate {
 
     // Prevent scrollViewDidScroll from reporting progress during this animation (avoids fight with page view).
     isProgrammaticScroll = true
+    suspendSelectionSyncFromScroll = true
     collectionView.scrollToItem(
       at: indexPath,
       at: .centeredHorizontally,

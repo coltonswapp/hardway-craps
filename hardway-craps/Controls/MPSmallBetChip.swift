@@ -65,6 +65,7 @@ class MPSmallBetChip: UIView, BetChipViewProtocol {
         didSet {
             amountLabel.text = "\(amount)"
             isHidden = amount == 0
+            accessibilityValue = "\(amount)"
         }
     }
 
@@ -123,7 +124,7 @@ class MPSmallBetChip: UIView, BetChipViewProtocol {
     }
 
     func addToBet(_ value: Int) {
-        amount += value
+        amount = max(0, amount + value)
     }
 
     func clearBet() {

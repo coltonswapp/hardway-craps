@@ -16,6 +16,7 @@ struct GameplayMetrics: Codable {
     var fieldBetCount: Int = 0
     var dontPassBetCount: Int = 0
     var comeBetCount: Int = 0
+    var layBetCount: Int = 0
 
     var totalPassLineAmount: Int = 0
     var totalOddsAmount: Int = 0
@@ -25,6 +26,7 @@ struct GameplayMetrics: Codable {
     var totalFieldAmount: Int = 0
     var totalDontPassAmount: Int = 0
     var totalComeBetAmount: Int = 0
+    var totalLayAmount: Int = 0
 
     var maxConcurrentBets: Int = 0
     var largestBetAmount: Int = 0
@@ -33,10 +35,11 @@ struct GameplayMetrics: Codable {
     var betsAfterLossCount: Int = 0
     var lastBalanceBeforeRoll: Int = 0
     var atmVisitsCount: Int = 0
+    var totalATMAmount: Int = 0
 
     var totalBetAmount: Int {
         return totalPassLineAmount + totalOddsAmount + totalPlaceAmount +
-               totalHardwayAmount + totalHornAmount + totalFieldAmount + totalDontPassAmount + totalComeBetAmount
+               totalHardwayAmount + totalHornAmount + totalFieldAmount + totalDontPassAmount + totalComeBetAmount + totalLayAmount
     }
 
     var propBetAmount: Int {
@@ -44,7 +47,7 @@ struct GameplayMetrics: Codable {
     }
 
     var safeBetAmount: Int {
-        return totalPassLineAmount + totalOddsAmount + totalPlaceAmount + totalFieldAmount + totalDontPassAmount + totalComeBetAmount
+        return totalPassLineAmount + totalOddsAmount + totalPlaceAmount + totalFieldAmount + totalDontPassAmount + totalComeBetAmount + totalLayAmount
     }
 
     // Default initializer
@@ -80,7 +83,10 @@ struct GameplayMetrics: Codable {
         totalDontPassAmount = try container.decodeIfPresent(Int.self, forKey: .totalDontPassAmount) ?? 0
         comeBetCount = try container.decodeIfPresent(Int.self, forKey: .comeBetCount) ?? 0
         totalComeBetAmount = try container.decodeIfPresent(Int.self, forKey: .totalComeBetAmount) ?? 0
+        layBetCount = try container.decodeIfPresent(Int.self, forKey: .layBetCount) ?? 0
+        totalLayAmount = try container.decodeIfPresent(Int.self, forKey: .totalLayAmount) ?? 0
         atmVisitsCount = try container.decodeIfPresent(Int.self, forKey: .atmVisitsCount) ?? 0
+        totalATMAmount = try container.decodeIfPresent(Int.self, forKey: .totalATMAmount) ?? 0
     }
 }
 
@@ -98,6 +104,7 @@ struct BlackjackGameplayMetrics: Codable {
     var betsAfterLossCount: Int = 0
     var lastBalanceBeforeHand: Int = 0
     var atmVisitsCount: Int = 0
+    var totalATMAmount: Int = 0
 
     var blackjacksHit: Int = 0
     var doublesDown: Int = 0
@@ -150,6 +157,7 @@ struct BlackjackGameplayMetrics: Codable {
 
         // New fields - use default values if not present (backwards compatibility)
         atmVisitsCount = try container.decodeIfPresent(Int.self, forKey: .atmVisitsCount) ?? 0
+        totalATMAmount = try container.decodeIfPresent(Int.self, forKey: .totalATMAmount) ?? 0
 
         blackjacksHit = try container.decode(Int.self, forKey: .blackjacksHit)
         doublesDown = try container.decode(Int.self, forKey: .doublesDown)

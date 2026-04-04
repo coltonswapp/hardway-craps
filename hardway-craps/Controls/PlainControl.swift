@@ -73,6 +73,7 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
     /// Title alignment for the control. Default is .centered
     var titleAlignment: TitleAlignment = .centered {
         didSet {
+            guard titleAlignment != oldValue else { return }
             updateTitleConstraints()
         }
     }
@@ -145,6 +146,10 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
 
     /// Override in subclasses that need flexible vertical height (e.g. PointControl)
     var wantsDefaultHeightConstraint: Bool { return true }
+
+    /// Override in subclasses that provide their own title/subtitle layout (e.g. SpecialtyControl).
+    /// When true, the default titleLabel is not added.
+    var usesCustomTitleLayout: Bool { return false }
     
     var getSelectedChipValue: (() -> Int)?
     var getBalance: (() -> Int)?
@@ -269,10 +274,11 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         layer.cornerRadius = 18
         clipsToBounds = false
 
-        titleLabel.text = title
-        titleLabel.textColor = labelColor
-
-        addSubview(titleLabel)
+        if !usesCustomTitleLayout {
+            titleLabel.text = title
+            titleLabel.textColor = labelColor
+            addSubview(titleLabel)
+        }
 
         if let mpStyle = mpChipStyle {
             betView = MPSmallBetChip(style: mpStyle)
@@ -295,22 +301,23 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
             NSLayoutConstraint.activate([heightConstraint])
         }
         
-        // Create constraints for title alignment
-        titleCenterXConstraint = titleLabel.centerXAnchor.constraint(equalTo: centerXAnchor)
-        titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
-        
-        NSLayoutConstraint.activate([
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
-        
-        // Set initial alignment
-        updateTitleConstraints()
+        if !usesCustomTitleLayout {
+            // Create constraints for title alignment
+            titleCenterXConstraint = titleLabel.centerXAnchor.constraint(equalTo: centerXAnchor)
+            titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
+            NSLayoutConstraint.activate([
+                titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
+            updateTitleConstraints()
+        }
 
         // Apply bet view constraints (can be overridden by subclasses)
         configureBetViewConstraints()
 
         setupGestures()
         BetDragManager.shared.registerDropTarget(self)
+
+        syncUITestBetAccessibility()
 
         // Add pan gesture to betView to drag bet away (only if not using oddsBetStack)
         if !supportsOdds {
@@ -365,6 +372,8 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         // On iPad, don't animate title - there's plenty of space
         if UIDevice.current.userInterfaceIdiom == .pad {
             titleAlignment = .centered
+            betAmountDidChange()
+            syncUITestBetAccessibility()
             return
         }
 
@@ -373,13 +382,31 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         guard shouldShift else {
             // Not using OddsBetStack and not requesting animation - keep title centered
             titleAlignment = .centered
+            betAmountDidChange()
+            syncUITestBetAccessibility()
             return
         }
 
         // Shift title left when there's a bet
         let hasAnyBet = betAmount > 0 || oddsAmount > 0
         titleAlignment = hasAnyBet ? .left : .centered
+        betAmountDidChange()
+        syncUITestBetAccessibility()
     }
+
+    /// Line and odds amounts for UI tests (`accessibilityValue`): `"\(line)"` or `"\(line)|\(odds)"`.
+    private func syncUITestBetAccessibility() {
+        let line = betAmount
+        let odds = oddsAmount
+        if odds > 0 {
+            accessibilityValue = "\(line)|\(odds)"
+        } else {
+            accessibilityValue = "\(line)"
+        }
+    }
+
+    /// Override in subclasses to react to bet amount changes (e.g. shift content when bet appears/disappears).
+    func betAmountDidChange() {}
     
     private func setupOddsBetStack() {
         // Remove existing betView gestures

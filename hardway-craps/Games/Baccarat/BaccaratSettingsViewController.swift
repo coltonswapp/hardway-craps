@@ -84,8 +84,8 @@ final class BaccaratSettingsViewController: BaseSettingsViewController {
                     // Tap handled in didSelectRowAt
                 }
             case 1: // Hit the ATM
-                configureActionCell(cell, title: "Hit the ATM", icon: "creditcard") { [weak self] in
-                    // Tap handled in didSelectRowAt
+                configureATMCell(cell) { [weak self] amount in
+                    self?.onHitATM?(amount)
                 }
             default:
                 break
@@ -120,8 +120,6 @@ final class BaccaratSettingsViewController: BaseSettingsViewController {
         if indexPath.section == 0 {
             if indexPath.row == 0 {
                 onShowGameDetails?()
-            } else if indexPath.row == 1 {
-                onHitATM?()
             }
         }
     }

@@ -223,9 +223,9 @@ final class MPBlackjackSessionManager {
 
     /// Track an ATM visit (bankroll reload)
     /// Note: Should be called AFTER recordBalanceSnapshot() to record the correct index
-    func trackATMVisit() {
+    func trackATMVisit(amount: Int) {
         blackjackMetrics.atmVisitsCount += 1
-        // Record the index in balance history where ATM visit occurred
+        blackjackMetrics.totalATMAmount += amount
         atmVisitIndices.append(balanceHistory.count - 1)
         delegate?.mpMetricsDidUpdate(metrics: blackjackMetrics)
     }
@@ -271,7 +271,8 @@ final class MPBlackjackSessionManager {
             handCount: handCount,
             blackjackMetrics: blackjackMetrics,
             gameType: .multiplayerBlackjack,
-            baccaratMetrics: nil
+            baccaratMetrics: nil,
+            crapsDiceOutcomeHistogram: nil
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -316,7 +317,8 @@ final class MPBlackjackSessionManager {
             handCount: handCount,
             blackjackMetrics: blackjackMetrics,
             gameType: .multiplayerBlackjack,
-            baccaratMetrics: nil
+            baccaratMetrics: nil,
+            crapsDiceOutcomeHistogram: nil
         )
 
         SessionPersistenceManager.shared.saveSession(session)
@@ -376,7 +378,8 @@ final class MPBlackjackSessionManager {
             handCount: handCount,
             blackjackMetrics: blackjackMetrics,
             gameType: .multiplayerBlackjack,
-            baccaratMetrics: nil
+            baccaratMetrics: nil,
+            crapsDiceOutcomeHistogram: nil
         )
     }
 

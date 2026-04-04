@@ -17,6 +17,10 @@ class PlaygroundViewController: UIViewController {
     private var balanceView: BalanceView!
     private var passLineControl: PlainControl!
     private var pointControl: PointControl!
+    private var triZoneControl: TriZoneBetControl!
+    private var clearTriZoneButton: UIButton!
+    private var horizontalTriZoneControl: TriZoneBetControl!
+    private var passLineStackView: UIStackView!
     private var bottomStackView: UIStackView!
     
     private var lockBetButton: UIButton!
@@ -60,7 +64,8 @@ class PlaygroundViewController: UIViewController {
         setupBottomStackView()
         setupPointControl()
         setupPointControlButtons()
-        setupPassLineControl()
+        setupTriZoneControl()
+        setupPassLineAndHorizontalTriZone()
         setupControlButtons()
     }
     
@@ -253,14 +258,58 @@ class PlaygroundViewController: UIViewController {
         ])
     }
     
-    private func setupPassLineControl() {
+    private func setupTriZoneControl() {
+        triZoneControl = TriZoneBetControl(zones: [
+            .init(title: "C"),
+            .init(title: "C&E"),
+            .init(title: "E")
+        ])
+        triZoneControl.translatesAutoresizingMaskIntoConstraints = false
+
+        triZoneControl.getSelectedChipValue = { [weak self] in
+            return self?.selectedChipValue ?? 5
+        }
+        triZoneControl.getBalance = { [weak self] in
+            return self?.balance ?? 200
+        }
+        triZoneControl.onBetPlaced = { [weak self] amount, zone in
+            guard let self = self else { return }
+            self.balance -= amount
+        }
+        triZoneControl.onBetRemoved = { [weak self] amount, zone in
+            guard let self = self else { return }
+            self.balance += amount
+        }
+
+        // Clear button
+        clearTriZoneButton = createControlButton(title: "Clear C&E", backgroundColor: HardwayColors.surfaceGray)
+        clearTriZoneButton.addTarget(self, action: #selector(clearTriZoneTapped), for: .touchUpInside)
+        clearTriZoneButton.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(triZoneControl)
+        view.addSubview(clearTriZoneButton)
+
+        NSLayoutConstraint.activate([
+            // Position to the right of pointControl, same vertical range
+            triZoneControl.leadingAnchor.constraint(equalTo: pointControl.trailingAnchor, constant: 16),
+            triZoneControl.widthAnchor.constraint(equalToConstant: 100),
+            triZoneControl.topAnchor.constraint(equalTo: pointControl.topAnchor),
+            triZoneControl.bottomAnchor.constraint(equalTo: pointControl.bottomAnchor),
+
+            // Clear button below the tri-zone control
+            clearTriZoneButton.centerXAnchor.constraint(equalTo: triZoneControl.centerXAnchor),
+            clearTriZoneButton.topAnchor.constraint(equalTo: triZoneControl.bottomAnchor, constant: 8),
+            clearTriZoneButton.widthAnchor.constraint(equalTo: triZoneControl.widthAnchor),
+            clearTriZoneButton.heightAnchor.constraint(equalToConstant: 32)
+        ])
+    }
+
+    private func setupPassLineAndHorizontalTriZone() {
+        // Pass Line control
         passLineControl = PlainControl(title: "Pass Line")
         passLineControl.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Enable odds support
         passLineControl.supportsOdds = true
-        
-        // Configure callbacks
+
         passLineControl.getSelectedChipValue = { [weak self] in
             return self?.selectedChipValue ?? 5
         }
@@ -283,14 +332,48 @@ class PlaygroundViewController: UIViewController {
             guard let self = self else { return }
             self.balance += amount
         }
-        
-        view.addSubview(passLineControl)
-        
+
+        // Horizontal TriZone control
+        horizontalTriZoneControl = TriZoneBetControl(zones: [
+            .init(title: "C"),
+            .init(title: "C&E"),
+            .init(title: "E")
+        ], axis: .horizontal)
+        horizontalTriZoneControl.translatesAutoresizingMaskIntoConstraints = false
+
+        horizontalTriZoneControl.getSelectedChipValue = { [weak self] in
+            return self?.selectedChipValue ?? 5
+        }
+        horizontalTriZoneControl.getBalance = { [weak self] in
+            return self?.balance ?? 200
+        }
+        horizontalTriZoneControl.onBetPlaced = { [weak self] amount, zone in
+            guard let self = self else { return }
+            self.balance -= amount
+        }
+        horizontalTriZoneControl.onBetRemoved = { [weak self] amount, zone in
+            guard let self = self else { return }
+            self.balance += amount
+        }
+
+        // Horizontal stack: Pass Line (3/4) | Horizontal TriZone (1/4)
+        passLineStackView = UIStackView(arrangedSubviews: [passLineControl, horizontalTriZoneControl])
+        passLineStackView.translatesAutoresizingMaskIntoConstraints = false
+        passLineStackView.axis = .horizontal
+        passLineStackView.spacing = 8
+        passLineStackView.alignment = .fill
+        passLineStackView.distribution = .fill
+
+        view.addSubview(passLineStackView)
+
         NSLayoutConstraint.activate([
-            passLineControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            passLineControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            passLineControl.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -20),
-            passLineControl.heightAnchor.constraint(equalToConstant: 50)
+            passLineStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            passLineStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            passLineStackView.bottomAnchor.constraint(equalTo: bottomStackView.topAnchor, constant: -20),
+            passLineStackView.heightAnchor.constraint(equalToConstant: 50),
+
+            // Pass Line gets 3/4 of the available width
+            passLineControl.widthAnchor.constraint(equalTo: passLineStackView.widthAnchor, multiplier: 0.60, constant: -6)
         ])
     }
     
@@ -322,7 +405,7 @@ class PlaygroundViewController: UIViewController {
         NSLayoutConstraint.activate([
             controlButtonsStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             controlButtonsStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            controlButtonsStackView.bottomAnchor.constraint(equalTo: passLineControl.topAnchor, constant: -20),
+            controlButtonsStackView.bottomAnchor.constraint(equalTo: passLineStackView.topAnchor, constant: -20),
             controlButtonsStackView.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
@@ -360,8 +443,14 @@ class PlaygroundViewController: UIViewController {
         HapticsHelper.lightHaptic()
     }
     
+    @objc private func clearTriZoneTapped() {
+        triZoneControl.clearAll()
+        HapticsHelper.lightHaptic()
+    }
+
     @objc private func clearAllTapped() {
         passLineControl.clearAll()
+        horizontalTriZoneControl.clearAll()
         HapticsHelper.lightHaptic()
     }
     

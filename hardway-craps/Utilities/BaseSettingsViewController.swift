@@ -12,7 +12,7 @@ class BaseSettingsViewController: UITableViewController {
     // Common callbacks
     var onSettingsChanged: (() -> Void)?
     var onShowGameDetails: (() -> Void)?
-    var onHitATM: (() -> Void)?
+    var onHitATM: ((Int) -> Void)?
     
     init() {
         super.init(style: .insetGrouped)
@@ -157,6 +157,38 @@ class BaseSettingsViewController: UITableViewController {
         layoutLabelAndSwitch(label: label, switchControl: switchControl, in: cell)
     }
     
+    func configureATMCell(_ cell: UITableViewCell, onSelect: @escaping (Int) -> Void) {
+        let label = createStandardLabel(text: "Hit the ATM")
+
+        let iconView = UIImageView(image: UIImage(systemName: "creditcard"))
+        iconView.tintColor = HardwayColors.yellow
+        iconView.contentMode = .scaleAspectFit
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        let menuButton = createMenuButton(
+            title: "Withdraw",
+            menu: ATMWithdrawalPresenter.menu(onSelect: onSelect)
+        )
+
+        cell.contentView.addSubview(iconView)
+        cell.contentView.addSubview(label)
+        cell.contentView.addSubview(menuButton)
+
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            iconView.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 24),
+            iconView.heightAnchor.constraint(equalToConstant: 24),
+
+            label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
+            label.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: menuButton.leadingAnchor, constant: -16),
+
+            menuButton.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+            menuButton.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+        ])
+    }
+
     func configureActionCell(_ cell: UITableViewCell, title: String, icon: String, isDestructive: Bool = false, onTap: @escaping () -> Void) {
         let labelColor: UIColor = isDestructive ? .systemRed : .white
         let iconColor: UIColor = isDestructive ? .systemRed : HardwayColors.yellow

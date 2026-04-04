@@ -9,6 +9,7 @@ import Foundation
 
 enum GameType: String, Codable {
     case craps = "Craps"
+    case craplessCraps = "Crapless Craps"
     case blackjack = "Blackjack"
     case multiplayerBlackjack = "Multiplayer Blackjack"
     case baccarat = "Baccarat"
@@ -37,7 +38,10 @@ struct GameSession: Codable {
 
     // Baccarat-specific fields
     let baccaratMetrics: BaccaratGameplayMetrics?
-    
+
+    /// Craps only: dice total histogram for totals 2...12; index i = count for (i + 2). Length 11 when present. `nil` for non-craps or legacy saves.
+    let crapsDiceOutcomeHistogram: [Int]?
+
     var netResult: Int {
         return endingBalance - startingBalance
     }
@@ -103,8 +107,28 @@ struct GameSession: Codable {
         return gameType == .baccarat
     }
 
+    var isCraplessCrapsSession: Bool {
+        return gameType == .craplessCraps
+    }
+
+    var isCrapsSession: Bool {
+        return gameType == .craps
+    }
+
     var rollCountValue: Int {
         return rollCount ?? 0
+    }
+
+    /// Eleven bins for Craps dice totals 2...12 (index i = total i + 2). Zeros if missing or short.
+    var crapsDiceHistogramBins: [Int] {
+        guard let raw = crapsDiceOutcomeHistogram else {
+            return Array(repeating: 0, count: 11)
+        }
+        var bins = Array(repeating: 0, count: 11)
+        for i in 0..<min(11, raw.count) {
+            bins[i] = raw[i]
+        }
+        return bins
     }
 
     var sevensRolledValue: Int {
@@ -125,6 +149,24 @@ struct GameSession: Codable {
         }
     }
 
+    var totalATMAmount: Int {
+        if isBlackjackSession {
+            return blackjackMetrics?.totalATMAmount ?? 0
+        } else if isBaccaratSession {
+            return baccaratMetrics?.totalATMAmount ?? 0
+        } else {
+            return gameplayMetrics?.totalATMAmount ?? 0
+        }
+    }
+
+    var totalInvested: Int {
+        return startingBalance + totalATMAmount
+    }
+
+    var trueNetResult: Int {
+        return endingBalance - totalInvested
+    }
+
     var balanceHistoryValue: [Int] {
         if let balanceHistory, !balanceHistory.isEmpty {
             return balanceHistory
@@ -134,6 +176,14 @@ struct GameSession: Codable {
             return [startingBalance, endingBalance]
         }
         return [endingBalance]
+    }
+
+    var balanceHigh: Int {
+        return balanceHistoryValue.max() ?? endingBalance
+    }
+
+    var balanceLow: Int {
+        return balanceHistoryValue.min() ?? endingBalance
     }
 
     var betSizeHistoryValue: [Int] {

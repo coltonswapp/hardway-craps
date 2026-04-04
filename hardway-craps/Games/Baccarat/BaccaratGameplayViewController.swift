@@ -7,7 +7,7 @@
 
 import UIKit
 
-class BaccaratGameplayViewController: UIViewController {
+class BaccaratGameplayViewController: BaseGameplayViewController {
 
   // MARK: - Game Phase
 
@@ -20,11 +20,7 @@ class BaccaratGameplayViewController: UIViewController {
 
   // MARK: - UI Components
 
-  private var instructionLabel: InstructionLabel!
   private let deckView = DeckView()
-  private var balanceView: BalanceView!
-  private var chipSelector: ChipSelector!
-  private var bottomStackView: UIStackView!
 
   private var dealButton: UIButton!
   private var newHandButton: UIButton!
@@ -107,23 +103,22 @@ class BaccaratGameplayViewController: UIViewController {
   // MARK: - State
 
   private var balance: Int {
-    get { sessionManager?.currentBalance ?? (balanceView?.balance ?? startingBalance) }
+    get { sessionManager?.currentBalance ?? (balanceView.balance) }
     set {
       sessionManager?.currentBalance = newValue
-      balanceView?.balance = newValue
-      chipSelector?.updateAvailableChips(balance: newValue)
+      balanceView.balance = newValue
+      chipSelector.updateAvailableChips(balance: newValue)
     }
   }
 
   var selectedChipValue: Int {
-    chipSelector?.selectedValue ?? 5
+    chipSelector.selectedValue
   }
 
   // MARK: - Lifecycle
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    view.backgroundColor = .black
     title = "Baccarat"
 
     // Disable interactive pop gesture to prevent accidental dismissal when dragging bets
@@ -167,11 +162,6 @@ class BaccaratGameplayViewController: UIViewController {
     setupUI()
   }
 
-  override func viewDidLayoutSubviews() {
-    super.viewDidLayoutSubviews()
-    chipSelector?.initializeIndicatorPosition()
-  }
-
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
 
@@ -181,7 +171,7 @@ class BaccaratGameplayViewController: UIViewController {
     }
   }
 
-  deinit {
+  @MainActor deinit {
     NotificationCenter.default.removeObserver(self)
   }
 
@@ -228,18 +218,33 @@ class BaccaratGameplayViewController: UIViewController {
     }
   }
 
+  // MARK: - Base Class Hooks
+
+  override func configureTopBarTrailingView() -> UIView? {
+    deckView.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      deckView.widthAnchor.constraint(equalToConstant: 80),
+      deckView.heightAnchor.constraint(equalToConstant: 110),
+    ])
+    return deckView
+  }
+
+  override func createChipSelector() -> ChipSelector {
+    let cs = ChipSelector(compact: [1, 5, 25, 50, 100])
+    cs.delegate = self
+    return cs
+  }
+
+  override func settingsButtonTapped() {
+    showSettingsViewController()
+  }
+
   // MARK: - Setup
 
   private func setupUI() {
-    setupNavigationBarMenu()
-    setupInstructionLabel()
-    setupDeckView()
     setupRoadmapView()
     setupBettingControls()
     setupHandViews()
-    setupBalanceView()
-    setupChipSelector()
-    setupBottomStackView()
     setupDealButton()
     setupNewHandButton()
 
@@ -262,48 +267,6 @@ class BaccaratGameplayViewController: UIViewController {
 
     instructionLabel.showMessage("Place your bets", shouldFade: false)
     updateDealButtonState()
-  }
-
-  private func setupNavigationBarMenu() {
-    let settingsButton = UIBarButtonItem(
-      image: UIImage(systemName: "gearshape"),
-      style: .plain,
-      target: self,
-      action: #selector(showSettings)
-    )
-    navigationItem.rightBarButtonItem = settingsButton
-  }
-
-  @objc private func showSettings() {
-    showSettingsViewController()
-  }
-
-  private func setupInstructionLabel() {
-    instructionLabel = InstructionLabel()
-    instructionLabel.translatesAutoresizingMaskIntoConstraints = false
-    instructionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    instructionLabel.setContentHuggingPriority(.defaultHigh, for: .vertical)
-
-    view.addSubview(instructionLabel)
-
-    NSLayoutConstraint.activate([
-      instructionLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-      instructionLabel.topAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-      instructionLabel.heightAnchor.constraint(lessThanOrEqualToConstant: 44),
-    ])
-  }
-
-  private func setupDeckView() {
-    view.addSubview(deckView)
-    NSLayoutConstraint.activate([
-      deckView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-      deckView.topAnchor.constraint(equalTo: instructionLabel.topAnchor),
-      deckView.widthAnchor.constraint(equalToConstant: 80),
-      deckView.heightAnchor.constraint(equalToConstant: 110),
-      instructionLabel.trailingAnchor.constraint(
-        lessThanOrEqualTo: deckView.leadingAnchor, constant: -12),
-    ])
   }
 
   private func restoreRoadmapHistory() {
@@ -463,40 +426,6 @@ class BaccaratGameplayViewController: UIViewController {
     return label
   }
 
-  private func setupBalanceView() {
-    balanceView = BalanceView()
-  }
-
-  private func setupChipSelector() {
-    chipSelector = ChipSelector(compact: [1, 5, 25, 50, 100])
-    chipSelector.delegate = self
-  }
-
-  private func setupBottomStackView() {
-    bottomStackView = UIStackView()
-    bottomStackView.translatesAutoresizingMaskIntoConstraints = false
-    bottomStackView.axis = .vertical
-    bottomStackView.distribution = .fill
-    bottomStackView.alignment = .leading
-    bottomStackView.spacing = 8
-
-    bottomStackView.addArrangedSubview(balanceView)
-    bottomStackView.addArrangedSubview(chipSelector)
-    view.addSubview(bottomStackView)
-
-    bottomStackView.setContentHuggingPriority(.required, for: .vertical)
-    bottomStackView.setContentCompressionResistancePriority(.required, for: .vertical)
-    balanceView.setContentCompressionResistancePriority(.required, for: .vertical)
-
-    let chipSelectorHeight: CGFloat = 60
-    NSLayoutConstraint.activate([
-      bottomStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-      bottomStackView.bottomAnchor.constraint(
-        equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
-      chipSelector.heightAnchor.constraint(equalToConstant: chipSelectorHeight),
-    ])
-  }
-
   private func setupDealButton() {
     dealButton = UIButton.createActionButton(
       title: "Deal",
@@ -508,7 +437,7 @@ class BaccaratGameplayViewController: UIViewController {
 
     NSLayoutConstraint.activate([
       dealButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-      dealButton.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
+      dealButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
       dealButton.heightAnchor.constraint(equalToConstant: 98),
       dealButton.widthAnchor.constraint(equalToConstant: 120),
     ])
@@ -530,7 +459,7 @@ class BaccaratGameplayViewController: UIViewController {
 
     NSLayoutConstraint.activate([
       newHandButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-      newHandButton.bottomAnchor.constraint(equalTo: bottomStackView.bottomAnchor),
+      newHandButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor),
       newHandButton.heightAnchor.constraint(equalToConstant: 98),
       newHandButton.widthAnchor.constraint(equalToConstant: 120),
     ])
@@ -613,9 +542,11 @@ class BaccaratGameplayViewController: UIViewController {
       }
     }
 
-    settingsViewController.onHitATM = { [weak self] in
+    settingsViewController.onHitATM = { [weak self] amount in
       guard let self = self else { return }
-      self.hitATM()
+      navigationController.dismiss(animated: true) {
+        self.hitATM(amount: amount)
+      }
     }
 
     present(navigationController, animated: true)
@@ -632,23 +563,13 @@ class BaccaratGameplayViewController: UIViewController {
     navigationController?.pushViewController(detailViewController, animated: true)
   }
 
-  private func hitATM() {
-    let amount = 200
-
-    let messages: [String] = [
-      "Cash acquired! $\(amount) added!",
-      "Don't tell your spouse! $\(amount) added!",
-      "You're a lucky bastard! $\(amount) added!",
-      "Shhh... $\(amount) added!",
-      "Added \(amount) to bankroll!",
-    ]
-
+  private func hitATM(amount: Int) {
     balance += amount
 
     sessionManager.recordBalanceSnapshot()
-    sessionManager.trackATMVisit()
+    sessionManager.trackATMVisit(amount: amount)
 
-    instructionLabel.showMessage(messages.randomElement() ?? "Cash acquired! $\(amount) added!", shouldFade: true)
+    instructionLabel.showMessage(ATMWithdrawalPresenter.randomMessage(for: amount), shouldFade: true)
     HapticsHelper.successHaptic()
   }
 
@@ -688,7 +609,7 @@ class BaccaratGameplayViewController: UIViewController {
     // Position the hand halfway between the bottom betting control and the balance area
     let newCenterY = handView.centerYAnchor.constraint(
       equalTo: bettingStackView.bottomAnchor,
-      constant: (bottomStackView.frame.minY - bettingStackView.frame.maxY) / 2)
+      constant: (bottomBar.frame.minY - bettingStackView.frame.maxY) / 2)
     newCenterY.isActive = true
     centerConstraint?.constant = 0
 

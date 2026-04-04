@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import UIKit
 
 /// Delegate protocol for game state changes
 protocol CrapsGameStateManagerDelegate: AnyObject {
@@ -25,11 +24,6 @@ final class CrapsGameStateManager {
     weak var delegate: CrapsGameStateManagerDelegate?
 
     private var game: CrapsGame
-    private var rollingStateUpdateWorkItem: DispatchWorkItem?
-    private weak var flipDiceContainer: FlipDiceContainer?
-    private weak var passLineControl: PlainControl?
-    private weak var dontPassControl: PlainControl?
-    private var hasAnyBet: (() -> Bool)?
 
     // MARK: - Public Properties
 
@@ -48,20 +42,26 @@ final class CrapsGameStateManager {
         return game.isPointPhase
     }
 
+    var currentVariant: CrapsVariant {
+        return game.rules.variant
+    }
+
     // MARK: - Initialization
 
-    init() {
-        self.game = CrapsGame()
+    init(variant: CrapsVariant = .standard) {
+        self.game = CrapsGame(rules: CrapsVariantRulesFactory.makeRules(for: variant))
     }
 
     // MARK: - Public Methods
 
-    /// Set references to UI controls for rolling state management
-    func setUIReferences(flipDiceContainer: FlipDiceContainer, passLineControl: PlainControl, dontPassControl: PlainControl? = nil, hasAnyBet: @escaping () -> Bool) {
-        self.flipDiceContainer = flipDiceContainer
-        self.passLineControl = passLineControl
-        self.dontPassControl = dontPassControl
-        self.hasAnyBet = hasAnyBet
+    func setVariant(_ variant: CrapsVariant) {
+        let oldPhase = game.phase
+        game.updateRules(CrapsVariantRulesFactory.makeRules(for: variant))
+        let newPhase = game.phase
+
+        if !phasesAreEqual(oldPhase, newPhase) {
+            delegate?.gamePhaseDidChange(from: oldPhase, to: newPhase)
+        }
     }
 
     /// Process a dice roll and return the game event
@@ -97,61 +97,18 @@ final class CrapsGameStateManager {
         return event
     }
 
-    /// Update the rolling enabled/disabled state based on game conditions
-    func updateRollingState() {
-        guard let flipDiceContainer = flipDiceContainer,
-              let passLineControl = passLineControl else { return }
-
-        // Cancel any pending rolling state updates
-        rollingStateUpdateWorkItem?.cancel()
-
-        // Enable rolling if:
-        // 1. We're in point phase (can always roll), OR
-        // 2. We have any bet placed (pass line, don't pass, field, point numbers, etc.)
-        let hasAnyBetPlaced = hasAnyBet?() ?? false
+    /// Return and broadcast whether rolling should currently be enabled.
+    @discardableResult
+    func updateRollingState(hasAnyBetPlaced: Bool) -> Bool {
         let shouldEnable = game.isPointPhase || hasAnyBetPlaced
-
-        if shouldEnable {
-            // If we're in point phase, enable immediately (can always roll)
-            // If we have any bet in come out phase, enable immediately (bet was just placed)
-            // Otherwise delay to allow roll result animations to complete
-            let delay: TimeInterval
-            if game.isPointPhase {
-                delay = 0.2  // Point phase - enable after brief delay to ensure dice animation completes
-            } else if hasAnyBetPlaced {
-                delay = 0.0  // Any bet placed - enable immediately
-            } else {
-                delay = 0.8  // After roll result - brief wait for animations to start
-            }
-
-            let workItem = DispatchWorkItem { [weak self, weak flipDiceContainer] in
-                guard let self = self,
-                      let flipDiceContainer = flipDiceContainer else { return }
-
-                // Double-check condition hasn't changed
-                let stillHasAnyBet = self.hasAnyBet?() ?? false
-                let stillShouldEnable = self.game.isPointPhase || stillHasAnyBet
-                if stillShouldEnable {
-                    flipDiceContainer.enableRolling()
-                    self.delegate?.rollingStateDidChange(enabled: true)
-                } else {
-                    flipDiceContainer.disableRolling()
-                    self.delegate?.rollingStateDidChange(enabled: false)
-                }
-            }
-
-            rollingStateUpdateWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        } else {
-            flipDiceContainer.disableRolling()
-            delegate?.rollingStateDidChange(enabled: false)
-        }
+        delegate?.rollingStateDidChange(enabled: shouldEnable)
+        return shouldEnable
     }
 
     /// Reset to come out phase (used when starting new game or ending session)
     func resetToComeOutPhase() {
         let oldPhase = game.phase
-        game = CrapsGame() // Reset game to initial state
+        game = CrapsGame(rules: game.rules) // Reset game to initial state
         let newPhase = game.phase
 
         if !phasesAreEqual(oldPhase, newPhase) {

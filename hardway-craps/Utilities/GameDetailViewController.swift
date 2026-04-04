@@ -10,7 +10,7 @@ import SwiftUI
 
 final class GameDetailViewController: UIViewController {
     private let session: GameSession
-    private let scrollView = UIScrollView()
+    private let scrollView = GameDetailScrollView()
     private let contentView = UIView()
     private let stackView = UIStackView()
     private var chartHostingController: UIHostingController<GameDetailChartView>?
@@ -79,230 +79,236 @@ final class GameDetailViewController: UIViewController {
         headerLabel.font = .systemFont(ofSize: 13, weight: .medium)
         stackView.addArrangedSubview(headerLabel)
 
-        let statGrid = UIStackView()
-        statGrid.axis = .vertical
-        statGrid.spacing = 12
+        // MARK: - Game Section
+        stackView.addArrangedSubview(buildGameSection())
 
-        if session.isBlackjackSession {
-            // Blackjack-specific stats
-            let row1 = UIStackView()
-            row1.axis = .horizontal
-            row1.spacing = 8
-            row1.distribution = .fillEqually
-            row1.addArrangedSubview(StatCardView(title: "Hands", value: "\(session.handCountValue)"))
-            row1.addArrangedSubview(StatCardView(title: "Time Playing", value: session.formattedDuration))
-            row1.addArrangedSubview(StatCardView(title: "Win Rate", value: formatPercent(session.winRate)))
+        // MARK: - Balance Section
+        stackView.addArrangedSubview(buildBalanceSection())
 
-            let row2 = UIStackView()
-            row2.axis = .horizontal
-            row2.spacing = 8
-            row2.distribution = .fillEqually
-            row2.addArrangedSubview(StatCardView(title: "Avg Bet", value: formatCurrency(session.averageBetSize)))
-            row2.addArrangedSubview(StatCardView(title: "Biggest Swing", value: formatCurrency(Double(session.biggestSwing))))
-            row2.addArrangedSubview(StatCardView(title: "Time / Hand", value: formatTimePerHand(session.timePerHand)))
+        // MARK: - Rolls / Hands Section
+        stackView.addArrangedSubview(buildRollsSection())
 
-            let row3 = UIStackView()
-            row3.axis = .horizontal
-            row3.spacing = 8
-            row3.distribution = .fillEqually
-            row3.addArrangedSubview(StatCardView(title: "Wins", value: "\(session.winningHandsCount)"))
-            row3.addArrangedSubview(StatCardView(title: "Losses", value: "\(session.losingHandsCount)"))
-            if let metrics = session.blackjackMetrics {
-                row3.addArrangedSubview(StatCardView(title: "Blackjacks", value: "\(metrics.blackjacksHit)"))
-            } else {
-                row3.addArrangedSubview(StatCardView(title: "Blackjacks", value: "0"))
-            }
-
-            let row4 = UIStackView()
-            row4.axis = .horizontal
-            row4.spacing = 8
-            row4.distribution = .fillEqually
-            if let metrics = session.blackjackMetrics {
-                row4.addArrangedSubview(StatCardView(title: "Doubles", value: "\(metrics.doublesDown)"))
-            } else {
-                row4.addArrangedSubview(StatCardView(title: "Doubles", value: "0"))
-            }
-            if session.atmVisitsCount > 0 {
-                row4.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
-                // Add empty spacer to keep layout balanced
-                let spacer = UIView()
-                spacer.translatesAutoresizingMaskIntoConstraints = false
-                row4.addArrangedSubview(spacer)
-            } else {
-                // Add two empty spacers to keep layout balanced
-                let spacer1 = UIView()
-                spacer1.translatesAutoresizingMaskIntoConstraints = false
-                let spacer2 = UIView()
-                spacer2.translatesAutoresizingMaskIntoConstraints = false
-                row4.addArrangedSubview(spacer1)
-                row4.addArrangedSubview(spacer2)
-            }
-
-            statGrid.addArrangedSubview(row1)
-            statGrid.addArrangedSubview(row2)
-            statGrid.addArrangedSubview(row3)
-            statGrid.addArrangedSubview(row4)
-        } else if session.isBaccaratSession {
-            // Baccarat-specific stats
-            let row1 = UIStackView()
-            row1.axis = .horizontal
-            row1.spacing = 8
-            row1.distribution = .fillEqually
-            row1.addArrangedSubview(StatCardView(title: "Hands", value: "\(session.handCountValue)"))
-            row1.addArrangedSubview(StatCardView(title: "Time Playing", value: session.formattedDuration))
-            row1.addArrangedSubview(StatCardView(title: "Win Rate", value: formatPercent(session.winRate)))
-
-            let row2 = UIStackView()
-            row2.axis = .horizontal
-            row2.spacing = 8
-            row2.distribution = .fillEqually
-            row2.addArrangedSubview(StatCardView(title: "Avg Bet", value: formatCurrency(session.averageBetSize)))
-            row2.addArrangedSubview(StatCardView(title: "Biggest Swing", value: formatCurrency(Double(session.biggestSwing))))
-            row2.addArrangedSubview(StatCardView(title: "Time / Hand", value: formatTimePerHand(session.timePerHand)))
-
-            let row3 = UIStackView()
-            row3.axis = .horizontal
-            row3.spacing = 8
-            row3.distribution = .fillEqually
-            if let metrics = session.baccaratMetrics {
-                row3.addArrangedSubview(StatCardView(title: "Banker Wins", value: "\(metrics.bankerWins)"))
-                row3.addArrangedSubview(StatCardView(title: "Player Wins", value: "\(metrics.playerWins)"))
-                row3.addArrangedSubview(StatCardView(title: "Ties", value: "\(metrics.ties)"))
-            } else {
-                row3.addArrangedSubview(StatCardView(title: "Banker Wins", value: "0"))
-                row3.addArrangedSubview(StatCardView(title: "Player Wins", value: "0"))
-                row3.addArrangedSubview(StatCardView(title: "Ties", value: "0"))
-            }
-
-            let row4 = UIStackView()
-            row4.axis = .horizontal
-            row4.spacing = 8
-            row4.distribution = .fillEqually
-            if let metrics = session.baccaratMetrics {
-                row4.addArrangedSubview(StatCardView(title: "Naturals", value: "\(metrics.naturals)"))
-            } else {
-                row4.addArrangedSubview(StatCardView(title: "Naturals", value: "0"))
-            }
-            if session.atmVisitsCount > 0 {
-                row4.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
-                let spacer = UIView()
-                spacer.translatesAutoresizingMaskIntoConstraints = false
-                row4.addArrangedSubview(spacer)
-            } else {
-                let spacer1 = UIView()
-                spacer1.translatesAutoresizingMaskIntoConstraints = false
-                let spacer2 = UIView()
-                spacer2.translatesAutoresizingMaskIntoConstraints = false
-                row4.addArrangedSubview(spacer1)
-                row4.addArrangedSubview(spacer2)
-            }
-
-            statGrid.addArrangedSubview(row1)
-            statGrid.addArrangedSubview(row2)
-            statGrid.addArrangedSubview(row3)
-            statGrid.addArrangedSubview(row4)
-        } else {
-            // Craps-specific stats
-            let row1 = UIStackView()
-            row1.axis = .horizontal
-            row1.spacing = 8
-            row1.distribution = .fillEqually
-            row1.addArrangedSubview(StatCardView(title: "Rolls", value: "\(session.rollCountValue)"))
-            row1.addArrangedSubview(StatCardView(title: "Time Rolling", value: session.formattedDuration))
-            row1.addArrangedSubview(StatCardView(title: "Win Rate", value: formatPercent(session.winRate)))
-
-            let row2 = UIStackView()
-            row2.axis = .horizontal
-            row2.spacing = 8
-            row2.distribution = .fillEqually
-            row2.addArrangedSubview(StatCardView(title: "Avg Bet", value: formatCurrency(session.averageBetSize)))
-            row2.addArrangedSubview(StatCardView(title: "Biggest Swing", value: formatCurrency(Double(session.biggestSwing))))
-            row2.addArrangedSubview(StatCardView(title: "Time / Roll", value: formatTimePerRoll(session.timePerRoll)))
-
-            let row3 = UIStackView()
-            row3.axis = .horizontal
-            row3.spacing = 8
-            row3.distribution = .fillEqually
-            row3.addArrangedSubview(StatCardView(title: "Win Streak", value: "\(session.longestWinStreak)"))
-            row3.addArrangedSubview(StatCardView(title: "Loss Streak", value: "\(session.longestLossStreak)"))
-            row3.addArrangedSubview(StatCardView(title: "Sevens Rolled", value: "\(session.sevensRolledValue)"))
-
-            let row4 = UIStackView()
-            row4.axis = .horizontal
-            row4.spacing = 8
-            row4.distribution = .fillEqually
-            row4.addArrangedSubview(StatCardView(title: "Points Hit", value: "\(session.pointsHitValue)"))
-            if session.atmVisitsCount > 0 {
-                row4.addArrangedSubview(StatCardView(title: "ATM Visits", value: "\(session.atmVisitsCount)"))
-                let spacer = UIView()
-                spacer.translatesAutoresizingMaskIntoConstraints = false
-                row4.addArrangedSubview(spacer)
-            } else {
-                let spacer1 = UIView()
-                spacer1.translatesAutoresizingMaskIntoConstraints = false
-                let spacer2 = UIView()
-                spacer2.translatesAutoresizingMaskIntoConstraints = false
-                row4.addArrangedSubview(spacer1)
-                row4.addArrangedSubview(spacer2)
-            }
-
-            statGrid.addArrangedSubview(row1)
-            statGrid.addArrangedSubview(row2)
-            statGrid.addArrangedSubview(row3)
-            statGrid.addArrangedSubview(row4)
+        // MARK: - ATM Section
+        if session.totalATMAmount > 0 {
+            stackView.addArrangedSubview(buildATMSection())
         }
 
-        stackView.addArrangedSubview(statGrid)
-
-        let graphTitle = UILabel()
-        graphTitle.text = (session.isBlackjackSession || session.isBaccaratSession) ? "Balance Over Hands" : "Balance Over Rolls"
-        graphTitle.textColor = .white
-        graphTitle.font = .systemFont(ofSize: 16, weight: .semibold)
-        stackView.addArrangedSubview(graphTitle)
-
-        let chartContainer = UIView()
-        chartContainer.translatesAutoresizingMaskIntoConstraints = false
-        chartContainer.backgroundColor = HardwayColors.surfaceGray
-        chartContainer.layer.cornerRadius = 12
-        chartContainer.heightAnchor.constraint(equalToConstant: 240).isActive = true
-
-        let chartView = GameDetailChartView(
-            balanceHistory: session.balanceHistoryValue,
-            betSizeHistory: session.betSizeHistoryValue,
-            atmVisitIndices: session.atmVisitIndices ?? [],
-            isBlackjack: session.isBlackjackSession || session.isBaccaratSession
-        )
-        let hostingController = UIHostingController(rootView: chartView)
-        chartHostingController = hostingController
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-        hostingController.view.backgroundColor = .clear
-
-        addChild(hostingController)
-        chartContainer.addSubview(hostingController.view)
-        NSLayoutConstraint.activate([
-            hostingController.view.topAnchor.constraint(equalTo: chartContainer.topAnchor, constant: 8),
-            hostingController.view.leadingAnchor.constraint(equalTo: chartContainer.leadingAnchor, constant: 8),
-            hostingController.view.trailingAnchor.constraint(equalTo: chartContainer.trailingAnchor, constant: -8),
-            hostingController.view.bottomAnchor.constraint(equalTo: chartContainer.bottomAnchor, constant: -8)
-        ])
-        hostingController.didMove(toParent: self)
-
-        stackView.addArrangedSubview(chartContainer)
-
-        let xAxisLabel = UILabel()
-        xAxisLabel.text = (session.isBlackjackSession || session.isBaccaratSession) ? "Hands" : "Rolls"
-        xAxisLabel.textColor = .lightGray
-        xAxisLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        xAxisLabel.textAlignment = .center
-        stackView.addArrangedSubview(xAxisLabel)
-
+        // MARK: - Bet Mix
         if !session.betMixBreakdown.isEmpty {
-            let betMixTitle = UILabel()
-            betMixTitle.text = "Bet Mix"
-            betMixTitle.textColor = .white
-            betMixTitle.font = .systemFont(ofSize: 16, weight: .semibold)
-            stackView.addArrangedSubview(betMixTitle)
+            stackView.addArrangedSubview(buildBetMixSection())
+        }
 
+        if canContinueSession && session.endingBalance > 0 {
+            setupFloatingContinueButton()
+        }
+    }
+
+    // MARK: - Section Builders
+
+    private func makeSectionCard(title: String, content: () -> [UIView]) -> UIView {
+        let wrapper = UIStackView()
+        wrapper.axis = .vertical
+        wrapper.spacing = 8
+
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        wrapper.addArrangedSubview(titleLabel)
+
+        let card = UIView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.backgroundColor = HardwayColors.surfaceGray
+        card.layer.cornerRadius = 12
+
+        let innerStack = UIStackView()
+        innerStack.axis = .vertical
+        innerStack.spacing = 12
+        innerStack.translatesAutoresizingMaskIntoConstraints = false
+
+        for view in content() {
+            innerStack.addArrangedSubview(view)
+        }
+
+        card.addSubview(innerStack)
+        NSLayoutConstraint.activate([
+            innerStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 14),
+            innerStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
+            innerStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
+            innerStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14),
+        ])
+
+        wrapper.addArrangedSubview(card)
+        return wrapper
+    }
+
+    private func makeStatRow(_ stats: [(String, String)]) -> UIStackView {
+        let row = UIStackView()
+        row.axis = .horizontal
+        row.spacing = 8
+        row.distribution = .fillEqually
+        for (title, value) in stats {
+            row.addArrangedSubview(StatColumnView(title: title, value: value))
+        }
+        return row
+    }
+
+    private func buildGameSection() -> UIView {
+        makeSectionCard(title: "Game") {
+            if session.isBlackjackSession {
+                let blackjacks = session.blackjackMetrics?.blackjacksHit ?? 0
+                let doubles = session.blackjackMetrics?.doublesDown ?? 0
+                return [
+                    makeStatRow([
+                        ("Win Rate", formatPercent(session.winRate)),
+                        ("Wins", "\(session.winningHandsCount)"),
+                        ("Losses", "\(session.losingHandsCount)"),
+                    ]),
+                    makeStatRow([
+                        ("Blackjacks", "\(blackjacks)"),
+                        ("Doubles", "\(doubles)"),
+                    ]),
+                ]
+            } else if session.isBaccaratSession {
+                let metrics = session.baccaratMetrics
+                return [
+                    makeStatRow([
+                        ("Win Rate", formatPercent(session.winRate)),
+                        ("Banker Wins", "\(metrics?.bankerWins ?? 0)"),
+                        ("Player Wins", "\(metrics?.playerWins ?? 0)"),
+                    ]),
+                    makeStatRow([
+                        ("Ties", "\(metrics?.ties ?? 0)"),
+                        ("Naturals", "\(metrics?.naturals ?? 0)"),
+                    ]),
+                ]
+            } else {
+                return [
+                    makeStatRow([
+                        ("Win Rate", formatPercent(session.winRate)),
+                        ("Win Streak", "\(session.longestWinStreak)"),
+                        ("Loss Streak", "\(session.longestLossStreak)"),
+                        ("Points Hit", "\(session.pointsHitValue)"),
+                    ]),
+                ]
+            }
+        }
+    }
+
+    private func buildBalanceSection() -> UIView {
+        makeSectionCard(title: "Balance") {
+            let statsRow = makeStatRow([
+                ("Avg Bet", formatCurrency(session.averageBetSize)),
+                ("Swing", formatCurrency(Double(session.biggestSwing))),
+                ("High", formatCurrency(Double(session.balanceHigh))),
+                ("Low", formatCurrency(Double(session.balanceLow))),
+            ])
+
+            let chartContainer = UIView()
+            chartContainer.translatesAutoresizingMaskIntoConstraints = false
+            chartContainer.heightAnchor.constraint(equalToConstant: 220).isActive = true
+
+            let chartView = GameDetailChartView(
+                balanceHistory: session.balanceHistoryValue,
+                betSizeHistory: session.betSizeHistoryValue,
+                atmVisitIndices: session.atmVisitIndices ?? [],
+                isBlackjack: session.isBlackjackSession || session.isBaccaratSession,
+                lockParentVerticalScrollWhileDragging: { [weak self] lockScroll in
+                    self?.scrollView.isScrollEnabled = !lockScroll
+                }
+            )
+            let hostingController = UIHostingController(rootView: chartView)
+            chartHostingController = hostingController
+            hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+            hostingController.view.backgroundColor = .clear
+
+            addChild(hostingController)
+            chartContainer.addSubview(hostingController.view)
+            NSLayoutConstraint.activate([
+                hostingController.view.topAnchor.constraint(equalTo: chartContainer.topAnchor),
+                hostingController.view.leadingAnchor.constraint(equalTo: chartContainer.leadingAnchor),
+                hostingController.view.trailingAnchor.constraint(equalTo: chartContainer.trailingAnchor),
+                hostingController.view.bottomAnchor.constraint(equalTo: chartContainer.bottomAnchor),
+            ])
+            hostingController.didMove(toParent: self)
+
+            return [statsRow, chartContainer]
+        }
+    }
+
+    private func buildRollsSection() -> UIView {
+        let isCraps = !session.isBlackjackSession && !session.isBaccaratSession
+        let sectionTitle = (session.isBlackjackSession || session.isBaccaratSession) ? "Hands" : "Rolls"
+
+        return makeSectionCard(title: sectionTitle) {
+            var views: [UIView] = []
+
+            if isCraps {
+                let sevensPct = session.rollCountValue > 0
+                    ? Double(session.sevensRolledValue) / Double(session.rollCountValue) * 100
+                    : 0.0
+                views.append(makeStatRow([
+                    ("Rolls", "\(session.rollCountValue)"),
+                    ("Time", session.formattedDuration),
+                    ("Avg / Roll", formatTimePerRoll(session.timePerRoll)),
+                    ("7s", "\(session.sevensRolledValue) (\(String(format: "%.0f%%", sevensPct)))"),
+                ]))
+            } else {
+                views.append(makeStatRow([
+                    ("Hands", "\(session.handCountValue)"),
+                    ("Time", session.formattedDuration),
+                    ("Avg / Hand", formatTimePerHand(session.timePerHand)),
+                ]))
+            }
+
+            if isCraps {
+                let histogramContainer = UIView()
+                histogramContainer.translatesAutoresizingMaskIntoConstraints = false
+                histogramContainer.heightAnchor.constraint(equalToConstant: 220).isActive = true
+
+                let diceChartView = DiceOutcomeHistogramChartView(
+                    counts: session.crapsDiceHistogramBins,
+                    lockParentVerticalScrollWhileDragging: { [weak self] lockScroll in
+                        self?.scrollView.isScrollEnabled = !lockScroll
+                    }
+                )
+                let diceHostingController = UIHostingController(rootView: diceChartView)
+                diceHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+                diceHostingController.view.backgroundColor = .clear
+
+                addChild(diceHostingController)
+                histogramContainer.addSubview(diceHostingController.view)
+                NSLayoutConstraint.activate([
+                    diceHostingController.view.topAnchor.constraint(equalTo: histogramContainer.topAnchor),
+                    diceHostingController.view.leadingAnchor.constraint(equalTo: histogramContainer.leadingAnchor),
+                    diceHostingController.view.trailingAnchor.constraint(equalTo: histogramContainer.trailingAnchor),
+                    diceHostingController.view.bottomAnchor.constraint(equalTo: histogramContainer.bottomAnchor),
+                ])
+                diceHostingController.didMove(toParent: self)
+
+                views.append(histogramContainer)
+            }
+
+            return views
+        }
+    }
+
+    private func buildATMSection() -> UIView {
+        makeSectionCard(title: "ATM") {
+            let net = session.trueNetResult
+            let sign = net >= 0 ? "+" : "-"
+            return [
+                makeStatRow([
+                    ("Visits", "\(session.atmVisitsCount)"),
+                    ("Total ATM", formatCurrency(Double(session.totalATMAmount))),
+                    ("True Net", "\(sign)$\(abs(net))"),
+                ]),
+            ]
+        }
+    }
+
+    private func buildBetMixSection() -> UIView {
+        makeSectionCard(title: "Bet Mix") {
             let betMixStack = UIStackView()
             betMixStack.axis = .vertical
             betMixStack.spacing = 6
@@ -315,12 +321,7 @@ final class GameDetailViewController: UIViewController {
                 label.text = "\(item.label): \(formatPercent(item.percent)) (\(formatCurrency(Double(item.amount))))"
                 betMixStack.addArrangedSubview(label)
             }
-            stackView.addArrangedSubview(betMixStack)
-        }
-
-        // Add "Continue Session" button if this is a session with remaining balance and continuation is allowed
-        if canContinueSession && session.endingBalance > 0 {
-            setupFloatingContinueButton()
+            return [betMixStack]
         }
     }
 
@@ -398,53 +399,61 @@ final class GameDetailViewController: UIViewController {
     }
 }
 
-private final class StatCardView: UIView {
-    private let titleLabel = UILabel()
-    private let valueLabel = UILabel()
-
-    init(title: String, value: String) {
-        super.init(frame: .zero)
-        setupView()
-        configure(title: title, value: value)
+/// `UIScrollView.panGestureRecognizer` must use the scroll view itself as its delegate. Subclassing
+/// allows `shouldRecognizeSimultaneouslyWith` so embedded SwiftUI chart drags do not block scrolling.
+private final class GameDetailScrollView: UIScrollView, UIGestureRecognizerDelegate {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        panGestureRecognizer.delegate = self
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setupView() {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+}
+
+private final class StatColumnView: UIView {
+    init(title: String, value: String) {
+        super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        backgroundColor = HardwayColors.surfaceGray
-        layer.cornerRadius = 12
 
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        valueLabel.translatesAutoresizingMaskIntoConstraints = false
-
+        let titleLabel = UILabel()
+        titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 11, weight: .regular)
         titleLabel.textColor = .lightGray
+        titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 2
 
+        let valueLabel = UILabel()
+        valueLabel.text = value
         valueLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         valueLabel.textColor = .white
+        valueLabel.textAlignment = .center
         valueLabel.numberOfLines = 1
 
-        addSubview(titleLabel)
-        addSubview(valueLabel)
+        let stack = UIStackView(arrangedSubviews: [titleLabel, valueLabel])
+        stack.axis = .vertical
+        stack.spacing = 2
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
 
+        addSubview(stack)
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-
-            valueLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-            valueLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            valueLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
-    private func configure(title: String, value: String) {
-        titleLabel.text = title
-        valueLabel.text = value
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

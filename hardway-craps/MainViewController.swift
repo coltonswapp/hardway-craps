@@ -13,6 +13,7 @@ class MainViewController: UIViewController {
 
   private enum GameType {
     case craps
+    case craplessCraps
     case blackjack
     case baccarat
   }
@@ -24,6 +25,7 @@ class MainViewController: UIViewController {
 
   private let gamePages: [GamePage] = [
     GamePage(title: "Craps", type: .craps),
+    GamePage(title: "Crapless", type: .craplessCraps),
     GamePage(title: "Blackjack", type: .blackjack),
     GamePage(title: "Baccarat", type: .baccarat),
   ]
@@ -248,6 +250,12 @@ class MainViewController: UIViewController {
       newGameButton.addTarget(self, action: #selector(crapsNewGameTapped), for: .touchUpInside)
       stack.addArrangedSubview(newGameButton)
       newGameButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
+
+    case .craplessCraps:
+      let newGameButton = NNPrimaryLabeledButton(title: "New Game")
+      newGameButton.addTarget(self, action: #selector(craplessCrapsNewGameTapped), for: .touchUpInside)
+      stack.addArrangedSubview(newGameButton)
+      newGameButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
     }
 
     NSLayoutConstraint.activate([
@@ -303,6 +311,11 @@ class MainViewController: UIViewController {
     navigationController?.pushViewController(gameplayVC, animated: true)
   }
 
+  @objc private func craplessCrapsNewGameTapped() {
+    let gameplayVC = CrapsGameplayViewController(variant: .crapless)
+    navigationController?.pushViewController(gameplayVC, animated: true)
+  }
+
   @objc private func blackjackSoloTapped() {
     let vc = BlackjackGameplayViewController()
     navigationController?.pushViewController(vc, animated: true)
@@ -327,7 +340,9 @@ class MainViewController: UIViewController {
       case .blackjack:
         pageSessions[i] = allSessions.filter { $0.isBlackjackSession }
       case .craps:
-        pageSessions[i] = allSessions.filter { !$0.isBlackjackSession && !$0.isBaccaratSession }
+        pageSessions[i] = allSessions.filter { $0.isCrapsSession || (!$0.isBlackjackSession && !$0.isBaccaratSession && !$0.isCraplessCrapsSession) }
+      case .craplessCraps:
+        pageSessions[i] = allSessions.filter { $0.isCraplessCrapsSession }
       case .baccarat:
         pageSessions[i] = allSessions.filter { $0.isBaccaratSession }
       }
@@ -425,6 +440,8 @@ extension MainViewController: UITableViewDelegate {
         gameplayVC = BlackjackGameplayViewController(resumingSession: session)
       } else if session.isBaccaratSession {
         gameplayVC = BaccaratGameplayViewController(resumingSession: session)
+      } else if session.isCraplessCrapsSession {
+        gameplayVC = CrapsGameplayViewController(variant: .crapless, resumingSession: session)
       } else {
         gameplayVC = CrapsGameplayViewController(resumingSession: session)
       }
@@ -446,7 +463,9 @@ class SessionTableViewCell: UITableViewCell {
   private let durationLabel = UILabel()
   private let playerTypeLabel = UILabel()
   private let resultLabel = UILabel()
+  private let netResultLabel = UILabel()
   private let stackView = UIStackView()
+  private let rightStackView = UIStackView()
 
   override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
     super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -474,9 +493,11 @@ class SessionTableViewCell: UITableViewCell {
     durationLabel.textColor = .white
     durationLabel.numberOfLines = 1
 
-    resultLabel.translatesAutoresizingMaskIntoConstraints = false
     resultLabel.font = .systemFont(ofSize: 16, weight: .medium)
     resultLabel.textAlignment = .right
+
+    netResultLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+    netResultLabel.textAlignment = .right
 
     stackView.translatesAutoresizingMaskIntoConstraints = false
     stackView.axis = .vertical
@@ -487,18 +508,26 @@ class SessionTableViewCell: UITableViewCell {
     stackView.addArrangedSubview(dateLabel)
     stackView.addArrangedSubview(durationLabel)
 
+    rightStackView.translatesAutoresizingMaskIntoConstraints = false
+    rightStackView.axis = .vertical
+    rightStackView.distribution = .fill
+    rightStackView.spacing = 2
+    rightStackView.alignment = .trailing
+    rightStackView.addArrangedSubview(resultLabel)
+    rightStackView.addArrangedSubview(netResultLabel)
+
     contentView.addSubview(stackView)
-    contentView.addSubview(resultLabel)
+    contentView.addSubview(rightStackView)
 
     NSLayoutConstraint.activate([
       stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
       stackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
       stackView.trailingAnchor.constraint(
-        lessThanOrEqualTo: resultLabel.leadingAnchor, constant: -16),
+        lessThanOrEqualTo: rightStackView.leadingAnchor, constant: -16),
 
-      resultLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-      resultLabel.bottomAnchor.constraint(equalTo: stackView.bottomAnchor),
-      resultLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 70),
+      rightStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+      rightStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+      rightStackView.widthAnchor.constraint(greaterThanOrEqualToConstant: 70),
     ])
   }
 
@@ -509,7 +538,11 @@ class SessionTableViewCell: UITableViewCell {
     } else if session.isBaccaratSession {
       gameTypeLabel.text = "BACCARAT"
     } else {
-      gameTypeLabel.text = "CRAPS"
+        if session.isCrapsSession {
+            gameTypeLabel.text = "CRAPS"
+        } else {
+            gameTypeLabel.text = "CRAPLESS"
+        }
     }
 
     dateLabel.text = session.formattedDate
@@ -522,14 +555,25 @@ class SessionTableViewCell: UITableViewCell {
     let endingBalance = session.endingBalance
     resultLabel.text = "$\(startingBalance) → $\(endingBalance)"
 
-    if endingBalance > startingBalance {
+    let net = session.trueNetResult
+    if net > 0 {
       resultLabel.textColor = .systemGreen
-    } else if endingBalance < startingBalance {
+    } else if net < 0 {
       resultLabel.textColor = .systemRed
     } else {
       resultLabel.textColor = .white
     }
     resultLabel.backgroundColor = .clear
+
+    if session.totalATMAmount > 0 {
+      let sign = net >= 0 ? "+" : "-"
+      netResultLabel.text = "Net: \(sign)$\(abs(net))"
+      netResultLabel.textColor = net > 0 ? .systemGreen : net < 0 ? .systemRed : .white
+      netResultLabel.isHidden = false
+    } else {
+      netResultLabel.text = nil
+      netResultLabel.isHidden = true
+    }
 
     gameTypeLabel.isHidden = false
     dateLabel.isHidden = false

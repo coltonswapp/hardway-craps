@@ -34,6 +34,7 @@ struct BaccaratGameplayMetrics: Codable {
     var betsAfterLossCount: Int = 0
     var lastBalanceBeforeHand: Int = 0
     var atmVisitsCount: Int = 0
+    var totalATMAmount: Int = 0
 
     // Outcome metrics
     var bankerWins: Int = 0
@@ -71,6 +72,7 @@ struct BaccaratGameplayMetrics: Codable {
         betsAfterLossCount = try container.decodeIfPresent(Int.self, forKey: .betsAfterLossCount) ?? 0
         lastBalanceBeforeHand = try container.decodeIfPresent(Int.self, forKey: .lastBalanceBeforeHand) ?? 0
         atmVisitsCount = try container.decodeIfPresent(Int.self, forKey: .atmVisitsCount) ?? 0
+        totalATMAmount = try container.decodeIfPresent(Int.self, forKey: .totalATMAmount) ?? 0
 
         bankerWins = try container.decodeIfPresent(Int.self, forKey: .bankerWins) ?? 0
         playerWins = try container.decodeIfPresent(Int.self, forKey: .playerWins) ?? 0
