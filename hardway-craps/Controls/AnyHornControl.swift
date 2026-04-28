@@ -14,6 +14,8 @@ class AnyHornControl: SpecialtyControl {
 
     init() {
         super.init(title: "Any", subtitle: "Horn", usesFixedControlHeight: false)
+        // One-roll proposition; must clear on a miss like other horn controls (`createBetView` uses isPerpetual: false).
+        isPerpetualBet = false
     }
 
     required init?(coder: NSCoder) {

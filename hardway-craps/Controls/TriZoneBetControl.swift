@@ -464,8 +464,9 @@ class TriZoneBetControl: UIControl, BetDropTarget {
     pendingDropZone = highlightedZone
 
     if let zone = highlightedZone {
-      let zoneView = zoneViews[zone.rawValue]
-      return zoneView.convert(zoneView.betChip.center, to: view)
+      let chip = zoneViews[zone.rawValue].betChip
+      // Bet chips are reparented to `self`, not the zone view — convert from the chip's superview
+      return chip.superview?.convert(chip.center, to: view) ?? .zero
     }
     // Fallback to center
     guard let superview = superview else { return .zero }

@@ -181,6 +181,10 @@ extension CrapsGameplayViewController {
         allWinMessages.append(contentsOf: hornMessages)
         winningBets.append(contentsOf: hornWins)
 
+        if total == 7 && !wasInPointPhase {
+            handleMakeEmLossOnComeOutSeven()
+        }
+
         let (makeEmMessages, makeEmWins) = handleMakeEmBets(total: total)
         allWinMessages.append(contentsOf: makeEmMessages)
         winningBets.append(contentsOf: makeEmWins)

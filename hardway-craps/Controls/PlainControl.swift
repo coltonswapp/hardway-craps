@@ -601,6 +601,14 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         guard let superview = betView.superview else { return .zero }
         return superview.convert(betView.center, to: view)
     }
+
+    /// Position of the **main** bet chip (`betView`), ignoring the free-odds stack.
+    /// Use for line/place-bet collection, line-bet loss, and animations that must not snap to the odds chip
+    /// when `oddsAmount > 0` (see `getBetViewPosition`, which follows the odds chip when odds exist).
+    func getBaseBetViewPosition(in view: UIView) -> CGPoint {
+        guard let superview = betView.superview else { return .zero }
+        return superview.convert(betView.center, to: view)
+    }
     
 //    func center(in view: UIView) -> CGPoint {
 //        guard let superview = betView.superview else { return .zero }

@@ -146,7 +146,7 @@ final class ChipAnimationHelper {
 
         // Get bet position and apply offset
         guard let containerView = containerView else { return }
-        let betPosition = control.getBetViewPosition(in: containerView)
+        let betPosition = control.getBaseBetViewPosition(in: containerView)
         let startPosition = CGPoint(x: betPosition.x + offset.x, y: betPosition.y + offset.y)
         guard let balanceCenter = getBalanceCenter(in: containerView) else { return }
 
@@ -217,7 +217,7 @@ final class ChipAnimationHelper {
         let betAmount = control.betAmount
         guard betAmount > 0 else { return }
 
-        let betPosition = control.getBetViewPosition(in: containerView)
+        let betPosition = control.getBaseBetViewPosition(in: containerView)
 
         // Hide betView and create chip
         control.betView.alpha = 0
@@ -287,7 +287,7 @@ final class ChipAnimationHelper {
         
         // Animate bet chip if present
         if betAmount > 0 {
-            let betPosition = control.getBetViewPosition(in: containerView)
+            let betPosition = control.getBaseBetViewPosition(in: containerView)
             
             // Create bet chip animation
             let betChipView = createChipView(amount: betAmount)
@@ -380,7 +380,7 @@ final class ChipAnimationHelper {
     ) {
         guard let containerView = containerView else { return }
 
-        let betPosition = control.getBetViewPosition(in: containerView)
+        let betPosition = control.getBaseBetViewPosition(in: containerView)
         let winningsPosition = CGPoint(x: betPosition.x + offset.x, y: betPosition.y + offset.y)
 
         // Create winnings chip
@@ -689,9 +689,9 @@ final class ChipAnimationHelper {
         case .houseToControl:
             return CGPoint(x: containerView.bounds.midX, y: 0)
         case .controlToBalance(let control):
-            return control.getBetViewPosition(in: containerView)
+            return control.getBaseBetViewPosition(in: containerView)
         case .controlToHouse(let control):
-            return control.getBetViewPosition(in: containerView)
+            return control.getBaseBetViewPosition(in: containerView)
         case .custom(let from, _):
             return from
         }
@@ -702,7 +702,7 @@ final class ChipAnimationHelper {
 
         switch path {
         case .houseToControl(let control, let offset):
-            var position = control.getBetViewPosition(in: containerView)
+            var position = control.getBaseBetViewPosition(in: containerView)
             position.x += offset.x
             position.y += offset.y
             return position

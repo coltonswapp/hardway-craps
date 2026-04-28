@@ -33,7 +33,7 @@ class MainViewController: UIViewController {
   // MARK: - UI Components
 
   private lazy var tabBar = GameCategoryTabBar(titles: gamePages.map(\.title))
-  private let pagingScrollView = UIScrollView()
+  private let pagingScrollView = HorizontalPagingScrollView()
   private let pagesContainer = UIView()
 
   private var pageTableViews: [UITableView] = []
@@ -140,9 +140,6 @@ class MainViewController: UIViewController {
 
   private func setupPagingScrollView() {
     pagingScrollView.translatesAutoresizingMaskIntoConstraints = false
-    pagingScrollView.isPagingEnabled = true
-    pagingScrollView.showsHorizontalScrollIndicator = false
-    pagingScrollView.bounces = true
     pagingScrollView.delegate = self
     pagingScrollView.backgroundColor = .clear
     view.addSubview(pagingScrollView)
@@ -233,11 +230,15 @@ class MainViewController: UIViewController {
       multiButton.addTarget(
         self, action: #selector(blackjackMultiplayerTapped), for: .touchUpInside)
 
-      stack.addArrangedSubview(soloButton)
-      stack.addArrangedSubview(multiButton)
+      let horizontalStack = UIStackView(arrangedSubviews: [soloButton, multiButton])
+      horizontalStack.axis = .horizontal
+      horizontalStack.alignment = .fill
+      horizontalStack.distribution = .fillEqually
+      horizontalStack.spacing = 12
 
-      soloButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
-      multiButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
+      stack.addArrangedSubview(horizontalStack)
+
+      horizontalStack.heightAnchor.constraint(equalToConstant: 55).isActive = true
 
     case .baccarat:
       let newGameButton = NNPrimaryLabeledButton(title: "New Game")
@@ -253,7 +254,8 @@ class MainViewController: UIViewController {
 
     case .craplessCraps:
       let newGameButton = NNPrimaryLabeledButton(title: "New Game")
-      newGameButton.addTarget(self, action: #selector(craplessCrapsNewGameTapped), for: .touchUpInside)
+      newGameButton.addTarget(
+        self, action: #selector(craplessCrapsNewGameTapped), for: .touchUpInside)
       stack.addArrangedSubview(newGameButton)
       newGameButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
     }
@@ -271,7 +273,7 @@ class MainViewController: UIViewController {
       stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
       stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
       stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
-      stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 40),
+      stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
     ])
 
     return (container, blurView)
@@ -340,7 +342,10 @@ class MainViewController: UIViewController {
       case .blackjack:
         pageSessions[i] = allSessions.filter { $0.isBlackjackSession }
       case .craps:
-        pageSessions[i] = allSessions.filter { $0.isCrapsSession || (!$0.isBlackjackSession && !$0.isBaccaratSession && !$0.isCraplessCrapsSession) }
+        pageSessions[i] = allSessions.filter {
+          $0.isCrapsSession
+            || (!$0.isBlackjackSession && !$0.isBaccaratSession && !$0.isCraplessCrapsSession)
+        }
       case .craplessCraps:
         pageSessions[i] = allSessions.filter { $0.isCraplessCrapsSession }
       case .baccarat:
@@ -454,6 +459,46 @@ extension MainViewController: UITableViewDelegate {
   }
 }
 
+// MARK: - Horizontal Paging Scroll View
+
+/// A paging scroll view that only claims the gesture when it is clearly
+/// horizontal. This prevents the underlying table views from bouncing or
+/// scrolling vertically when the user begins a horizontal swipe between pages.
+final class HorizontalPagingScrollView: UIScrollView {
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    commonInit()
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    commonInit()
+  }
+
+  private func commonInit() {
+    isPagingEnabled = true
+    showsHorizontalScrollIndicator = false
+    showsVerticalScrollIndicator = false
+    alwaysBounceVertical = false
+    alwaysBounceHorizontal = true
+    bounces = true
+    contentInsetAdjustmentBehavior = .never
+  }
+
+  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+      pan === panGestureRecognizer
+    else {
+      return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+    let translation = pan.translation(in: self)
+    // Require the gesture to be predominantly horizontal before claiming it.
+    // Vertical and ambiguous gestures fall through to the table view's pan.
+    return abs(translation.x) > abs(translation.y)
+  }
+}
+
 // MARK: - Session Table View Cell
 
 class SessionTableViewCell: UITableViewCell {
@@ -538,11 +583,11 @@ class SessionTableViewCell: UITableViewCell {
     } else if session.isBaccaratSession {
       gameTypeLabel.text = "BACCARAT"
     } else {
-        if session.isCrapsSession {
-            gameTypeLabel.text = "CRAPS"
-        } else {
-            gameTypeLabel.text = "CRAPLESS"
-        }
+      if session.isCrapsSession {
+        gameTypeLabel.text = "CRAPS"
+      } else {
+        gameTypeLabel.text = "CRAPLESS"
+      }
     }
 
     dateLabel.text = session.formattedDate
