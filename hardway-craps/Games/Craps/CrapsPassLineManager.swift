@@ -30,6 +30,7 @@ final class CrapsPassLineManager {
     // MARK: - Properties
 
     weak var delegate: CrapsPassLineManagerDelegate?
+    var rules: CrapsVariantRules = StandardCrapsVariantRules()
 
     private(set) var rebetEnabled: Bool
     private(set) var rebetAmount: Int
@@ -98,16 +99,7 @@ final class CrapsPassLineManager {
     /// - Parameter point: The point number (4, 5, 6, 8, 9, 10)
     /// - Returns: The odds multiplier (2.0, 1.5, or 1.2)
     func calculateOddsMultiplier(for point: Int) -> Double {
-        switch point {
-        case 4, 10:
-            return 2.0  // 2:1 odds
-        case 5, 9:
-            return 1.5  // 3:2 odds
-        case 6, 8:
-            return 1.2  // 6:5 odds
-        default:
-            return 1.0
-        }
+        return rules.passLineOddsMultiplier(for: point)
     }
 
     /// Determine if odds should be visible/enabled
@@ -192,16 +184,7 @@ final class CrapsPassLineManager {
     /// - Parameter point: The point number (4, 5, 6, 8, 9, or 10)
     /// - Returns: The lay odds multiplier
     func calculateDontPassOddsMultiplier(for point: Int) -> Double {
-        switch point {
-        case 4, 10:
-            return 0.5  // 1:2 odds (bet $20, win $10)
-        case 5, 9:
-            return 2.0 / 3.0  // 2:3 odds (bet $15, win $10)
-        case 6, 8:
-            return 5.0 / 6.0  // 5:6 odds (bet $12, win $10)
-        default:
-            return 1.0
-        }
+        return rules.dontPassOddsMultiplier(for: point)
     }
     
     /// Calculate don't pass odds payout based on point number

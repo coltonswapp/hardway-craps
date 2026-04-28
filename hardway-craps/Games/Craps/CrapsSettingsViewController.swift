@@ -17,6 +17,15 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
         static let hornEnabled = "CrapsHornEnabled"
     }
 
+    // Speed slider steps: label → multiplier (lower = faster)
+    private static let speedSteps: [(label: String, multiplier: Double)] = [
+        ("Slow", 2.0),
+        ("Relaxed", 1.33),
+        ("Normal", 1.0),
+        ("Fast", 0.67),
+        ("Turbo", 0.5)
+    ]
+
     // Settings state
     private var rebetEnabled: Bool = false
     private var hardwaysEnabled: Bool = true
@@ -64,6 +73,7 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
         if UserDefaults.standard.object(forKey: SettingsKeys.hornEnabled) != nil {
             hornEnabled = UserDefaults.standard.bool(forKey: SettingsKeys.hornEnabled)
         }
+
     }
 
     private func saveSettings() {
@@ -83,9 +93,9 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: // Actions
-            return 1  // Only "Game Details" now
+            return 2  // Game Details + Hit the ATM
         case 1: // Game Settings
-            return 1
+            return 2  // Rebet + Game Speed
         case 2: // Bonus Bets
             return 3
         case 3: // Explainer
@@ -134,6 +144,10 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
                         self?.onShowGameDetails?()
                     }
                 }
+            case 1: // Hit the ATM
+                configureATMCell(cell) { [weak self] amount in
+                    self?.onHitATM?(amount)
+                }
             default:
                 break
             }
@@ -144,6 +158,8 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
                     self?.rebetEnabled = isOn
                     self?.saveSettings()
                 }
+            case 1: // Game Speed
+                configureGameSpeedCell(cell)
             default:
                 break
             }
@@ -187,6 +203,57 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
         return cell
     }
 
+    private func configureGameSpeedCell(_ cell: UITableViewCell) {
+        let label = createStandardLabel(text: "Game Speed")
+
+        let currentMultiplier = CrapsAnimationTiming.speedMultiplier
+        let currentIndex = Self.speedSteps.enumerated().min(by: {
+            abs($0.element.multiplier - currentMultiplier) < abs($1.element.multiplier - currentMultiplier)
+        })?.offset ?? 2
+
+        let valueLabel = UILabel()
+        valueLabel.text = Self.speedSteps[currentIndex].label
+        valueLabel.textColor = .white.withAlphaComponent(0.6)
+        valueLabel.font = .systemFont(ofSize: 15)
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        let slider = UISlider()
+        slider.minimumValue = 0
+        slider.maximumValue = Float(Self.speedSteps.count - 1)
+        slider.value = Float(currentIndex)
+        slider.translatesAutoresizingMaskIntoConstraints = false
+
+        var trackConfig = UISlider.TrackConfiguration(numberOfTicks: Self.speedSteps.count)
+        trackConfig.allowsTickValuesOnly = true
+        slider.trackConfiguration = trackConfig
+
+        slider.addAction(UIAction { [weak self] action in
+            guard let self, let slider = action.sender as? UISlider else { return }
+            let stepIndex = Int(slider.value.rounded())
+            let step = Self.speedSteps[stepIndex]
+            valueLabel.text = step.label
+            CrapsAnimationTiming.setSpeed(step.multiplier)
+        }, for: .valueChanged)
+
+        cell.contentView.addSubview(label)
+        cell.contentView.addSubview(valueLabel)
+        cell.contentView.addSubview(slider)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            label.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 12),
+
+            valueLabel.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+            valueLabel.centerYAnchor.constraint(equalTo: label.centerYAnchor),
+
+            slider.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 16),
+            slider.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+            slider.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
+            slider.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -12),
+        ])
+    }
+
     private func configureFixedRollCell(_ cell: UITableViewCell, onSelection: @escaping (Int) -> Void) {
         let label = createStandardLabel(text: "Fixed Roll", color: HardwayColors.label)
         
@@ -198,7 +265,7 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
         let button = createMenuButton(title: "Select Roll", menu: menu)
         layoutLabelAndButton(label: label, button: button, in: cell)
     }
-    
+
     private func configureExplainerCell(_ cell: UITableViewCell, at row: Int) {
         let explainerItems: [(title: String, subtitle: String)] = [
             ("Pass Line", "Wins on 7 or 11 on the come out roll, loses on 2, 3, or 12. If a point is established, wins when the point is rolled again before a 7."),
@@ -240,7 +307,6 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
 
         if indexPath.section == 0 {
             if indexPath.row == 0 {
-                // Game Details
                 dismiss(animated: true) { [weak self] in
                     self?.onShowGameDetails?()
                 }

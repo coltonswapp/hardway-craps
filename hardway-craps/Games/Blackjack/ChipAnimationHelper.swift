@@ -146,7 +146,7 @@ final class ChipAnimationHelper {
 
         // Get bet position and apply offset
         guard let containerView = containerView else { return }
-        let betPosition = control.getBetViewPosition(in: containerView)
+        let betPosition = control.getBaseBetViewPosition(in: containerView)
         let startPosition = CGPoint(x: betPosition.x + offset.x, y: betPosition.y + offset.y)
         guard let balanceCenter = getBalanceCenter(in: containerView) else { return }
 
@@ -217,7 +217,7 @@ final class ChipAnimationHelper {
         let betAmount = control.betAmount
         guard betAmount > 0 else { return }
 
-        let betPosition = control.getBetViewPosition(in: containerView)
+        let betPosition = control.getBaseBetViewPosition(in: containerView)
 
         // Hide betView and create chip
         control.betView.alpha = 0
@@ -287,7 +287,7 @@ final class ChipAnimationHelper {
         
         // Animate bet chip if present
         if betAmount > 0 {
-            let betPosition = control.getBetViewPosition(in: containerView)
+            let betPosition = control.getBaseBetViewPosition(in: containerView)
             
             // Create bet chip animation
             let betChipView = createChipView(amount: betAmount)
@@ -369,16 +369,18 @@ final class ChipAnimationHelper {
     }
     
     /// Animate bonus bet winnings with custom offset: house → offset → balance (with original bet)
+    /// - Parameter keepBetOnControl: When true, only winnings animate to balance; bet stays on control.
     func animateBonusBetWinningsWithOffset(
         for control: PlainControl,
         betAmount: Int,
         winAmount: Int,
         offset: CGPoint,
+        keepBetOnControl: Bool = false,
         onBalanceUpdate: @escaping (Int) -> Void
     ) {
         guard let containerView = containerView else { return }
 
-        let betPosition = control.getBetViewPosition(in: containerView)
+        let betPosition = control.getBaseBetViewPosition(in: containerView)
         let winningsPosition = CGPoint(x: betPosition.x + offset.x, y: betPosition.y + offset.y)
 
         // Create winnings chip
@@ -396,21 +398,104 @@ final class ChipAnimationHelper {
         animator1.addCompletion { [weak self] _ in
             guard let self = self, let containerView = self.containerView else { return }
 
-            // Brief pause, then animate both chips to balance
+            // Brief pause, then animate winnings (and optionally bet) to balance
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self = self else { return }
-
-                // Create bet chip
-                let betChip = self.createChipView(amount: betAmount)
-                containerView.addSubview(betChip)
-                betChip.center = betPosition
-
-                control.betView.alpha = 0
 
                 // Get balance position
                 guard let balanceCenter = self.getBalanceCenter(in: containerView) else { return }
 
-                // Animate winnings chip to balance
+                if keepBetOnControl {
+                    // Only animate winnings to balance; bet stays on control
+                    let animator2a = self.createAnimator(duration: 0.5) {
+                        winningsChip.center = balanceCenter
+                        winningsChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                    }
+                    animator2a.addCompletion { _ in
+                        onBalanceUpdate(winAmount)
+                        winningsChip.removeFromSuperview()
+                    }
+                    animator2a.startAnimation()
+                } else {
+                    // Create bet chip and animate both to balance
+                    let betChip = self.createChipView(amount: betAmount)
+                    containerView.addSubview(betChip)
+                    betChip.center = betPosition
+
+                    control.betView.alpha = 0
+
+                    // Animate winnings chip to balance
+                    let animator2a = self.createAnimator(duration: 0.5) {
+                        winningsChip.center = balanceCenter
+                        winningsChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                    }
+
+                    animator2a.addCompletion { _ in
+                        onBalanceUpdate(winAmount)
+                        winningsChip.removeFromSuperview()
+                    }
+
+                    // Animate bet chip to balance (slightly offset)
+                    let animator2b = self.createAnimator(duration: 0.5) {
+                        betChip.center = CGPoint(x: balanceCenter.x - 10, y: balanceCenter.y)
+                        betChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                    }
+
+                    animator2b.addCompletion { _ in
+                        onBalanceUpdate(betAmount)
+                        betChip.removeFromSuperview()
+                        control.betAmount = 0
+                        control.betView.alpha = 1
+                    }
+
+                    animator2a.startAnimation()
+                    animator2b.startAnimation(afterDelay: 0.1)
+                }
+            }
+        }
+
+        animator1.startAnimation()
+    }
+
+    /// Same as `animateBonusBetWinningsWithOffset(for:)` but uses a fixed screen position (e.g. TriZone chips).
+    /// - Parameter prepareBetDuplicate: Called immediately before the duplicate “bet” chip is spawned for the fly-to-balance phase.
+    ///   Use this to hide the real on-table chip (e.g. lay) so it does not vanish during the house winnings approach.
+    func animateBonusBetWinningsAtPosition(
+        betPosition: CGPoint,
+        betAmount: Int,
+        winAmount: Int,
+        offset: CGPoint = CGPoint(x: -35, y: 0),
+        prepareBetDuplicate: (() -> Void)? = nil,
+        restoreSourceChip: (() -> Void)? = nil,
+        onBalanceUpdate: @escaping (Int) -> Void
+    ) {
+        guard let containerView = containerView else { return }
+
+        let winningsPosition = CGPoint(x: betPosition.x + offset.x, y: betPosition.y + offset.y)
+
+        let winningsChip = createChipView(amount: winAmount)
+        containerView.addSubview(winningsChip)
+        winningsChip.center = CGPoint(x: containerView.bounds.midX, y: 0)
+        winningsChip.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+
+        let animator1 = createAnimator(duration: 0.6) {
+            winningsChip.transform = CGAffineTransform(scaleX: 1.5, y: 1.5)
+            winningsChip.center = winningsPosition
+        }
+
+        animator1.addCompletion { [weak self] _ in
+            guard let self = self, let containerView = self.containerView else { return }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self = self else { return }
+                guard let balanceCenter = self.getBalanceCenter(in: containerView) else { return }
+
+                prepareBetDuplicate?()
+
+                let betChip = self.createChipView(amount: betAmount)
+                containerView.addSubview(betChip)
+                betChip.center = betPosition
+
                 let animator2a = self.createAnimator(duration: 0.5) {
                     winningsChip.center = balanceCenter
                     winningsChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
@@ -421,7 +506,6 @@ final class ChipAnimationHelper {
                     winningsChip.removeFromSuperview()
                 }
 
-                // Animate bet chip to balance (slightly offset)
                 let animator2b = self.createAnimator(duration: 0.5) {
                     betChip.center = CGPoint(x: balanceCenter.x - 10, y: balanceCenter.y)
                     betChip.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
@@ -430,8 +514,7 @@ final class ChipAnimationHelper {
                 animator2b.addCompletion { _ in
                     onBalanceUpdate(betAmount)
                     betChip.removeFromSuperview()
-                    control.betAmount = 0
-                    control.betView.alpha = 1
+                    restoreSourceChip?()
                 }
 
                 animator2a.startAnimation()
@@ -606,9 +689,9 @@ final class ChipAnimationHelper {
         case .houseToControl:
             return CGPoint(x: containerView.bounds.midX, y: 0)
         case .controlToBalance(let control):
-            return control.getBetViewPosition(in: containerView)
+            return control.getBaseBetViewPosition(in: containerView)
         case .controlToHouse(let control):
-            return control.getBetViewPosition(in: containerView)
+            return control.getBaseBetViewPosition(in: containerView)
         case .custom(let from, _):
             return from
         }
@@ -619,7 +702,7 @@ final class ChipAnimationHelper {
 
         switch path {
         case .houseToControl(let control, let offset):
-            var position = control.getBetViewPosition(in: containerView)
+            var position = control.getBaseBetViewPosition(in: containerView)
             position.x += offset.x
             position.y += offset.y
             return position

@@ -34,7 +34,7 @@ class ChipSelector: UIView, BetDropTarget {
         sv.axis = .horizontal
         sv.distribution = .fill  // Fill available space
         sv.alignment = .center
-        sv.spacing = -22  // Negative spacing creates overlap (increased for more overlap)
+        sv.spacing = -22
         sv.clipsToBounds = false  // Allow chips to extend beyond bounds when overlapping
         return sv
     }()
@@ -56,16 +56,22 @@ class ChipSelector: UIView, BetDropTarget {
     private(set) var chipValues: [Int]
     let chipSize: CGFloat
 
-    init(chipValues: [Int] = [1, 5, 25, 50, 100], chipSize: CGFloat = 60) {
+    /// Chip size for gameplay chip selector: 60pt on iPhone, 66pt on iPad.
+    static var chipSizeForDevice: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 66 : 60
+    }
+
+    init(chipValues: [Int] = [1, 5, 25, 50, 100], chipSize: CGFloat? = nil) {
+        let size = chipSize ?? ChipSelector.chipSizeForDevice
         self.chipValues = chipValues
-        self.chipSize = chipSize
+        self.chipSize = size
         super.init(frame: .zero)
         setupView()
     }
     
     /// Creates a compact ChipSelector that removes the smallest and largest chips,
     /// leaving only the middle 3 chips.
-    convenience init(compact chipValues: [Int] = [1, 5, 25, 50, 100], chipSize: CGFloat = 60) {
+    convenience init(compact chipValues: [Int] = [1, 5, 25, 50, 100], chipSize: CGFloat? = nil) {
         guard chipValues.count >= 3 else {
             // If less than 3 chips, use all of them
             self.init(chipValues: chipValues, chipSize: chipSize)
@@ -86,6 +92,10 @@ class ChipSelector: UIView, BetDropTarget {
         clipsToBounds = false  // Allow chips to extend beyond bounds when overlapping
         addSubview(selectionIndicator)
         addSubview(stackView)
+
+        // Scale overlap with chip size — less overlap on iPad so chips don't crowd
+        let overlapFraction: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? (14.0 / 66.0) : (22.0 / 60.0)
+        stackView.spacing = -chipSize * overlapFraction
         
         // Prevent compression - resist being compressed below our minimum size
         setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -104,6 +114,9 @@ class ChipSelector: UIView, BetDropTarget {
             indicatorCenterXConstraint!
         ])
 
+        accessibilityIdentifier = "chipSelector"
+        isAccessibilityElement = false
+
         setupChips()
         BetDragManager.shared.registerDropTarget(self)
     }
@@ -117,6 +130,8 @@ class ChipSelector: UIView, BetDropTarget {
         for (index, value) in chipValues.enumerated() {
             let chip = ProgrammaticChipView(value: value, size: chipSize, colorSet: colorSet)
             chip.tag = index
+            chip.accessibilityIdentifier = "chipDrag.\(value)"
+            chip.accessibilityLabel = "$\(value) chip"
             chip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
             
             // Prevent chips from stretching - maintain their fixed size
@@ -132,15 +147,15 @@ class ChipSelector: UIView, BetDropTarget {
             chipControls.append(chip)
             stackView.addArrangedSubview(chip)
         }
+        syncSelectedChipAccessibility()
     }
 
     override var intrinsicContentSize: CGSize {
-        // Calculate the width based on chip size and overlap
-        // Formula: (chipSize * numberOfChips) - (overlap * (numberOfChips - 1))
         let numberOfChips = CGFloat(chipValues.count)
-        let overlap: CGFloat = 22  // Matches the negative spacing
+        let overlapFraction: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? (14.0 / 66.0) : (22.0 / 60.0)
+        let overlap = chipSize * overlapFraction
         let width = (chipSize * numberOfChips) - (overlap * (numberOfChips - 1))
-        let height = chipSize + 13  // chipSize + indicator spacing
+        let height = chipSize + 13
         return CGSize(width: width, height: height)
     }
 
@@ -215,6 +230,19 @@ class ChipSelector: UIView, BetDropTarget {
         } else {
             selectionIndicator.alpha = 1
             layoutIfNeeded()
+        }
+
+        syncSelectedChipAccessibility()
+    }
+
+    /// Updates `.selected` on chip buttons so UI tests can use `XCUIElement.isSelected`.
+    private func syncSelectedChipAccessibility() {
+        for chip in chipControls {
+            if chip.value == selectedValue {
+                chip.accessibilityTraits.insert(.selected)
+            } else {
+                chip.accessibilityTraits.remove(.selected)
+            }
         }
     }
 
@@ -331,6 +359,8 @@ class ChipSelector: UIView, BetDropTarget {
         for (index, value) in newValues.enumerated() {
             let chip = ProgrammaticChipView(value: value, size: chipSize, colorSet: colorSet)
             chip.tag = index
+            chip.accessibilityIdentifier = "chipDrag.\(value)"
+            chip.accessibilityLabel = "$\(value) chip"
             chip.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
             chip.setContentHuggingPriority(.required, for: .horizontal)
             chip.setContentHuggingPriority(.required, for: .vertical)
@@ -349,6 +379,7 @@ class ChipSelector: UIView, BetDropTarget {
             selectedValue = first.value
         }
         initializeIndicatorPosition()
+        syncSelectedChipAccessibility()
     }
 
     // MARK: - BetDropTarget

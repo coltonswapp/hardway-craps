@@ -46,6 +46,7 @@ class CurrentBetView: UIView {
 
     var currentBet: Int = 0 {
         didSet {
+            accessibilityValue = "\(currentBet)"
             animateBetChange(from: oldValue, to: currentBet)
         }
     }
@@ -66,6 +67,11 @@ class CurrentBetView: UIView {
     private func setupView() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear
+
+        isAccessibilityElement = true
+        accessibilityIdentifier = "currentBetView"
+        accessibilityLabel = "Current bet"
+        accessibilityValue = "\(currentBet)"
 
         stackView.addArrangedSubview(titleLabel)
         stackView.addArrangedSubview(amountLabel)

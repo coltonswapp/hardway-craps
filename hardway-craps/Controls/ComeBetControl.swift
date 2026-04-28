@@ -538,6 +538,12 @@ class ComeBetControl: UIControl, BetDropTarget, BetDragSource {
         guard let superview = betView.superview else { return .zero }
         return superview.convert(betView.center, to: view)
     }
+
+    /// Main come bet chip position (ignores free-odds). Use for animations that move/collect the base come bet.
+    func getBaseBetViewPosition(in view: UIView) -> CGPoint {
+        guard let superview = betView.superview else { return .zero }
+        return superview.convert(betView.center, to: view)
+    }
     
     func addBet(_ amount: Int) {
         // Allow adding bet even if dragging - this handles the case where odds are dragged back

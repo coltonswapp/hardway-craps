@@ -155,6 +155,10 @@ class FlipDiceContainer: UIControl {
 
     func roll() {
         guard !isRolling else { return }
+        if let fixedTotal = UITestDiceRollQueue.dequeueNextTotalIfAvailable() {
+            rollFixedTotal(fixedTotal)
+            return
+        }
         isRolling = true
         disableRolling()
         onRollStarted?()
@@ -177,7 +181,8 @@ class FlipDiceContainer: UIControl {
         guard !isRolling else { return }
         isRolling = true
         disableRolling()
-        
+        onRollStarted?()
+
         // Calculate die values that sum to the desired total
         // Ensure both dice are valid (1-6) and sum to total
         let die1: Int

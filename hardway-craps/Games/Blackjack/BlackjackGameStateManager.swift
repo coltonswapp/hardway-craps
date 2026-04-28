@@ -21,19 +21,38 @@ final class BlackjackGameStateManager {
 
     typealias GamePhase = PlayerControlStack.GamePhase
 
-    struct SplitHandState {
+    /// Per-hand state for every hand the player holds (primary + any split hands).
+    struct PlayerHand {
+        var bet: Int
         var hasHit: Bool
         var hasStood: Bool
         var hasDoubled: Bool
         var busted: Bool
+        var isFromSplit: Bool
+        var doubleDownCardIndex: Int?
 
-        init(hasHit: Bool = false, hasStood: Bool = false, hasDoubled: Bool = false, busted: Bool = false) {
+        init(bet: Int = 0,
+             hasHit: Bool = false,
+             hasStood: Bool = false,
+             hasDoubled: Bool = false,
+             busted: Bool = false,
+             isFromSplit: Bool = false,
+             doubleDownCardIndex: Int? = nil) {
+            self.bet = bet
             self.hasHit = hasHit
             self.hasStood = hasStood
             self.hasDoubled = hasDoubled
             self.busted = busted
+            self.isFromSplit = isFromSplit
+            self.doubleDownCardIndex = doubleDownCardIndex
         }
+
+        /// A hand is complete once it can no longer take actions.
+        var isComplete: Bool { hasStood || busted }
     }
+
+    /// Maximum number of hands one player can have (primary + up to 3 splits).
+    static let maxHands = 4
 
     // MARK: - Properties
 
@@ -47,43 +66,11 @@ final class BlackjackGameStateManager {
         }
     }
 
-    private(set) var hasPlayerHit: Bool = false {
-        didSet {
-            if oldValue != hasPlayerHit {
-                delegate?.playerActionStateDidChange()
-            }
-        }
-    }
+    /// Every hand the player currently holds, in play order. Always length >= 1 once a
+    /// round is underway. Index 0 is the primary hand; indices 1+ come from splits.
+    private(set) var playerHands: [PlayerHand] = [PlayerHand()]
 
-    private(set) var hasPlayerStood: Bool = false {
-        didSet {
-            if oldValue != hasPlayerStood {
-                delegate?.playerActionStateDidChange()
-            }
-        }
-    }
-
-    private(set) var hasPlayerDoubled: Bool = false {
-        didSet {
-            if oldValue != hasPlayerDoubled {
-                delegate?.playerActionStateDidChange()
-            }
-        }
-    }
-
-    private(set) var hasInsuranceBeenChecked: Bool = false
-    private(set) var playerDoubleDownCardIndex: Int? = nil
-    private(set) var playerBusted: Bool = false
-
-    // Split state
-    private(set) var isSplit: Bool = false {
-        didSet {
-            if oldValue != isSplit {
-                delegate?.splitStateDidChange(isSplit: isSplit, activeHandIndex: activeHandIndex)
-            }
-        }
-    }
-
+    /// Index of the hand currently receiving player actions.
     private(set) var activeHandIndex: Int = 0 {
         didSet {
             if oldValue != activeHandIndex {
@@ -92,7 +79,32 @@ final class BlackjackGameStateManager {
         }
     }
 
-    private(set) var splitHandStates: [SplitHandState] = []
+    private(set) var hasInsuranceBeenChecked: Bool = false
+
+    /// True whenever the player has more than one hand in play.
+    var isSplit: Bool { playerHands.count > 1 }
+
+    // MARK: - Legacy accessors (read from the active hand)
+
+    /// Legacy: has the *active* hand hit?
+    var hasPlayerHit: Bool { activeHand?.hasHit ?? false }
+
+    /// Legacy: has the *active* hand stood?
+    var hasPlayerStood: Bool { activeHand?.hasStood ?? false }
+
+    /// Legacy: has the *active* hand doubled down?
+    var hasPlayerDoubled: Bool { activeHand?.hasDoubled ?? false }
+
+    /// Legacy: is the *active* hand busted?
+    var playerBusted: Bool { activeHand?.busted ?? false }
+
+    /// Legacy: index of the double-down card on the *active* hand (if any).
+    var playerDoubleDownCardIndex: Int? { activeHand?.doubleDownCardIndex }
+
+    private var activeHand: PlayerHand? {
+        guard activeHandIndex >= 0 && activeHandIndex < playerHands.count else { return nil }
+        return playerHands[activeHandIndex]
+    }
 
     // MARK: - Initialization
 
@@ -108,41 +120,45 @@ final class BlackjackGameStateManager {
     /// Reset game to initial state (waiting for bet)
     func resetToWaitingForBet() {
         gamePhase = .waitingForBet
-        resetPlayerActions()
-        resetSplitState()
-        playerBusted = false
-    }
-
-    // MARK: - Player Action Methods
-
-    /// Record that player hit
-    func setPlayerHit() {
-        hasPlayerHit = true
-    }
-
-    /// Record that player stood
-    func setPlayerStood() {
-        hasPlayerStood = true
-    }
-
-    /// Record that player doubled down
-    func setPlayerDoubled(cardIndex: Int?) {
-        hasPlayerDoubled = true
-        playerDoubleDownCardIndex = cardIndex
-    }
-
-    /// Set player busted state
-    func setPlayerBusted(_ busted: Bool) {
-        playerBusted = busted
-    }
-
-    /// Reset all player action flags
-    func resetPlayerActions() {
-        hasPlayerHit = false
-        hasPlayerStood = false
-        hasPlayerDoubled = false
+        resetHands()
         hasInsuranceBeenChecked = false
-        playerDoubleDownCardIndex = nil
+    }
+
+    // MARK: - Hand Action Methods (operate on the active hand)
+
+    /// Record that the active hand hit
+    func setPlayerHit() {
+        updateActiveHand { $0.hasHit = true }
+    }
+
+    /// Record that the active hand stood
+    func setPlayerStood() {
+        updateActiveHand { $0.hasStood = true }
+    }
+
+    /// Record that the active hand doubled down
+    func setPlayerDoubled(cardIndex: Int?) {
+        updateActiveHand {
+            $0.hasDoubled = true
+            $0.doubleDownCardIndex = cardIndex
+        }
+    }
+
+    /// Set busted state on the active hand
+    func setPlayerBusted(_ busted: Bool) {
+        updateActiveHand { $0.busted = busted }
+    }
+
+    /// Reset the active hand's action flags. Use sparingly — normally you'll reset all hands.
+    func resetPlayerActions() {
+        updateActiveHand {
+            $0.hasHit = false
+            $0.hasStood = false
+            $0.hasDoubled = false
+            $0.doubleDownCardIndex = nil
+            $0.busted = false
+        }
+        hasInsuranceBeenChecked = false
     }
 
     /// Mark insurance as checked
@@ -150,63 +166,128 @@ final class BlackjackGameStateManager {
         hasInsuranceBeenChecked = true
     }
 
-    // MARK: - Split State Methods
+    // MARK: - Multi-Hand Methods
 
-    /// Initialize split state with two hands
-    func initializeSplitState() {
-        isSplit = true
+    /// Reset to a single fresh primary hand and clear all flags. Called at the start of every deal.
+    func resetHands(primaryBet: Int = 0) {
+        playerHands = [PlayerHand(bet: primaryBet)]
         activeHandIndex = 0
-        splitHandStates = [
-            SplitHandState(),
-            SplitHandState()
-        ]
+        // Fire delegate so listeners can tear down any split UI.
+        delegate?.splitStateDidChange(isSplit: false, activeHandIndex: 0)
+        delegate?.playerActionStateDidChange()
     }
 
-    /// Set the active hand index (0 or 1)
+    /// Legacy name kept for callers that predate the multi-hand model.
+    func resetSplitState() {
+        resetHands()
+    }
+
+    /// Initialize a classic two-hand split (primary already exists; adds one sibling).
+    /// Kept for backwards compatibility with older call sites. For re-splits, use `appendSplitHand`.
+    func initializeSplitState() {
+        // Preserve the primary hand's bet on the new sibling.
+        let primaryBet = playerHands.first?.bet ?? 0
+        playerHands = [
+            PlayerHand(bet: primaryBet),
+            PlayerHand(bet: primaryBet, isFromSplit: true),
+        ]
+        activeHandIndex = 0
+        delegate?.splitStateDidChange(isSplit: true, activeHandIndex: 0)
+        delegate?.playerActionStateDidChange()
+    }
+
+    /// Insert a new split hand immediately after the given source index.
+    /// Returns the index of the newly-inserted hand, or nil if the max is reached.
+    @discardableResult
+    func appendSplitHand(fromHandIndex sourceIndex: Int, bet: Int) -> Int? {
+        guard playerHands.count < Self.maxHands else { return nil }
+        guard sourceIndex >= 0 && sourceIndex < playerHands.count else { return nil }
+        let insertionIndex = sourceIndex + 1
+        let newHand = PlayerHand(bet: bet, isFromSplit: true)
+        playerHands.insert(newHand, at: insertionIndex)
+        delegate?.splitStateDidChange(isSplit: true, activeHandIndex: activeHandIndex)
+        delegate?.playerActionStateDidChange()
+        return insertionIndex
+    }
+
+    /// Set the active hand index
     func setActiveHandIndex(_ index: Int) {
-        guard index >= 0 && index < splitHandStates.count else { return }
+        guard index >= 0 && index < playerHands.count else { return }
         activeHandIndex = index
     }
 
-    /// Update split hand state for a specific hand
-    func updateSplitHandState(index: Int, hasHit: Bool? = nil, hasStood: Bool? = nil, hasDoubled: Bool? = nil, busted: Bool? = nil) {
-        guard index >= 0 && index < splitHandStates.count else { return }
-
-        var state = splitHandStates[index]
-        if let hasHit = hasHit { state.hasHit = hasHit }
-        if let hasStood = hasStood { state.hasStood = hasStood }
-        if let hasDoubled = hasDoubled { state.hasDoubled = hasDoubled }
-        if let busted = busted { state.busted = busted }
-        splitHandStates[index] = state
+    /// Update a specific hand in-place.
+    func updatePlayerHand(at index: Int, _ mutate: (inout PlayerHand) -> Void) {
+        guard index >= 0 && index < playerHands.count else { return }
+        var hand = playerHands[index]
+        mutate(&hand)
+        playerHands[index] = hand
+        delegate?.playerActionStateDidChange()
     }
 
-    /// Get split hand state for a specific hand
-    func getSplitHandState(index: Int) -> SplitHandState? {
-        guard index >= 0 && index < splitHandStates.count else { return nil }
-        return splitHandStates[index]
+    /// Update the active hand in-place.
+    func updateActiveHand(_ mutate: (inout PlayerHand) -> Void) {
+        updatePlayerHand(at: activeHandIndex, mutate)
     }
 
-    /// Check if all split hands are done (stood or busted)
+    /// Set the bet on a specific hand (used when syncing UI bet control to state).
+    func setBet(at index: Int, bet: Int) {
+        guard index >= 0 && index < playerHands.count else { return }
+        playerHands[index].bet = bet
+    }
+
+    /// Returns the hand at the given index, if any.
+    func playerHand(at index: Int) -> PlayerHand? {
+        guard index >= 0 && index < playerHands.count else { return nil }
+        return playerHands[index]
+    }
+
+    // MARK: - Legacy shims
+
+    /// Legacy shim — prefer `updatePlayerHand(at:)`.
+    func updateSplitHandState(index: Int,
+                              hasHit: Bool? = nil,
+                              hasStood: Bool? = nil,
+                              hasDoubled: Bool? = nil,
+                              busted: Bool? = nil) {
+        updatePlayerHand(at: index) { hand in
+            if let hasHit = hasHit { hand.hasHit = hasHit }
+            if let hasStood = hasStood { hand.hasStood = hasStood }
+            if let hasDoubled = hasDoubled { hand.hasDoubled = hasDoubled }
+            if let busted = busted { hand.busted = busted }
+        }
+    }
+
+    /// Legacy shim — prefer `playerHand(at:)`.
+    func getSplitHandState(index: Int) -> PlayerHand? {
+        return playerHand(at: index)
+    }
+
+    /// Check if every hand is done (stood or busted). Meaningful only when split.
     func areAllSplitHandsDone() -> Bool {
         guard isSplit else { return false }
-        return splitHandStates.allSatisfy { $0.hasStood || $0.busted }
+        return playerHands.allSatisfy { $0.isComplete }
     }
 
-    /// Reset split state
-    func resetSplitState() {
-        isSplit = false
-        activeHandIndex = 0
-        splitHandStates = []
+    /// Index of the next hand that still needs to act, or nil if all are done.
+    func nextIncompleteHandIndex(after index: Int) -> Int? {
+        var i = index + 1
+        while i < playerHands.count {
+            if !playerHands[i].isComplete { return i }
+            i += 1
+        }
+        return nil
     }
 
     // MARK: - Game State Queries
 
-    /// Check if player can split (first two cards, same rank)
+    /// Check if player can split (exactly two cards of the same rank, enough balance,
+    /// and the 4-hand cap hasn't been reached). Supports re-splits.
     func canPlayerSplit(cards: [BlackjackHandView.Card], balance: Int, betAmount: Int) -> Bool {
         guard cards.count == 2 else { return false }
         guard cards[0].rank == cards[1].rank else { return false }
         guard balance >= betAmount else { return false }
-        guard !isSplit else { return false } // Can't split again after already splitting
+        guard playerHands.count < Self.maxHands else { return false }
         return true
     }
 

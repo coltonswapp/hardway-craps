@@ -20,6 +20,34 @@ final class PlayerHandView: UIView {
         didSet { handView.canTap = canTap }
     }
 
+    /// Whether this hand is currently the active (focused) hand in a multi-hand session.
+    /// Drives a visual highlight (soft glow) so the player can tell which hand they're playing.
+    private(set) var isActiveHand: Bool = false
+
+    /// Apply or remove the active-hand highlight.
+    func setActive(_ active: Bool, animated: Bool = true) {
+        guard isActiveHand != active else { return }
+        isActiveHand = active
+        let applyHighlight = {
+            if active {
+                self.layer.shadowColor = HardwayColors.yellow.cgColor
+                self.layer.shadowOpacity = 0.55
+                self.layer.shadowRadius = 12
+                self.layer.shadowOffset = .zero
+                self.layer.masksToBounds = false
+            } else {
+                self.layer.shadowOpacity = 0
+            }
+        }
+        if animated {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut]) {
+                applyHighlight()
+            }
+        } else {
+            applyHighlight()
+        }
+    }
+
     // Expose BlackjackHandView properties and methods
     var currentCards: [BlackjackHandView.Card] {
         return handView.currentCards

@@ -20,6 +20,8 @@ class SessionPersistenceManager {
     private init() {}
     
     func saveSession(_ session: GameSession) {
+        if UITestLaunchConfiguration.suppressGameplaySessionRecording { return }
+
         var sessions = loadAllSessions()
 
         // Check if a session with this ID already exists

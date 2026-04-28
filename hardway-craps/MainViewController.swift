@@ -11,20 +11,29 @@ class MainViewController: UIViewController {
 
   // MARK: - Game Definitions
 
+  private enum GameType {
+    case craps
+    case craplessCraps
+    case blackjack
+    case baccarat
+  }
+
   private struct GamePage {
     let title: String
-    let isBlackjack: Bool
+    let type: GameType
   }
 
   private let gamePages: [GamePage] = [
-    GamePage(title: "Craps", isBlackjack: false),
-    GamePage(title: "Blackjack", isBlackjack: true),
+    GamePage(title: "Craps", type: .craps),
+    GamePage(title: "Crapless", type: .craplessCraps),
+    GamePage(title: "Blackjack", type: .blackjack),
+    GamePage(title: "Baccarat", type: .baccarat),
   ]
 
   // MARK: - UI Components
 
   private lazy var tabBar = GameCategoryTabBar(titles: gamePages.map(\.title))
-  private let pagingScrollView = UIScrollView()
+  private let pagingScrollView = HorizontalPagingScrollView()
   private let pagesContainer = UIView()
 
   private var pageTableViews: [UITableView] = []
@@ -131,9 +140,6 @@ class MainViewController: UIViewController {
 
   private func setupPagingScrollView() {
     pagingScrollView.translatesAutoresizingMaskIntoConstraints = false
-    pagingScrollView.isPagingEnabled = true
-    pagingScrollView.showsHorizontalScrollIndicator = false
-    pagingScrollView.bounces = true
     pagingScrollView.delegate = self
     pagingScrollView.backgroundColor = .clear
     view.addSubview(pagingScrollView)
@@ -215,7 +221,8 @@ class MainViewController: UIViewController {
     stack.spacing = 12
     container.addSubview(stack)
 
-    if page.isBlackjack {
+    switch page.type {
+    case .blackjack:
       let soloButton = NNPrimaryLabeledButton(title: "Solo")
       soloButton.addTarget(self, action: #selector(blackjackSoloTapped), for: .touchUpInside)
 
@@ -223,14 +230,32 @@ class MainViewController: UIViewController {
       multiButton.addTarget(
         self, action: #selector(blackjackMultiplayerTapped), for: .touchUpInside)
 
-      stack.addArrangedSubview(soloButton)
-      stack.addArrangedSubview(multiButton)
+      let horizontalStack = UIStackView(arrangedSubviews: [soloButton, multiButton])
+      horizontalStack.axis = .horizontal
+      horizontalStack.alignment = .fill
+      horizontalStack.distribution = .fillEqually
+      horizontalStack.spacing = 12
 
-      soloButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
-      multiButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
-    } else {
+      stack.addArrangedSubview(horizontalStack)
+
+      horizontalStack.heightAnchor.constraint(equalToConstant: 55).isActive = true
+
+    case .baccarat:
+      let newGameButton = NNPrimaryLabeledButton(title: "New Game")
+      newGameButton.addTarget(self, action: #selector(baccaratNewGameTapped), for: .touchUpInside)
+      stack.addArrangedSubview(newGameButton)
+      newGameButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
+
+    case .craps:
       let newGameButton = NNPrimaryLabeledButton(title: "New Game")
       newGameButton.addTarget(self, action: #selector(crapsNewGameTapped), for: .touchUpInside)
+      stack.addArrangedSubview(newGameButton)
+      newGameButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
+
+    case .craplessCraps:
+      let newGameButton = NNPrimaryLabeledButton(title: "New Game")
+      newGameButton.addTarget(
+        self, action: #selector(craplessCrapsNewGameTapped), for: .touchUpInside)
       stack.addArrangedSubview(newGameButton)
       newGameButton.heightAnchor.constraint(equalToConstant: 55).isActive = true
     }
@@ -248,7 +273,7 @@ class MainViewController: UIViewController {
       stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
       stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
       stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
-      stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 40),
+      stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
     ])
 
     return (container, blurView)
@@ -288,6 +313,11 @@ class MainViewController: UIViewController {
     navigationController?.pushViewController(gameplayVC, animated: true)
   }
 
+  @objc private func craplessCrapsNewGameTapped() {
+    let gameplayVC = CrapsGameplayViewController(variant: .crapless)
+    navigationController?.pushViewController(gameplayVC, animated: true)
+  }
+
   @objc private func blackjackSoloTapped() {
     let vc = BlackjackGameplayViewController()
     navigationController?.pushViewController(vc, animated: true)
@@ -298,15 +328,28 @@ class MainViewController: UIViewController {
     navigationController?.pushViewController(vc, animated: true)
   }
 
+  @objc private func baccaratNewGameTapped() {
+    let gameplayVC = BaccaratGameplayViewController()
+    navigationController?.pushViewController(gameplayVC, animated: true)
+  }
+
   // MARK: - Data Loading
 
   private func loadSessions() {
     let allSessions = SessionPersistenceManager.shared.loadAllSessions()
     for (i, page) in gamePages.enumerated() {
-      if page.isBlackjack {
+      switch page.type {
+      case .blackjack:
         pageSessions[i] = allSessions.filter { $0.isBlackjackSession }
-      } else {
-        pageSessions[i] = allSessions.filter { !$0.isBlackjackSession }
+      case .craps:
+        pageSessions[i] = allSessions.filter {
+          $0.isCrapsSession
+            || (!$0.isBlackjackSession && !$0.isBaccaratSession && !$0.isCraplessCrapsSession)
+        }
+      case .craplessCraps:
+        pageSessions[i] = allSessions.filter { $0.isCraplessCrapsSession }
+      case .baccarat:
+        pageSessions[i] = allSessions.filter { $0.isBaccaratSession }
       }
       pageTableViews[i].reloadData()
     }
@@ -321,19 +364,30 @@ extension MainViewController: GameCategoryTabBarDelegate {
     isUpdatingFromScroll = true
     pagingScrollView.setContentOffset(CGPoint(x: offsetX, y: 0), animated: true)
   }
+
+  func tabBar(_ tabBar: GameCategoryTabBar, didScrollToPageProgress progress: CGFloat) {
+    let width = pagingScrollView.bounds.width
+    guard width > 0 else { return }
+    let offsetX = progress * width
+    isUpdatingFromScroll = true
+    pagingScrollView.contentOffset.x = offsetX
+  }
+
+  func tabBarDidEndScrolling(_ tabBar: GameCategoryTabBar) {
+    isUpdatingFromScroll = false
+  }
 }
 
 // MARK: - UIScrollViewDelegate
 
 extension MainViewController: UIScrollViewDelegate {
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
-    guard scrollView === pagingScrollView, !isUpdatingFromScroll else { return }
+    guard scrollView === pagingScrollView else { return }
     let width = scrollView.bounds.width
     guard width > 0 else { return }
-    let page = Int(round(scrollView.contentOffset.x / width))
-    let clampedPage = max(0, min(page, gamePages.count - 1))
-    if clampedPage != tabBar.selectedIndex {
-      tabBar.selectTab(at: clampedPage, animated: true)
+    let progress = scrollView.contentOffset.x / width
+    if !isUpdatingFromScroll {
+      tabBar.setPageProgress(progress, animated: false)
     }
   }
 
@@ -389,6 +443,10 @@ extension MainViewController: UITableViewDelegate {
       let gameplayVC: UIViewController
       if session.isBlackjackSession {
         gameplayVC = BlackjackGameplayViewController(resumingSession: session)
+      } else if session.isBaccaratSession {
+        gameplayVC = BaccaratGameplayViewController(resumingSession: session)
+      } else if session.isCraplessCrapsSession {
+        gameplayVC = CrapsGameplayViewController(variant: .crapless, resumingSession: session)
       } else {
         gameplayVC = CrapsGameplayViewController(resumingSession: session)
       }
@@ -401,6 +459,46 @@ extension MainViewController: UITableViewDelegate {
   }
 }
 
+// MARK: - Horizontal Paging Scroll View
+
+/// A paging scroll view that only claims the gesture when it is clearly
+/// horizontal. This prevents the underlying table views from bouncing or
+/// scrolling vertically when the user begins a horizontal swipe between pages.
+final class HorizontalPagingScrollView: UIScrollView {
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    commonInit()
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    commonInit()
+  }
+
+  private func commonInit() {
+    isPagingEnabled = true
+    showsHorizontalScrollIndicator = false
+    showsVerticalScrollIndicator = false
+    alwaysBounceVertical = false
+    alwaysBounceHorizontal = true
+    bounces = true
+    contentInsetAdjustmentBehavior = .never
+  }
+
+  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+      pan === panGestureRecognizer
+    else {
+      return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+    let translation = pan.translation(in: self)
+    // Require the gesture to be predominantly horizontal before claiming it.
+    // Vertical and ambiguous gestures fall through to the table view's pan.
+    return abs(translation.x) > abs(translation.y)
+  }
+}
+
 // MARK: - Session Table View Cell
 
 class SessionTableViewCell: UITableViewCell {
@@ -410,7 +508,9 @@ class SessionTableViewCell: UITableViewCell {
   private let durationLabel = UILabel()
   private let playerTypeLabel = UILabel()
   private let resultLabel = UILabel()
+  private let netResultLabel = UILabel()
   private let stackView = UIStackView()
+  private let rightStackView = UIStackView()
 
   override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
     super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -438,9 +538,11 @@ class SessionTableViewCell: UITableViewCell {
     durationLabel.textColor = .white
     durationLabel.numberOfLines = 1
 
-    resultLabel.translatesAutoresizingMaskIntoConstraints = false
     resultLabel.font = .systemFont(ofSize: 16, weight: .medium)
     resultLabel.textAlignment = .right
+
+    netResultLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+    netResultLabel.textAlignment = .right
 
     stackView.translatesAutoresizingMaskIntoConstraints = false
     stackView.axis = .vertical
@@ -451,27 +553,41 @@ class SessionTableViewCell: UITableViewCell {
     stackView.addArrangedSubview(dateLabel)
     stackView.addArrangedSubview(durationLabel)
 
+    rightStackView.translatesAutoresizingMaskIntoConstraints = false
+    rightStackView.axis = .vertical
+    rightStackView.distribution = .fill
+    rightStackView.spacing = 2
+    rightStackView.alignment = .trailing
+    rightStackView.addArrangedSubview(resultLabel)
+    rightStackView.addArrangedSubview(netResultLabel)
+
     contentView.addSubview(stackView)
-    contentView.addSubview(resultLabel)
+    contentView.addSubview(rightStackView)
 
     NSLayoutConstraint.activate([
       stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
       stackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
       stackView.trailingAnchor.constraint(
-        lessThanOrEqualTo: resultLabel.leadingAnchor, constant: -16),
+        lessThanOrEqualTo: rightStackView.leadingAnchor, constant: -16),
 
-      resultLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-      resultLabel.bottomAnchor.constraint(equalTo: stackView.bottomAnchor),
-      resultLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 70),
+      rightStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+      rightStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+      rightStackView.widthAnchor.constraint(greaterThanOrEqualToConstant: 70),
     ])
   }
 
   func configure(with session: GameSession) {
-    // Distinguish between solo and multiplayer blackjack
+    // Distinguish between game types
     if session.isBlackjackSession {
       gameTypeLabel.text = session.isMultiplayerSession ? "MULTIPLAYER BLACKJACK" : "SOLO BLACKJACK"
+    } else if session.isBaccaratSession {
+      gameTypeLabel.text = "BACCARAT"
     } else {
-      gameTypeLabel.text = "CRAPS"
+      if session.isCrapsSession {
+        gameTypeLabel.text = "CRAPS"
+      } else {
+        gameTypeLabel.text = "CRAPLESS"
+      }
     }
 
     dateLabel.text = session.formattedDate
@@ -484,14 +600,25 @@ class SessionTableViewCell: UITableViewCell {
     let endingBalance = session.endingBalance
     resultLabel.text = "$\(startingBalance) → $\(endingBalance)"
 
-    if endingBalance > startingBalance {
+    let net = session.trueNetResult
+    if net > 0 {
       resultLabel.textColor = .systemGreen
-    } else if endingBalance < startingBalance {
+    } else if net < 0 {
       resultLabel.textColor = .systemRed
     } else {
       resultLabel.textColor = .white
     }
     resultLabel.backgroundColor = .clear
+
+    if session.totalATMAmount > 0 {
+      let sign = net >= 0 ? "+" : "-"
+      netResultLabel.text = "Net: \(sign)$\(abs(net))"
+      netResultLabel.textColor = net > 0 ? .systemGreen : net < 0 ? .systemRed : .white
+      netResultLabel.isHidden = false
+    } else {
+      netResultLabel.text = nil
+      netResultLabel.isHidden = true
+    }
 
     gameTypeLabel.isHidden = false
     dateLabel.isHidden = false

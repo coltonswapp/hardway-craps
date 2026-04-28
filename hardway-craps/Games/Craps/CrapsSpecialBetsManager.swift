@@ -71,6 +71,7 @@ final class CrapsSpecialBetsManager {
     // MARK: - Properties
 
     weak var delegate: CrapsSpecialBetsManagerDelegate?
+    var rules: CrapsVariantRules = StandardCrapsVariantRules()
 
     // MARK: - Hardway Methods
 
@@ -242,13 +243,133 @@ final class CrapsSpecialBetsManager {
         }
     }
 
+    /// Evaluate an Any Horn bet.
+    /// Any Horn is a one-time bet that wins on any horn number (2, 3, 11, 12).
+    /// Payout: (bet amount / 4) × odds of the specific make.
+    /// - Parameters:
+    ///   - die1: First die value rolled
+    ///   - die2: Second die value rolled
+    ///   - betAmount: The bet amount
+    /// - Returns: Horn result if a horn number was rolled, nil otherwise
+    func evaluateAnyHornBet(die1: Int, die2: Int, betAmount: Int) -> HornResult? {
+        let total = die1 + die2
+        guard [2, 3, 11, 12].contains(total) else { return nil }
+
+        // Quarter bet per horn number; payout = (bet/4) × odds of the make
+        let quarterBet = betAmount / 4
+        let multiplier: Double
+        let hornName: String
+        switch total {
+        case 2:
+            multiplier = 31.0  // 30:1
+            hornName = "Snake Eyes"
+        case 12:
+            multiplier = 31.0  // 30:1
+            hornName = "Boxcars"
+        case 3:
+            multiplier = 16.0  // 15:1
+            hornName = "Ace-Deuce"
+        case 11:
+            multiplier = 16.0  // 15:1
+            hornName = "Eleven"
+        default:
+            return nil
+        }
+
+        let winAmount = Int(Double(quarterBet) * multiplier)
+
+        delegate?.hornWinEvaluated(
+            hornName: hornName,
+            betAmount: betAmount,
+            multiplier: Double(winAmount) / Double(betAmount),
+            winAmount: winAmount
+        )
+
+        return HornResult(
+            isWin: true,
+            betAmount: betAmount,
+            hornName: hornName,
+            oddsMultiplier: Double(winAmount) / Double(betAmount),
+            winAmount: winAmount
+        )
+    }
+
+    // MARK: - C and E (proposition)
+
+    struct CAndEZoneEvalResult {
+        let isWin: Bool
+        /// Total dollars returned to the player this roll from the winning portions.
+        let totalReturn: Int
+        /// Displayed on the animated winnings chip (net profit vs. wager).
+        let profitDisplayAmount: Int
+        let description: String
+    }
+
+    private func isAnyCrapsTotal(_ total: Int) -> Bool {
+        total == 2 || total == 3 || total == 12
+    }
+
+    /// Left zone: Any craps (2, 3, 12) at 7:1.
+    func evaluateCAndECrapsZone(total: Int, betAmount: Int) -> CAndEZoneEvalResult {
+        guard betAmount > 0 else {
+            return CAndEZoneEvalResult(isWin: false, totalReturn: 0, profitDisplayAmount: 0, description: "Craps")
+        }
+        if isAnyCrapsTotal(total) {
+            let profit = betAmount * 7
+            let totalReturn = betAmount + profit
+            return CAndEZoneEvalResult(isWin: true, totalReturn: totalReturn, profitDisplayAmount: profit, description: "Craps")
+        }
+        return CAndEZoneEvalResult(isWin: false, totalReturn: 0, profitDisplayAmount: 0, description: "Craps")
+    }
+
+    /// Right zone: Yo (11) at 15:1.
+    func evaluateCAndEElevenZone(total: Int, betAmount: Int) -> CAndEZoneEvalResult {
+        guard betAmount > 0 else {
+            return CAndEZoneEvalResult(isWin: false, totalReturn: 0, profitDisplayAmount: 0, description: "Eleven")
+        }
+        if total == 11 {
+            let profit = betAmount * 15
+            let totalReturn = betAmount + profit
+            return CAndEZoneEvalResult(isWin: true, totalReturn: totalReturn, profitDisplayAmount: profit, description: "Yo")
+        }
+        return CAndEZoneEvalResult(isWin: false, totalReturn: 0, profitDisplayAmount: 0, description: "Eleven")
+    }
+
+    /// Middle zone: half on craps (7:1), half on eleven (15:1).
+    func evaluateCAndEMiddleSplitZone(total: Int, betAmount: Int) -> CAndEZoneEvalResult {
+        guard betAmount > 0 else {
+            return CAndEZoneEvalResult(isWin: false, totalReturn: 0, profitDisplayAmount: 0, description: "C & E")
+        }
+        let crapsStake = betAmount / 2
+        let elevenStake = betAmount - crapsStake
+        if isAnyCrapsTotal(total) {
+            let totalReturn = 8 * crapsStake
+            guard totalReturn > 0 else {
+                return CAndEZoneEvalResult(isWin: false, totalReturn: 0, profitDisplayAmount: 0, description: "C & E")
+            }
+            let profit = totalReturn - betAmount
+            return CAndEZoneEvalResult(
+                isWin: true, totalReturn: totalReturn, profitDisplayAmount: max(profit, 0), description: "C & E")
+        }
+        if total == 11 {
+            let totalReturn = 16 * elevenStake
+            guard totalReturn > 0 else {
+                return CAndEZoneEvalResult(isWin: false, totalReturn: 0, profitDisplayAmount: 0, description: "C & E")
+            }
+            let profit = totalReturn - betAmount
+            return CAndEZoneEvalResult(
+                isWin: true, totalReturn: totalReturn, profitDisplayAmount: max(profit, 0), description: "C & E")
+        }
+        return CAndEZoneEvalResult(isWin: false, totalReturn: 0, profitDisplayAmount: 0, description: "C & E")
+    }
+
     // MARK: - Field Methods
 
     /// Check if a number is a field number
     /// - Parameter total: Dice total
     /// - Returns: True if field number (2, 3, 4, 9, 10, 11, 12)
     func isFieldNumber(_ total: Int) -> Bool {
-        return [2, 3, 4, 9, 10, 11, 12].contains(total)
+        return rules.fieldPayoutMultiplier(for: total) != nil
     }
 
     /// Evaluate a field bet
@@ -257,9 +378,7 @@ final class CrapsSpecialBetsManager {
     ///   - betAmount: The bet amount
     /// - Returns: Field result with win/loss and payout information
     func evaluateFieldBet(total: Int, betAmount: Int) -> FieldResult {
-        if isFieldNumber(total) {
-            // Field pays 3:1 on 12, 2:1 on 2, 1:1 on other field numbers
-            let multiplier: Double = (total == 12) ? 3.0 : (total == 2) ? 2.0 : 1.0
+        if let multiplier = rules.fieldPayoutMultiplier(for: total) {
             let winAmount = Int(Double(betAmount) * multiplier)
 
             delegate?.fieldWinEvaluated(
@@ -303,8 +422,10 @@ final class CrapsSpecialBetsManager {
     ///   - betAmount: The bet amount
     /// - Returns: Don't pass result with win/loss/push information
     func evaluateDontPassComeOutRoll(total: Int, betAmount: Int) -> DontPassResult {
-        if total == 2 || total == 3 {
-            // Don't pass wins on 2 or 3 (pays 1:1)
+        let action = rules.dontPassComeOutAction(for: total)
+
+        switch action {
+        case .win:
             let multiplier = 1.0
             let winAmount = Int(Double(betAmount) * multiplier)
 
@@ -323,8 +444,7 @@ final class CrapsSpecialBetsManager {
                 oddsMultiplier: multiplier,
                 winAmount: winAmount
             )
-        } else if total == 12 {
-            // Don't pass pushes (tie) on 12
+        case .push:
             delegate?.dontPassPushEvaluated(total: total, betAmount: betAmount)
 
             return DontPassResult(
@@ -334,8 +454,7 @@ final class CrapsSpecialBetsManager {
                 oddsMultiplier: 0.0,
                 winAmount: 0
             )
-        } else if total == 7 || total == 11 {
-            // Don't pass loses on 7 or 11
+        case .lose:
             return DontPassResult(
                 isWin: false,
                 isPush: false,
@@ -343,8 +462,7 @@ final class CrapsSpecialBetsManager {
                 oddsMultiplier: 0.0,
                 winAmount: 0
             )
-        } else {
-            // Point established (4, 5, 6, 8, 9, 10) - no action yet
+        case .establishPoint, .none:
             return DontPassResult(
                 isWin: false,
                 isPush: false,
@@ -408,7 +526,7 @@ final class CrapsSpecialBetsManager {
     /// Evaluate a Make Em bet
     /// - Parameters:
     ///   - total: Dice total rolled
-    ///   - betName: Name of the bet ("Make Em Small" or "Make Em Tall")
+    ///   - betName: Name of the bet ("Small" or "Tall")
     ///   - targetNumbers: Array of target numbers for this bet
     ///   - hitNumbers: Set of numbers already hit
     ///   - betAmount: The bet amount
@@ -484,9 +602,12 @@ final class CrapsSpecialBetsManager {
     /// - Parameter oddsString: Odds string (e.g., "34:1")
     /// - Returns: Multiplier (150:1 = 151x, 175:1 = 176x)
     private func calculateMakeEmMultiplier(oddsString: String) -> Double {
-        if oddsString == "34:1" {
-            return 35.0  // 34:1 means you get 150x profit + original bet = 35x total
-        } else {
+        switch oddsString {
+        case "34:1":
+            return 35.0  // 34:1 means 34x profit + original bet = 35x total
+        case "175:1":
+            return 176.0  // 175:1 means 175x profit + original bet = 176x total
+        default:
             return 35.0
         }
     }

@@ -46,6 +46,7 @@ class BetDragManager {
     private var originalOddsPosition: CGPoint = .zero // Track original odds position for snap-back
     private var currentLockedBetTarget: BetDropTarget?
     private var droppedOnLockedBet: BetDropTarget? // Track if we dropped on a locked bet to prevent restore
+    private var layBetSource: BetDropTarget? // When dragging a lay bet chip, the PointControl it came from
 
     private init() {}
 
@@ -81,9 +82,14 @@ class BetDragManager {
         return currentDropTarget != nil
     }
 
-    func startDragging(value: Int, from point: CGPoint, in view: UIView, source: BetDragSource? = nil) {
+    func isCurrentDropTargetChipSelector() -> Bool {
+        return currentDropTarget is ChipSelector
+    }
+
+    func startDragging(value: Int, from point: CGPoint, in view: UIView, source: BetDragSource? = nil, layBetSource: BetDropTarget? = nil) {
         dragValue = value
         sourceControl = source
+        self.layBetSource = layBetSource
 
         // Store original betView position for snap-back animation
         if let source = source {
@@ -196,6 +202,7 @@ class BetDragManager {
         let source = sourceControl
         let target = currentDropTarget
         let oddsSource = oddsSourceControl  // Capture odds source before cleanup clears it
+        let laySource = layBetSource  // Capture lay bet source before cleanup clears it
         
         // Check if dropping on a locked bet BEFORE processing the drop
         // This ensures we mark it before cleanup is called
@@ -215,6 +222,8 @@ class BetDragManager {
             let isSameControl = source != nil && (source as AnyObject) === (target as AnyObject)
             // Check if dropping odds back on the same control
             let isDroppingOddsBack = oddsSource === target
+            // Check if dropping a lay bet back on its own PointControl (source is nil for lay bet drags)
+            let isDroppingLayBetBackOnSelf = source == nil && oddsSource == nil && laySource === target
             // ChipSelector returns bets to balance ONLY if we're moving an existing bet (has source)
             let isChipSelector = target is ChipSelector
             // Check if bet can be removed (for bet moves) - check BEFORE allowing any operations
@@ -235,6 +244,9 @@ class BetDragManager {
                 return
             }
 
+            // Track if PointControl handled a zone move (place → lay); don't restore alpha in that case
+            var didZoneMove = false
+
             // Animate chip to target betView position and fade out quickly
             UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseOut) {
                 chip.center = targetPosition
@@ -243,8 +255,34 @@ class BetDragManager {
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     if isSameControl || isDroppingOddsBack {
-                        // Dropping back on same control - ComeBetControl.handleOddsViewPan handles restoration
-                        // Do nothing here - the control will restore visibility and amount itself
+                        // Same control: check for zone move (e.g. place → lay on PointControl)
+                        if isSameControl, let pointControl = target as? PointControl {
+                            didZoneMove = pointControl.handleMoveFromPlaceToLay(amount: valueToAdd)
+                        }
+                        if !didZoneMove {
+                            // Dropping back on same control - restore visibility
+                            // ComeBetControl.handleOddsViewPan handles odds restoration
+                        }
+                    } else if isDroppingLayBetBackOnSelf {
+                        // Lay bet dropped on same PointControl: zone move (lay→place) or restore (lay→lay)
+                        if let pointControl = target as? PointControl {
+                            didZoneMove = pointControl.handleLayBetDroppedOnSelf(amount: valueToAdd)
+                        }
+                        // If !didZoneMove, PointControl pan handler restores lay chip alpha
+                    } else if laySource != nil && laySource !== target {
+                        // Moving lay bet to a different control (lay or place zone) - use addBet, no balance change
+                        target.addBet(valueToAdd)
+                        if let dragSource = target as? BetDragSource {
+                            let originalTransform = dragSource.betView.transform
+                            UIView.animate(withDuration: 0.05, delay: 0, options: [.curveEaseOut]) {
+                                dragSource.betView.transform = CGAffineTransform(scaleX: 1.15, y: 1.15)
+                            } completion: { _ in
+                                UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0.5, options: .curveEaseInOut) {
+                                    dragSource.betView.transform = originalTransform
+                                }
+                            }
+                            HapticsHelper.lightHaptic()
+                        }
                     } else if isChipSelector && isBetMove {
                         // Dropping an existing bet on ChipSelector - return to balance
                         // Only allow if bet can be removed
@@ -300,9 +338,12 @@ class BetDragManager {
                 // If dragging from a source, handle bet removal/restoration
                 if let source = source, oddsSource == nil {
                     // Regular bet drag
-                    if isSameControl {
-                        // Dropping back on same control - just restore visibility, don't remove bet
+                    if isSameControl && !didZoneMove {
+                        // Dropping back on same control (same zone) - just restore visibility
                         source.betView.alpha = 1
+                    } else if isSameControl && didZoneMove {
+                        // Zone move (e.g. place → lay) - bet already moved by PointControl
+                        // Don't restore; place bet was removed
                     } else if isChipSelector && isBetMove {
                         // Dropping on ChipSelector - balance already returned via onBetReturned
                         // Just remove the bet from source without calling onBetRemoved callback
@@ -338,6 +379,11 @@ class BetDragManager {
                         }
                     }
                     // If dropping back on same control, handleOddsChipPan already handled restoration
+                } else if let laySource = laySource, laySource !== target {
+                    // Moved lay bet to different control - remove from source silently
+                    if let pointControl = laySource as? PointControl {
+                        pointControl.removeLayBetSilently(valueToAdd)
+                    }
                 }
                 
                 // Restore locked bet position if we were hovering over one
@@ -429,6 +475,7 @@ class BetDragManager {
         currentLockedBetTarget = nil
         droppedOnLockedBet = nil
         oddsSourceControl = nil
+        layBetSource = nil
         
         draggedChip = nil
         dragValue = 0
