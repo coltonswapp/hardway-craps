@@ -10,7 +10,6 @@ private typealias Timing = CrapsAnimationTiming
 extension CrapsGameplayViewController {
     struct PostRollCompletionPlan {
         let delay: TimeInterval
-        let shouldApplyRebet: Bool
     }
 
     func presentRollResults(
@@ -36,20 +35,8 @@ extension CrapsGameplayViewController {
     func makePostRollCompletionPlan(
         event: GameEvent,
         winningBets: [WinningBet],
-        dontPassDidLose: Bool,
-        passLineBetAmountBeforeOutcome: Int,
-        dontPassBetAmountBeforeOutcome: Int
+        dontPassDidLose: Bool
     ) -> PostRollCompletionPlan {
-        let didDontPassWin = dontPassControl.map { dp in winningBets.contains { $0.control === dp } } ?? false
-        let shouldApplyRebet = CrapsRollOutcomePolicy.shouldApplyRebet(
-            event: event,
-            passLineBetAmountBeforeOutcome: passLineBetAmountBeforeOutcome,
-            dontPassBetAmountBeforeOutcome: dontPassBetAmountBeforeOutcome,
-            dontPassDidLose: dontPassDidLose,
-            didDontPassWin: didDontPassWin,
-            currentDontPassBetAmount: dontPassControl?.betAmount ?? 0
-        )
-
         let scaledDelay = CrapsRollOutcomePolicy.rollingStateUpdateDelay(
             event: event,
             hasWinningBets: !winningBets.isEmpty,
@@ -65,7 +52,7 @@ extension CrapsGameplayViewController {
         // Chips animate at scaled speed, but “Tap to Roll” should return on the same wall-clock beat as before game speed existed.
         let delay = max(scaledDelay, unscaledDelay)
 
-        return PostRollCompletionPlan(delay: delay, shouldApplyRebet: shouldApplyRebet)
+        return PostRollCompletionPlan(delay: delay)
     }
 
     func performPostRollCompletion(using plan: PostRollCompletionPlan) {
@@ -74,11 +61,6 @@ extension CrapsGameplayViewController {
 
             // Update session after roll completes (so app can be backgrounded/quit safely)
             self?.sessionManager.updateSession()
-
-            // Apply rebet if needed (only when there's a pass line or don't pass outcome)
-            if plan.shouldApplyRebet {
-                self?.applyRebetIfNeeded()
-            }
 
             self?.updateRollingState()
             self?.showTips()

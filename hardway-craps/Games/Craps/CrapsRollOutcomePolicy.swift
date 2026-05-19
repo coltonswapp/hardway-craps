@@ -8,27 +8,6 @@
 import Foundation
 
 enum CrapsRollOutcomePolicy {
-    static func shouldApplyRebet(
-        event: GameEvent,
-        passLineBetAmountBeforeOutcome: Int,
-        dontPassBetAmountBeforeOutcome: Int,
-        dontPassDidLose: Bool,
-        didDontPassWin: Bool,
-        currentDontPassBetAmount: Int
-    ) -> Bool {
-        switch event {
-        case .passLineWin, .passLineLoss:
-            return true
-        case .pointMade, .sevenOut:
-            let hadPassLineBet = passLineBetAmountBeforeOutcome > 0
-            let dontPassHadOutcome = (dontPassBetAmountBeforeOutcome > 0 && dontPassDidLose) || didDontPassWin
-            return hadPassLineBet || dontPassHadOutcome
-        case .pointEstablished, .none:
-            let dontPassHadOutcome = (currentDontPassBetAmount > 0 && dontPassDidLose) || didDontPassWin
-            return dontPassHadOutcome
-        }
-    }
-
     static func rollingStateUpdateDelay(
         event: GameEvent,
         hasWinningBets: Bool,

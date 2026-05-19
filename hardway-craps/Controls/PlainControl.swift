@@ -187,22 +187,7 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
     /// Offset for original bet winnings animation (separate from odds bet)
     /// Adjusts based on whether odds exist and bet chip has been shifted
     var originalBetWinningsOffset: CGPoint {
-        // Base offset: 20 points to the left of bet chip center
-        let baseOffset: CGFloat = -30
-        
-        // If odds exist in horizontal layout, bet chip is shifted left by 22 points
-        // (from -8 to -30 trailing constraint)
-        // Adjust offset to account for the shifted position
-        if let stack = oddsBetStack,
-           stack.oddsAmount > 0,
-           stack.layout == .horizontal {
-            // Bet chip is shifted left, so winnings should appear further left
-            // to maintain visual separation from both bet and odds chips
-            return CGPoint(x: baseOffset - 20, y: 0) // -30 total: further left when odds exist
-        }
-        
-        // No odds or vertical layout: use base offset
-        return CGPoint(x: baseOffset, y: 0)
+        return CGPoint(x: -30, y: 0)
     }
     
     /// Offset for odds bet winnings animation (can be customized separately)
@@ -602,10 +587,14 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         return superview.convert(betView.center, to: view)
     }
 
-    /// Position of the **main** bet chip (`betView`), ignoring the free-odds stack.
-    /// Use for line/place-bet collection, line-bet loss, and animations that must not snap to the odds chip
-    /// when `oddsAmount > 0` (see `getBetViewPosition`, which follows the odds chip when odds exist).
+    /// Position of the **main** line bet chip, ignoring the free-odds chip.
+    /// When `oddsBetStack` is active the visible line bet is `OddsBetStack.betChip`; `betView` is hidden.
+    /// Use for line-bet loss and other animations that must not snap to the odds chip when `oddsAmount > 0`
+    /// (see `getBetViewPosition`, which follows the odds chip when odds exist).
     func getBaseBetViewPosition(in view: UIView) -> CGPoint {
+        if let stack = oddsBetStack {
+            return stack.getBetPosition(in: view)
+        }
         guard let superview = betView.superview else { return .zero }
         return superview.convert(betView.center, to: view)
     }

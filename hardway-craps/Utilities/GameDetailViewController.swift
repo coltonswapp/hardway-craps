@@ -53,8 +53,10 @@ final class GameDetailViewController: UIViewController {
         scrollView.addSubview(contentView)
         contentView.addSubview(stackView)
 
+        // Match UITableView-style layout (e.g. AppSettingsViewController): extend under the navigation bar
+        // so content scrolls beneath it; safe-area padding comes from automatic content inset adjustment.
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -404,6 +406,7 @@ final class GameDetailViewController: UIViewController {
 private final class GameDetailScrollView: UIScrollView, UIGestureRecognizerDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
+        contentInsetAdjustmentBehavior = .automatic
         panGestureRecognizer.delegate = self
     }
 

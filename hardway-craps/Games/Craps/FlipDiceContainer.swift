@@ -162,7 +162,8 @@ class FlipDiceContainer: UIControl {
         isRolling = true
         disableRolling()
         onRollStarted?()
-        diceScene.roll { [weak self] value1, value2 in
+        let exclude = CrapsDebugSettings.isNoSevensEnabled ? Set([7]) : []
+        diceScene.roll(excludingTotals: exclude) { [weak self] value1, value2 in
             guard let self = self else { return }
             let total = value1 + value2
             self.setResultText("\(total)")

@@ -11,7 +11,6 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
 
     // UserDefaults keys for settings persistence
     private enum SettingsKeys {
-        static let rebetEnabled = "CrapsRebetEnabled"
         static let hardwaysEnabled = "CrapsHardwaysEnabled"
         static let makeEmEnabled = "CrapsMakeEmEnabled"
         static let hornEnabled = "CrapsHornEnabled"
@@ -27,7 +26,6 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
     ]
 
     // Settings state
-    private var rebetEnabled: Bool = false
     private var hardwaysEnabled: Bool = true
     private var makeEmEnabled: Bool = true
     private var hornEnabled: Bool = true
@@ -54,11 +52,6 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
     }
 
     private func loadSettings() {
-        // Load rebetEnabled (default: false)
-        if UserDefaults.standard.object(forKey: SettingsKeys.rebetEnabled) != nil {
-            rebetEnabled = UserDefaults.standard.bool(forKey: SettingsKeys.rebetEnabled)
-        }
-
         // Load hardwaysEnabled (default: true)
         if UserDefaults.standard.object(forKey: SettingsKeys.hardwaysEnabled) != nil {
             hardwaysEnabled = UserDefaults.standard.bool(forKey: SettingsKeys.hardwaysEnabled)
@@ -77,7 +70,6 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
     }
 
     private func saveSettings() {
-        UserDefaults.standard.set(rebetEnabled, forKey: SettingsKeys.rebetEnabled)
         UserDefaults.standard.set(hardwaysEnabled, forKey: SettingsKeys.hardwaysEnabled)
         UserDefaults.standard.set(makeEmEnabled, forKey: SettingsKeys.makeEmEnabled)
         UserDefaults.standard.set(hornEnabled, forKey: SettingsKeys.hornEnabled)
@@ -87,21 +79,19 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
     // MARK: - Table View Data Source
 
     override func numberOfSections(in tableView: UITableView) -> Int {
-        return 5
+        return 4
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: // Actions
             return 2  // Game Details + Hit the ATM
-        case 1: // Game Settings
-            return 2  // Rebet + Game Speed
-        case 2: // Bonus Bets
-            return 3
-        case 3: // Explainer
+        case 1: // Game (speed + bonus bets)
+            return 4  // Game Speed + Hardways + Make Em + Horn
+        case 2: // Explainer
             return 8
-        case 4: // Testing
-            return 1
+        case 3: // Testing
+            return 2
         default:
             return 0
         }
@@ -114,10 +104,8 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
         case 1:
             return "Game"
         case 2:
-            return "Bonus Bets"
-        case 3:
             return "Craps Explainer"
-        case 4:
+        case 3:
             return "Testing"
         default:
             return nil
@@ -151,31 +139,21 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
             default:
                 break
             }
-        case 1: // Game Settings
+        case 1: // Game
             switch indexPath.row {
-            case 0: // Rebet
-                configureSwitchCell(cell, title: "Rebet", isOn: rebetEnabled) { [weak self] isOn in
-                    self?.rebetEnabled = isOn
-                    self?.saveSettings()
-                }
-            case 1: // Game Speed
+            case 0: // Game Speed
                 configureGameSpeedCell(cell)
-            default:
-                break
-            }
-        case 2: // Bonus Bets
-            switch indexPath.row {
-            case 0: // Hardways
+            case 1: // Hardways
                 configureSwitchCell(cell, title: "Hardways", isOn: hardwaysEnabled) { [weak self] isOn in
                     self?.hardwaysEnabled = isOn
                     self?.saveSettings()
                 }
-            case 1: // Make Em
+            case 2: // Make Em
                 configureSwitchCell(cell, title: "Make Em'", isOn: makeEmEnabled) { [weak self] isOn in
                     self?.makeEmEnabled = isOn
                     self?.saveSettings()
                 }
-            case 2: // Horn
+            case 3: // Horn
                 configureSwitchCell(cell, title: "Horn", isOn: hornEnabled) { [weak self] isOn in
                     self?.hornEnabled = isOn
                     self?.saveSettings()
@@ -183,11 +161,15 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
             default:
                 break
             }
-        case 3: // Explainer
+        case 2: // Explainer
             configureExplainerCell(cell, at: indexPath.row)
-        case 4: // Testing
+        case 3: // Testing
             switch indexPath.row {
-            case 0: // Fixed Roll
+            case 0:
+                configureSwitchCell(cell, title: "No Sevens", isOn: CrapsDebugSettings.isNoSevensEnabled) { isOn in
+                    CrapsDebugSettings.isNoSevensEnabled = isOn
+                }
+            case 1: // Fixed Roll
                 configureFixedRollCell(cell) { [weak self] total in
                     self?.dismiss(animated: true) {
                         self?.onFixedRoll?(total)
@@ -223,6 +205,7 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
         slider.maximumValue = Float(Self.speedSteps.count - 1)
         slider.value = Float(currentIndex)
         slider.translatesAutoresizingMaskIntoConstraints = false
+        slider.tintColor = HardwayColors.hardwaysYellow
 
         var trackConfig = UISlider.TrackConfiguration(numberOfTicks: Self.speedSteps.count)
         trackConfig.allowsTickValuesOnly = true

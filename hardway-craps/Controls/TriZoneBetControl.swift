@@ -223,11 +223,14 @@ class TriZoneBetControl: UIControl, BetDropTarget {
     return zoneViews.reduce(0) { $0 + $1.betChip.amount }
   }
 
-  func addBetToZone(_ amount: Int, zone: Zone, animated: Bool = false) {
+  /// Same as tapping to add chips, except `notifyPlacedCallback` skips `onBetPlaced` (used when moving chips already wagered).
+  func addBetToZone(_ amount: Int, zone: Zone, animated: Bool = false, notifyPlacedCallback: Bool = true) {
     let zoneView = zoneViews[zone.rawValue]
     zoneView.betChip.addToBet(amount)
     zoneView.updateTitleAlignment()
-    onBetPlaced?(amount, zone)
+    if notifyPlacedCallback {
+      onBetPlaced?(amount, zone)
+    }
 
     if animated {
       let chip = zoneView.betChip
@@ -477,6 +480,13 @@ class TriZoneBetControl: UIControl, BetDropTarget {
     let zone = pendingDropZone ?? highlightedZone ?? .middle
     pendingDropZone = nil
     addBetToZone(amount, zone: zone)
+  }
+
+  /// Reposition stakes already deducted from balance (drag from another betting control).
+  func addTransferredBet(_ amount: Int) {
+    let zone = pendingDropZone ?? highlightedZone ?? .middle
+    pendingDropZone = nil
+    addBetToZone(amount, zone: zone, animated: true, notifyPlacedCallback: false)
   }
 
   func addBetWithAnimation(_ amount: Int) {

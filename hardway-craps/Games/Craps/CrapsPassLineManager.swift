@@ -21,7 +21,6 @@ protocol CrapsPassLineManagerDelegate: AnyObject {
     func passLineOddsWinProcessed(originalBet: Int, winnings: Int, point: Int, multiplier: Double)
     func passLineLossProcessed(lostAmount: Int)
     func passLineOddsLossProcessed(lostAmount: Int)
-    func rebetAmountDidUpdate(amount: Int)
 }
 
 /// Manages pass line and odds bet logic, calculations, and animations
@@ -32,66 +31,9 @@ final class CrapsPassLineManager {
     weak var delegate: CrapsPassLineManagerDelegate?
     var rules: CrapsVariantRules = StandardCrapsVariantRules()
 
-    private(set) var rebetEnabled: Bool
-    private(set) var rebetAmount: Int
-    private(set) var consecutiveBetCount: Int = 0
-    private(set) var lastBetAmount: Int = 0
-
     // MARK: - Initialization
 
-    init(rebetEnabled: Bool = false, rebetAmount: Int = 10) {
-        self.rebetEnabled = rebetEnabled
-        self.rebetAmount = rebetAmount
-    }
-
-    // MARK: - Rebet Methods
-
-    /// Update rebet settings
-    func updateRebetSettings(enabled: Bool, amount: Int) {
-        rebetEnabled = enabled
-        rebetAmount = amount
-    }
-
-    /// Set rebet enabled state
-    func setRebetEnabled(_ enabled: Bool) {
-        rebetEnabled = enabled
-    }
-
-    /// Set rebet amount
-    func setRebetAmount(_ amount: Int) {
-        rebetAmount = amount
-        delegate?.rebetAmountDidUpdate(amount: amount)
-    }
-
-    /// Track a bet for rebet functionality
-    /// Updates rebet amount immediately to the current bet amount
-    func trackBetForRebet(amount: Int) {
-        guard amount > 0 else { return }
-
-        // Update rebet amount immediately to reflect current bet
-        setRebetAmount(amount)
-        lastBetAmount = amount
-    }
-
-    /// Calculate the rebet amount to apply
-    /// Returns nil if rebet shouldn't be applied
-    func calculateRebetAmount(currentBetAmount: Int, balance: Int) -> Int? {
-        guard rebetEnabled else { return nil }
-
-        // Check if player already has a bet placed
-        if currentBetAmount > 0 {
-            // Player already has a bet (from winning the last hand)
-            // The bet stayed on the control and was never returned to balance
-            // So we don't need to deduct anything
-            return nil
-        }
-
-        // No bet on control (player lost last hand)
-        // Check if player has enough balance for rebet
-        guard rebetAmount <= balance else { return nil }
-
-        return rebetAmount
-    }
+    init() {}
 
     // MARK: - Public Methods
 
@@ -176,9 +118,9 @@ final class CrapsPassLineManager {
     func processPassLineOddsLoss(betAmount: Int) {
         delegate?.passLineOddsLossProcessed(lostAmount: betAmount)
     }
-    
+
     // MARK: - Don't Pass Odds
-    
+
     /// Calculate don't pass (lay) odds multiplier for a given point
     /// Lay odds are the inverse of pass line odds
     /// - Parameter point: The point number (4, 5, 6, 8, 9, or 10)
@@ -186,7 +128,7 @@ final class CrapsPassLineManager {
     func calculateDontPassOddsMultiplier(for point: Int) -> Double {
         return rules.dontPassOddsMultiplier(for: point)
     }
-    
+
     /// Calculate don't pass odds payout based on point number
     /// Returns TOTAL payout (original bet + profit)
     /// - Parameters:

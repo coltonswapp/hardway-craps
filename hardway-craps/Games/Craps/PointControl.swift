@@ -685,6 +685,7 @@ class PointControl: PlainControl {
       let amountToRemove = draggedLayAmount
       // Check BetDragManager's current target BEFORE endDrag clears it
       let droppedOnChipSelector = BetDragManager.shared.isCurrentDropTargetChipSelector()
+      let hadDropTarget = BetDragManager.shared.hasCurrentDropTarget()
       let myFrame = controlFrameInView(containerView)
       let isDroppingOnSelf = myFrame.contains(location)
 
@@ -696,6 +697,9 @@ class PointControl: PlainControl {
         onLayBetRemoved?(amountToRemove)
       } else if isDroppingOnSelf {
         layBetChip.alpha = 1
+      } else if hadDropTarget {
+        // Lay chip stays alpha 0 until BetDragManager completion calls removeLayBetSilently;
+        // restoring here flashes the source bet while the drag chip flies to the other point.
       } else {
         layBetChip.alpha = 1
       }

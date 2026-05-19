@@ -25,8 +25,6 @@ final class CraplessSettingsManager: CrapsGameSettingsManagerDelegate {
     func loadSettings() { inner.loadSettings() }
     func saveSettings() { inner.saveSettings() }
     func updateSettings(_ settings: CrapsGameSettings) { inner.updateSettings(settings) }
-    func setRebetEnabled(_ enabled: Bool) { inner.setRebetEnabled(enabled) }
-    func setRebetAmount(_ amount: Int) { inner.setRebetAmount(amount) }
     func setHardwaysEnabled(_ enabled: Bool) { inner.setHardwaysEnabled(enabled) }
     func setMakeEmEnabled(_ enabled: Bool) { inner.setMakeEmEnabled(enabled) }
     func setHornEnabled(_ enabled: Bool) { inner.setHornEnabled(enabled) }

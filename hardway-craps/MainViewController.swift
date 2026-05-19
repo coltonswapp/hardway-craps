@@ -38,12 +38,15 @@ class MainViewController: UIViewController {
 
   private var pageTableViews: [UITableView] = []
   private var pageSessions: [[GameSession]] = []
+  private var pageEmptyStateViews: [GameSessionEmptyStateView] = []
   private var pageCtaContainers: [UIView] = []
   private var pageBlurViews: [UIVisualEffectView] = []
   private var tabBarBlurView: UIVisualEffectView?
 
   private var isUpdatingFromScroll = false
   private var hasSetInitialInsets = false
+  /// Nearest page index during user-driven pager scrolling; used for swipe-crossing haptics only.
+  private var lastPagerHapticPageIndex: Int = 0
 
   // MARK: - Lifecycle
 
@@ -180,6 +183,16 @@ class MainViewController: UIViewController {
         tableView.bottomAnchor.constraint(equalTo: pageView.bottomAnchor),
       ])
 
+      let emptyState = GameSessionEmptyStateView(content: emptyStateContent(for: page.type))
+      pageView.addSubview(emptyState)
+      pageEmptyStateViews.append(emptyState)
+      NSLayoutConstraint.activate([
+        emptyState.topAnchor.constraint(equalTo: pageView.topAnchor),
+        emptyState.leadingAnchor.constraint(equalTo: pageView.leadingAnchor),
+        emptyState.trailingAnchor.constraint(equalTo: pageView.trailingAnchor),
+        emptyState.bottomAnchor.constraint(equalTo: pageView.bottomAnchor),
+      ])
+
       let (ctaContainer, blurView) = createCtaArea(for: page, in: pageView)
       pageCtaContainers.append(ctaContainer)
       pageBlurViews.append(blurView)
@@ -196,6 +209,49 @@ class MainViewController: UIViewController {
     tv.tag = tag
     tv.register(SessionTableViewCell.self, forCellReuseIdentifier: "SessionCell")
     return tv
+  }
+
+  private func emptyStateContent(for type: GameType) -> GameSessionEmptyStateContent {
+    switch type {
+    case .craps:
+      return GameSessionEmptyStateContent(
+        iconSystemName: "dice.fill",
+        title: "Craps",
+        subtitle:
+          "Classic table dice—pass line and odds, a point number, and the full bet layout."
+      )
+    case .craplessCraps:
+      return GameSessionEmptyStateContent(
+        iconSystemName: "dice",
+        title: "Crapless Craps",
+        subtitle:
+          "Here only 7 wins on the come-out; 2 through 12 can become the point, with special odds."
+      )
+    case .blackjack:
+      return GameSessionEmptyStateContent(
+        iconSystemName: "suit.spade.fill",
+        title: "Blackjack",
+        subtitle: "Get closer to 21 than the dealer without busting—solo or multiplayer."
+      )
+    case .baccarat:
+      return GameSessionEmptyStateContent(
+        iconSystemName: "diamond.fill",
+        title: "Baccarat",
+        subtitle: "Wager on Player, Banker, or a tie—the side nearest nine wins."
+      )
+    }
+  }
+
+  /// Centers empty state in the visible list strip between tab bar inset and bottom CTA.
+  private func updateEmptyStatesVisibilityAndCentering() {
+    for i in gamePages.indices {
+      let tv = pageTableViews[i]
+      let es = pageEmptyStateViews[i]
+      let inset = tv.contentInset
+      let offset = (inset.top - inset.bottom) / 2
+      es.setVerticalCenterOffset(offset)
+      es.isHidden = !pageSessions[i].isEmpty
+    }
   }
 
   private func createCtaArea(for page: GamePage, in pageView: UIView) -> (
@@ -298,12 +354,21 @@ class MainViewController: UIViewController {
         right: 0
       )
     }
+    updateEmptyStatesVisibilityAndCentering()
     if !hasSetInitialInsets, tabBarHeight > 0 {
       hasSetInitialInsets = true
       for tv in pageTableViews {
         tv.contentOffset.y = -tabBarHeight
       }
     }
+  }
+
+  private func syncPagerHapticPageFromCurrentOffset() {
+    let width = pagingScrollView.bounds.width
+    guard width > 0 else { return }
+    let progress = pagingScrollView.contentOffset.x / width
+    let clamped = max(0, min(progress, CGFloat(gamePages.count - 1)))
+    lastPagerHapticPageIndex = max(0, min(Int(round(clamped)), gamePages.count - 1))
   }
 
   // MARK: - Actions
@@ -353,6 +418,7 @@ class MainViewController: UIViewController {
       }
       pageTableViews[i].reloadData()
     }
+    updateEmptyStatesVisibilityAndCentering()
   }
 }
 
@@ -375,6 +441,7 @@ extension MainViewController: GameCategoryTabBarDelegate {
 
   func tabBarDidEndScrolling(_ tabBar: GameCategoryTabBar) {
     isUpdatingFromScroll = false
+    syncPagerHapticPageFromCurrentOffset()
   }
 }
 
@@ -387,19 +454,33 @@ extension MainViewController: UIScrollViewDelegate {
     guard width > 0 else { return }
     let progress = scrollView.contentOffset.x / width
     if !isUpdatingFromScroll {
+      let clamped = max(0, min(progress, CGFloat(gamePages.count - 1)))
+      let nearestPage = max(0, min(Int(round(clamped)), gamePages.count - 1))
+      if nearestPage != lastPagerHapticPageIndex {
+        lastPagerHapticPageIndex = nearestPage
+        HapticsHelper.superLightHaptic()
+      }
       tabBar.setPageProgress(progress, animated: false)
+    }
+  }
+
+  func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+    if scrollView === pagingScrollView, !decelerate {
+      syncPagerHapticPageFromCurrentOffset()
     }
   }
 
   func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
     if scrollView === pagingScrollView {
       isUpdatingFromScroll = false
+      syncPagerHapticPageFromCurrentOffset()
     }
   }
 
   func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
     if scrollView === pagingScrollView {
       isUpdatingFromScroll = false
+      syncPagerHapticPageFromCurrentOffset()
     }
   }
 }

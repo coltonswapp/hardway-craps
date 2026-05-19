@@ -137,39 +137,6 @@ final class CrapsPassLineManagerTests: XCTestCase {
         XCTAssertFalse(manager.shouldEnableOdds(isPointPhase: true, hasPassLineBet: false))
     }
 
-    // MARK: - Rebet Logic
-
-    func testCalculateRebetAmount_disabled_returnsNil() {
-        manager.updateRebetSettings(enabled: false, amount: 10)
-        XCTAssertNil(manager.calculateRebetAmount(currentBetAmount: 0, balance: 100))
-    }
-
-    func testCalculateRebetAmount_enabled_noBet_sufficientBalance() {
-        manager.updateRebetSettings(enabled: true, amount: 10)
-        XCTAssertEqual(manager.calculateRebetAmount(currentBetAmount: 0, balance: 100), 10)
-    }
-
-    func testCalculateRebetAmount_enabled_betAlreadyExists_returnsNil() {
-        manager.updateRebetSettings(enabled: true, amount: 10)
-        XCTAssertNil(manager.calculateRebetAmount(currentBetAmount: 10, balance: 100))
-    }
-
-    func testCalculateRebetAmount_enabled_insufficientBalance_returnsNil() {
-        manager.updateRebetSettings(enabled: true, amount: 50)
-        XCTAssertNil(manager.calculateRebetAmount(currentBetAmount: 0, balance: 30))
-    }
-
-    func testTrackBetForRebet_updatesRebetAmount() {
-        manager.trackBetForRebet(amount: 25)
-        XCTAssertEqual(manager.rebetAmount, 25)
-        XCTAssertEqual(spy.rebetUpdates.last, 25)
-    }
-
-    func testTrackBetForRebet_zeroBet_ignored() {
-        manager.trackBetForRebet(amount: 0)
-        XCTAssertEqual(manager.rebetAmount, 10) // default from init
-    }
-
     // MARK: - Crapless Variant Odds
 
     func testCrapless_oddsPayout_point2() {

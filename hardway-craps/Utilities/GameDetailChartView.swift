@@ -11,8 +11,11 @@ import UIKit
 
 struct GameDetailChartView: View {
   private let points: [ChartPoint]
+  /// Domain value under scrub/tap (snapped via Chart proxy).
   @State private var selectedRoll: Int?
-  @State private var horizontalScrubLocksParentScroll = false
+  @State private var ruleXInGeometry: CGFloat?
+  @State private var scrubPointInGeometry: CGPoint?
+  @State private var lockOuterScrollForChart = false
   private let isBlackjack: Bool
   private let lockParentVerticalScrollWhileDragging: ((Bool) -> Void)?
 
@@ -44,14 +47,20 @@ struct GameDetailChartView: View {
     isBlackjack ? "Hand" : "Roll"
   }
 
+  private var hasCashInfusions: Bool {
+    points.contains { $0.isATMVisit }
+  }
+
   var body: some View {
     configuredChart
       .padding(.vertical, 8)
-      .onChange(of: horizontalScrubLocksParentScroll) { _, locked in
+      .onChange(of: lockOuterScrollForChart) { _, locked in
         lockParentVerticalScrollWhileDragging?(locked)
       }
       .onDisappear {
-        horizontalScrubLocksParentScroll = false
+        lockOuterScrollForChart = false
+        ruleXInGeometry = nil
+        scrubPointInGeometry = nil
         lockParentVerticalScrollWhileDragging?(false)
       }
   }
@@ -84,10 +93,6 @@ struct GameDetailChartView: View {
         .symbolSize(50)
       }
       if let selectedPoint = selectedPoint {
-        RuleMark(x: .value(rollOrHandLabel, selectedPoint.rollIndex))
-          .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
-          .foregroundStyle(Color(HardwayColors.label))
-
         PointMark(
           x: .value(rollOrHandLabel, selectedPoint.rollIndex),
           y: .value("Amount", selectedPoint.balance)
@@ -104,12 +109,7 @@ struct GameDetailChartView: View {
   }
 
   private var configuredChart: some View {
-    lineChart
-      .chartForegroundStyleScale([
-        "Balance": Color(HardwayColors.yellow),
-        "Bet Size": Color(HardwayColors.label),
-        "Cash Infusion": Color.green,
-      ])
+    chartWithConditionalLegendForegroundScale
       .chartLegend(position: .bottom, alignment: .center)
       .chartXAxis {
         AxisMarks(position: .bottom)
@@ -123,86 +123,98 @@ struct GameDetailChartView: View {
       }
   }
 
+  @ViewBuilder
+  private var chartWithConditionalLegendForegroundScale: some View {
+    if hasCashInfusions {
+      lineChart
+        .chartForegroundStyleScale([
+          "Balance": Color(HardwayColors.yellow),
+          "Bet Size": Color(HardwayColors.label),
+          "Cash Infusion": Color.green,
+        ])
+    } else {
+      lineChart
+        .chartForegroundStyleScale([
+          "Balance": Color(HardwayColors.yellow),
+          "Bet Size": Color(HardwayColors.label),
+        ])
+    }
+  }
+
   private func balanceChartOverlay(proxy: ChartProxy) -> some View {
     GeometryReader { geometry in
       let plotFrame = geometry[proxy.plotAreaFrame]
       ZStack(alignment: .topLeading) {
-        balanceInteractionLayer(
-          proxy: proxy,
+        scrubRuleLine(plotFrame: plotFrame)
+
+        if let selectedPoint {
+          let anchorX = scrubTooltipAnchorX(proxy: proxy, plotFrame: plotFrame, selectedPoint: selectedPoint)
+          let tooltipCenter = ChartScrub.chartTooltipCenter(anchorX: anchorX, plot: plotFrame)
+
+          balanceTooltipCard(for: selectedPoint)
+            .frame(maxWidth: ChartScrub.tooltipMaxWidth, alignment: .leading)
+            .position(x: tooltipCenter.x, y: tooltipCenter.y)
+        }
+
+        ChartPlotScrubLayer(
           plotFrame: plotFrame,
-          scrubLocksParentScroll: $horizontalScrubLocksParentScroll
+          lockParentScroll: $lockOuterScrollForChart,
+          ruleXInGeometry: $ruleXInGeometry,
+          scrubPointInGeometry: $scrubPointInGeometry,
+          onPlotLocalX: { localX in
+            if let roll: Int = proxy.value(atX: localX) {
+              selectedRoll = clampRoll(roll)
+            }
+          },
+          onScrubGestureEnded: { selectedRoll = nil },
+          onTapFlashEnded: { selectedRoll = nil }
         )
-        balanceSelectionOverlay(proxy: proxy, plotFrame: plotFrame)
       }
     }
   }
-
-  private func balanceInteractionLayer(
-    proxy: ChartProxy,
-    plotFrame: CGRect,
-    scrubLocksParentScroll: Binding<Bool>
-  ) -> some View {
-    Rectangle()
-      .fill(Color.clear)
-      .contentShape(Rectangle())
-      .simultaneousGesture(
-        SpatialTapGesture()
-          .onEnded { event in
-            updateRollSelection(proxy: proxy, plotFrame: plotFrame, location: event.location)
-          }
-      )
-      .simultaneousGesture(
-        DragGesture(minimumDistance: 0)
-          .onChanged { value in
-            let horizontal = abs(value.translation.width)
-            let vertical = abs(value.translation.height)
-            let isHorizontalDominant = horizontal >= vertical * Self.horizontalScrubHysteresis
-            if isHorizontalDominant {
-              if !scrubLocksParentScroll.wrappedValue {
-                scrubLocksParentScroll.wrappedValue = true
-              }
-              updateRollSelection(proxy: proxy, plotFrame: plotFrame, location: value.location)
-            } else if scrubLocksParentScroll.wrappedValue {
-              scrubLocksParentScroll.wrappedValue = false
-            }
-          }
-          .onEnded { _ in
-            if scrubLocksParentScroll.wrappedValue {
-              scrubLocksParentScroll.wrappedValue = false
-            }
-            selectedRoll = nil
-          }
-      )
-  }
-
-  /// Horizontal movement can be slightly smaller than vertical and still count as chart scrubbing (snappier overlay).
-  private static let horizontalScrubHysteresis: CGFloat = 0.42
 
   @ViewBuilder
-  private func balanceSelectionOverlay(proxy: ChartProxy, plotFrame: CGRect) -> some View {
-    if let selectedPoint,
-      let xPosition = proxy.position(forX: selectedPoint.rollIndex)
-    {
-      let lineX = plotFrame.origin.x + xPosition
+  private func scrubRuleLine(plotFrame: CGRect) -> some View {
+    if let ruleX = ruleXInGeometry {
       Path { path in
-        path.move(to: CGPoint(x: lineX, y: plotFrame.minY))
-        path.addLine(to: CGPoint(x: lineX, y: plotFrame.maxY))
+        path.move(to: CGPoint(x: ruleX, y: plotFrame.minY))
+        path.addLine(to: CGPoint(x: ruleX, y: plotFrame.maxY))
       }
       .stroke(Color(HardwayColors.label), style: StrokeStyle(lineWidth: 1, dash: [4]))
-
-      selectionView(for: selectedPoint)
-        .frame(width: 150, alignment: .leading)
-        .position(
-          x: min(max(lineX, plotFrame.minX + 75), plotFrame.maxX - 75),
-          y: plotFrame.minY + 30
-        )
     }
   }
 
-  private func updateRollSelection(proxy: ChartProxy, plotFrame: CGRect, location: CGPoint) {
-    let xPosition = min(max(location.x - plotFrame.origin.x, 0), plotFrame.width)
-    if let roll: Int = proxy.value(atX: xPosition) {
-      selectedRoll = clampRoll(roll)
+  /// Tooltip sits beside the scrub line while dragging; after release (tap flash) uses snapped category center.
+  private func scrubTooltipAnchorX(proxy: ChartProxy, plotFrame: CGRect, selectedPoint: ChartPoint)
+    -> CGFloat
+  {
+    if let rx = ruleXInGeometry {
+      return rx
+    }
+    if let xPosition = proxy.position(forX: selectedPoint.rollIndex) {
+      return plotFrame.origin.x + xPosition
+    }
+    return plotFrame.midX
+  }
+
+  private func balanceTooltipCard(for point: ChartPoint) -> some View {
+    selectionCopy(for: point)
+      .padding(8)
+      .background(Color.black.opacity(0.8))
+      .cornerRadius(8)
+  }
+
+  private func selectionCopy(for point: ChartPoint) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text("\(isBlackjack ? "Hand" : "Roll") \(point.rollIndex)")
+        .font(.caption2)
+        .foregroundStyle(Color.white)
+      Text("Balance: $\(point.balance)")
+        .font(.caption2)
+        .foregroundStyle(Color(HardwayColors.yellow))
+      Text("Bet: $\(point.betSize)")
+        .font(.caption2)
+        .foregroundStyle(Color(HardwayColors.label))
     }
   }
 
@@ -226,23 +238,6 @@ struct GameDetailChartView: View {
     let minRoll = points.first?.rollIndex ?? 0
     let maxRoll = points.last?.rollIndex ?? 0
     return min(max(roll, minRoll), maxRoll)
-  }
-
-  private func selectionView(for point: ChartPoint) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text("\(isBlackjack ? "Hand" : "Roll") \(point.rollIndex)")
-        .font(.caption2)
-        .foregroundStyle(Color.white)
-      Text("Balance: $\(point.balance)")
-        .font(.caption2)
-        .foregroundStyle(Color(HardwayColors.yellow))
-      Text("Bet: $\(point.betSize)")
-        .font(.caption2)
-        .foregroundStyle(Color(HardwayColors.label))
-    }
-    .padding(8)
-    .background(Color.black.opacity(0.8))
-    .cornerRadius(8)
   }
 }
 

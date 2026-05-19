@@ -317,8 +317,17 @@ class BetDragManager {
                             }
                         }
                     } else {
-                        // New bet placement - use addBetWithAnimation (deducts balance)
-                        target.addBetWithAnimation(valueToAdd)
+                        // Chips from ChipSelector use `addBetWithAnimation` (bankroll deducted at source).
+                        // Dragging odds between controls clears the stake at source without refund; the destination must not debit again.
+                        if oddsSource != nil {
+                            if let triZone = target as? TriZoneBetControl {
+                                triZone.addTransferredBet(valueToAdd)
+                            } else {
+                                target.addBet(valueToAdd)
+                            }
+                        } else {
+                            target.addBetWithAnimation(valueToAdd)
+                        }
                         
                         // If dropping on a locked bet and addBetWithAnimation returned early (due to isDraggingOdds),
                         // ensure odds are visible if they exist

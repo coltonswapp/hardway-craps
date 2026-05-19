@@ -5,12 +5,15 @@
 
 import Foundation
 
-/// One valid “across” spread: same amount on 4/5/9/10 (`outsideEach`) and on 6/8 (`insideEach`).
+/// One valid “across” spread: same amount on outside box numbers and on 6/8 (`insideEach`).
 struct PlaceAcrossAllocation: Equatable {
+    let variant: CrapsVariant
     let outsideEach: Int
     let insideEach: Int
 
-    var total: Int { 4 * outsideEach + 2 * insideEach }
+    var total: Int {
+        PlaceAcrossAllocator.outsideCount(for: variant) * outsideEach + 2 * insideEach
+    }
 }
 
 enum PlaceAcrossAllocator {
@@ -19,35 +22,77 @@ enum PlaceAcrossAllocator {
     private static let targetInsideOverOutside: Double = 1.2
 
     /// Table-style **$10 minimum per number** (app does not enforce on manual place bets, but across presets follow it).
-    /// Outside (4/5/9/10): at least $10, multiples of $5.
+    /// Outside boxes: at least $10, multiples of $5.
     /// Inside (6/8): at least **$12** each — smallest multiple of $6 ≥ $10 (true 7:6 place units).
     static let minimumOutsideEach = 10
     static let minimumInsideEach = 12
 
-    /// Smallest total for a full six-number across at the above minimums ($64).
-    static var minimumSpreadTotal: Int { 4 * minimumOutsideEach + 2 * minimumInsideEach }
-
-    /// Minimum across: **$10** on 4 / 5 / 9 / 10, **$12** on 6 & 8 ($64 total).
-    static var canonicalMinimumAcross: PlaceAcrossAllocation {
-        PlaceAcrossAllocation(outsideEach: minimumOutsideEach, insideEach: minimumInsideEach)
+    static func outsideCount(for variant: CrapsVariant) -> Int {
+        switch variant {
+        case .standard: return 4
+        case .crapless: return 8
+        }
     }
 
-    /// Featured “classic” across total ($25 on 4/5/9/10, $30 on 6 & 8).
-    static let featuredAcrossTotal = 160
+    /// Smallest total for a full spread at table minimums (standard $64, crapless $104).
+    static func minimumSpreadTotal(for variant: CrapsVariant) -> Int {
+        outsideCount(for: variant) * minimumOutsideEach + 2 * minimumInsideEach
+    }
 
-    private static var minimumFullTotal: Int { minimumSpreadTotal }
+    /// Minimum across at **$10** outside boxes per number and **$12** on 6 & 8.
+    static func canonicalMinimumAcross(for variant: CrapsVariant) -> PlaceAcrossAllocation {
+        PlaceAcrossAllocation(
+            variant: variant,
+            outsideEach: minimumOutsideEach,
+            insideEach: minimumInsideEach
+        )
+    }
+
+    /// Featured “classic” across: standard $160 ($25 / $30); crapless $260 (same per-number).
+    static func featuredAcrossTotal(for variant: CrapsVariant) -> Int {
+        switch variant {
+        case .standard: return 160
+        case .crapless: return 260
+        }
+    }
+
+    private static func minimumFullTotal(for variant: CrapsVariant) -> Int {
+        minimumSpreadTotal(for: variant)
+    }
+
+    /// Human-readable outside box list for menus (middle dot separators).
+    static func outsideBoxesMenuLabel(for variant: CrapsVariant) -> String {
+        switch variant {
+        case .standard:
+            return "4·5·9·10"
+        case .crapless:
+            return "2·3·4·5·9·10·11·12"
+        }
+    }
+
+    /// Slash-separated outside boxes for table instruction text.
+    static func outsideBoxesInstructionLabel(for variant: CrapsVariant) -> String {
+        switch variant {
+        case .standard:
+            return "4/5/9/10"
+        case .crapless:
+            return "2/3/4/5/9/10/11/12"
+        }
+    }
 
     /// Finds a valid allocation for an exact total: outside multiples of $5, inside multiples of $6,
-    /// full six numbers (`outsideEach` / `insideEach` at least the table mins above). Prefers ratios near `targetInsideOverOutside`.
+    /// at least table mins. Prefers ratios near `targetInsideOverOutside`.
     /// - Parameter chipStep: If set, both amounts must be multiples of this value (e.g. selected chip).
-    static func allocation(forExactTotal total: Int, chipStep: Int? = nil) -> PlaceAcrossAllocation? {
-        guard total >= minimumFullTotal else { return nil }
+    static func allocation(forExactTotal total: Int, variant: CrapsVariant, chipStep: Int? = nil) -> PlaceAcrossAllocation? {
+        let outsideN = outsideCount(for: variant)
+        let minTotal = minimumFullTotal(for: variant)
+        guard total >= minTotal else { return nil }
 
         var best: (o: Int, i: Int, score: Double)?
-        let maxO = total / 4
+        let maxO = total / outsideN
 
         for o in stride(from: 0, through: maxO, by: 5) {
-            let rem = total - 4 * o
+            let rem = total - outsideN * o
             guard rem >= 0, rem % 2 == 0 else { continue }
             let i = rem / 2
             guard i % 6 == 0 else { continue }
@@ -70,20 +115,21 @@ enum PlaceAcrossAllocator {
         }
 
         guard let b = best else { return nil }
-        return PlaceAcrossAllocation(outsideEach: b.o, insideEach: b.i)
+        return PlaceAcrossAllocation(variant: variant, outsideEach: b.o, insideEach: b.i)
     }
 
     /// Preset totals ≤ `balance` with a valid allocation, largest first, capped at `maxOptions`.
-    /// The **canonical minimum across** ($10 / $12 / $64) is always included when balance allows,
-    /// even if it would not appear among the top `maxOptions` totals from balance alone.
+    /// Canonical minimum is always included when balance allows.
     static func presets(
         balance: Int,
+        variant: CrapsVariant,
         chipStepPreferred: Int?,
         maxOptions: Int = 4
     ) -> [PlaceAcrossAllocation] {
-        guard balance >= minimumFullTotal, maxOptions > 0 else { return [] }
+        let minTotal = minimumFullTotal(for: variant)
+        guard balance >= minTotal, maxOptions > 0 else { return [] }
 
-        let minimumAlloc = canonicalMinimumAcross
+        let minimumAlloc = canonicalMinimumAcross(for: variant)
         let reserveMinimumSlot = balance >= minimumAlloc.total
         let collectLimit = max(0, maxOptions - (reserveMinimumSlot ? 1 : 0))
 
@@ -93,8 +139,8 @@ enum PlaceAcrossAllocator {
             var result: [PlaceAcrossAllocation] = []
             var t = balance
             if t % 2 != 0 { t -= 1 }
-            while t >= minimumFullTotal {
-                if let alloc = allocation(forExactTotal: t, chipStep: step), seen.insert(alloc.total).inserted {
+            while t >= minTotal {
+                if let alloc = allocation(forExactTotal: t, variant: variant, chipStep: step), seen.insert(alloc.total).inserted {
                     result.append(alloc)
                     if result.count >= limit { break }
                 }
@@ -118,8 +164,8 @@ enum PlaceAcrossAllocator {
         return result
     }
 
-    /// Curated menu: **$64 minimum**, **$160** classic, then **two** valid spreads above $160 (compact, no long list).
-    static func menuRows(balance: Int) -> [(allocation: PlaceAcrossAllocation, isEnabled: Bool)] {
+    /// Curated menu: minimum, classic featured total, then two valid spreads above featured.
+    static func menuRows(balance: Int, variant: CrapsVariant) -> [(allocation: PlaceAcrossAllocation, isEnabled: Bool)] {
         var seen = Set<Int>()
         var rows: [(allocation: PlaceAcrossAllocation, isEnabled: Bool)] = []
 
@@ -131,19 +177,20 @@ enum PlaceAcrossAllocator {
             return true
         }
 
-        append(canonicalMinimumAcross)
+        append(canonicalMinimumAcross(for: variant))
 
-        if let featured = allocation(forExactTotal: featuredAcrossTotal, chipStep: nil) {
+        let featuredTotal = featuredAcrossTotal(for: variant)
+        if let featured = allocation(forExactTotal: featuredTotal, variant: variant, chipStep: nil) {
             append(featured)
         }
 
-        var t = featuredAcrossTotal + 2
+        var t = featuredTotal + 2
         if t % 2 != 0 { t += 1 }
         var tiersAboveFeatured = 0
-        let scanCap = featuredAcrossTotal + 20_000
+        let scanCap = featuredTotal + 20_000
         while tiersAboveFeatured < 2 && t <= scanCap {
-            if let alloc = allocation(forExactTotal: t, chipStep: nil),
-               alloc.total > featuredAcrossTotal {
+            if let alloc = allocation(forExactTotal: t, variant: variant, chipStep: nil),
+               alloc.total > featuredTotal {
                 if append(alloc) { tiersAboveFeatured += 1 }
             }
             t += 2

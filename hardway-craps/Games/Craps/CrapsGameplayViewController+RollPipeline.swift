@@ -153,9 +153,7 @@ extension CrapsGameplayViewController {
         let completionPlan = makePostRollCompletionPlan(
             event: event,
             winningBets: winningBets,
-            dontPassDidLose: dontPassDidLose,
-            passLineBetAmountBeforeOutcome: passLineBetAmountBeforeOutcome,
-            dontPassBetAmountBeforeOutcome: dontPassBetAmountBeforeOutcome
+            dontPassDidLose: dontPassDidLose
         )
         performPostRollCompletion(using: completionPlan)
     }

@@ -33,6 +33,7 @@ class BlackjackGameplayViewController: BaseGameplayViewController {
     private var newHandButton: UIButton!
     private var readyButton: UIButton!
     private var bonusStackView: UIStackView!
+    private var bonusStackHeightConstraint: NSLayoutConstraint!
     private var bonusBetControls: [BonusBetControl] = []
     private let deckView = DeckView()
     private var cutCardView: PlayingCardView? // Visible cut card when dealt
@@ -451,10 +452,7 @@ class BlackjackGameplayViewController: BaseGameplayViewController {
         bonusStackView.distribution = .fillEqually
         bonusStackView.spacing = 8
 
-        // Load selected side bets from settings
-        setupBonusBetControls()
-        
-        // Configure insurance control
+        // Configure insurance control (separate from bonus stack)
         configureInsuranceControl()
 
         view.addSubview(bonusStackView)
@@ -475,13 +473,18 @@ class BlackjackGameplayViewController: BaseGameplayViewController {
         )
         minSpacingFromDealer.priority = .defaultLow
 
+        bonusStackHeightConstraint = bonusStackView.heightAnchor.constraint(equalToConstant: 55)
+
         NSLayoutConstraint.activate([
             bonusStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             bonusStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            bonusStackView.heightAnchor.constraint(equalToConstant: 55),
+            bonusStackHeightConstraint,
             fixedTopPosition,
             minSpacingFromDealer
         ])
+
+        // After height constraint exists so updateBonusStackVisibility() can run
+        setupBonusBetControls()
     }
 
     private func setupPlayerHandView() {
@@ -2576,6 +2579,14 @@ class BlackjackGameplayViewController: BaseGameplayViewController {
             bonusBetControls.append(control)
             bonusStackView.addArrangedSubview(control)
         }
+
+        updateBonusStackVisibility()
+    }
+
+    private func updateBonusStackVisibility() {
+        let hasSideBets = !bonusBetControls.isEmpty
+        bonusStackHeightConstraint.constant = hasSideBets ? 55 : 0
+        bonusStackView.isHidden = !hasSideBets
     }
     
     private func configureBonusBetControl(_ control: BonusBetControl) {
@@ -3425,6 +3436,8 @@ extension BlackjackGameplayViewController: BlackjackSettingsManagerDelegate {
         if deckCount != settings.deckCount {
             createAndShuffleDeck()
         }
+
+        setupBonusBetControls()
 
         configureNavigationBar()
         updateControls()

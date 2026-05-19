@@ -223,6 +223,7 @@ class NumberView: UIView {
 
   let number: Int
   private let circleSize: CGFloat
+  private var isCurrentlyHit = false
 
   init(number: Int, size: CGFloat = 20) {
     self.number = number
@@ -262,14 +263,47 @@ class NumberView: UIView {
   }
 
   func setHit(_ isHit: Bool) {
+    let wasHit = isCurrentlyHit
+    isCurrentlyHit = isHit
+
     if isHit {
       numberLabel.backgroundColor = .systemBlue
       numberLabel.layer.borderColor = UIColor.systemBlue.cgColor
       numberLabel.textColor = .white
+      if !wasHit {
+        playHitBumpAnimation()
+      }
     } else {
+      layer.removeAllAnimations()
+      transform = .identity
       numberLabel.backgroundColor = .clear
       numberLabel.layer.borderColor = HardwayColors.label.withAlphaComponent(0.5).cgColor
       numberLabel.textColor = HardwayColors.label
     }
+  }
+
+  /// Brief scale pop when a number is newly hit (Make Em Small / Tall circles).
+  private func playHitBumpAnimation() {
+    transform = .identity
+    UIView.animate(
+      withDuration: 0.14,
+      delay: 0,
+      options: [.curveEaseOut, .allowUserInteraction],
+      animations: {
+        self.transform = CGAffineTransform(scaleX: 1.22, y: 1.22)
+      },
+      completion: { _ in
+        UIView.animate(
+          withDuration: 0.38,
+          delay: 0,
+          usingSpringWithDamping: 0.52,
+          initialSpringVelocity: 0.55,
+          options: [.allowUserInteraction, .beginFromCurrentState],
+          animations: {
+            self.transform = .identity
+          }
+        )
+      }
+    )
   }
 }

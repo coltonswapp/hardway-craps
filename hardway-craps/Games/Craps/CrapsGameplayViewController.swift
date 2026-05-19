@@ -27,6 +27,15 @@ class CrapsGameplayViewController: UIViewController {
   var instructionTextProvider: CrapsInstructionTextProvider
   var isCrapless: Bool { variant == .crapless }
 
+  private var gameplayNavigationTitle: String {
+    switch variant {
+    case .standard:
+      return "Craps"
+    case .crapless:
+      return "Crapless"
+    }
+  }
+
   var topBar: UIStackView { topStackView }
   var bottomBar: UIStackView { bottomStackView }
 
@@ -67,13 +76,6 @@ class CrapsGameplayViewController: UIViewController {
   var currentBetView: CurrentBetView!
   var topStackTopConstraint: NSLayoutConstraint!
 
-  // Track which line control (Pass or Don't Pass) was last used for rebet
-  private var lastLineControlUsed: PlainControl?
-
-  // Track if bets were manually removed (to prevent rebet)
-  var passLineManuallyRemoved: Bool = false
-  var dontPassManuallyRemoved: Bool = false
-
   // Track if bets were placed during point phase (before first roll) - lock after next roll
   var passLineBetPlacedDuringPointPhase: Bool = false
   var dontPassBetPlacedDuringPointPhase: Bool = false
@@ -94,16 +96,6 @@ class CrapsGameplayViewController: UIViewController {
   private var resumingSession: GameSession?
 
   // MARK: - Computed Properties (Backward Compatibility)
-
-  /// Backward compatibility: Access rebet properties through pass line manager
-  private var rebetEnabled: Bool {
-    get { passLineManager.rebetEnabled }
-    set { passLineManager.setRebetEnabled(newValue) }
-  }
-  private var rebetAmount: Int {
-    get { passLineManager.rebetAmount }
-    set { passLineManager.setRebetAmount(newValue) }
-  }
 
   /// Backward compatibility: Access game through game state manager
   var game: CrapsGameStateManager {
@@ -159,6 +151,7 @@ class CrapsGameplayViewController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .black
+    title = gameplayNavigationTitle
 
     // Setup managers first
     setupManagers()
@@ -285,10 +278,7 @@ class CrapsGameplayViewController: UIViewController {
     gameStateManager = CrapsGameStateManager(variant: variant)
     gameStateManager.delegate = self
 
-    passLineManager = CrapsPassLineManager(
-      rebetEnabled: settingsManager.currentSettings.rebetEnabled,
-      rebetAmount: settingsManager.currentSettings.rebetAmount
-    )
+    passLineManager = CrapsPassLineManager()
     passLineManager.delegate = self
 
     specialBetsManager = CrapsSpecialBetsManager()
@@ -667,7 +657,7 @@ class CrapsGameplayViewController: UIViewController {
 
   func setupPassLineControls() {
     // Create pass line control
-    passLineControl = PlainControl(title: "Pass Line")
+    passLineControl = PassLineControl(title: "Pass Line")
     passLineControl.translatesAutoresizingMaskIntoConstraints = false
     passLineControl.accessibilityIdentifier = "passLineControl"
     passLineControl.getSelectedChipValue = { [weak self] in
@@ -679,29 +669,6 @@ class CrapsGameplayViewController: UIViewController {
     passLineControl.onBetPlaced = { [weak self] amount in
       guard let self = self else { return }
       self.trackBet(amount: amount, type: .passLine)
-
-      // Check if a manual removal happened on either control before clearing the flag
-      // This prevents rebet from applying when a bet was manually moved between controls
-      let hadManualRemoval = self.passLineManuallyRemoved || self.dontPassManuallyRemoved
-
-      // Check if bet was moved from don't pass to pass line
-      // If lastLineControlUsed was pointing to don't pass, this is a manual move
-      let wasMovedFromOtherControl = self.lastLineControlUsed === self.dontPassControl
-
-      // Clear manual removal flag when new bet is placed
-      self.passLineManuallyRemoved = false
-
-      // Track bet for rebet functionality
-      self.trackBetForRebet(amount: self.passLineControl.betAmount)
-
-      // Only track as last used control if no manual removal happened and bet wasn't moved from other control
-      // This prevents rebet from applying when a bet was manually moved between controls
-      if !hadManualRemoval && !wasMovedFromOtherControl {
-        self.lastLineControlUsed = self.passLineControl
-      } else if wasMovedFromOtherControl {
-        // Bet was moved from don't pass - clear lastLineControlUsed to prevent rebet
-        self.lastLineControlUsed = nil
-      }
 
       self.balance -= amount
       self.updateCurrentBet()
@@ -731,15 +698,6 @@ class CrapsGameplayViewController: UIViewController {
       // Dismiss drag chip tip once user removes a bet (with delay to let them see it)
       NNTipManager.shared.dismissTip(CrapsTips.dragChipTip, afterDelay: 1.0)
       self.updatePassLineOddsVisibility()
-
-      // Mark that bet was manually removed to prevent rebet
-      self.passLineManuallyRemoved = true
-
-      // Always clear last line control used when bet is manually removed (even partially)
-      // This prevents rebet from applying when bet is moved to another controller
-      if self.lastLineControlUsed === self.passLineControl {
-        self.lastLineControlUsed = nil
-      }
     }
 
     passLineControl.addedBetCompletionHandler = { [weak self] in
@@ -747,11 +705,6 @@ class CrapsGameplayViewController: UIViewController {
       // Stop shimmer on both controls when bet is added to pass line
       self.passLineControl.stopTitleShimmer()
       self.dontPassControl?.stopTitleShimmer()
-
-      if self.lastLineControlUsed === self.dontPassControl {
-        // Bet was moved from don't pass - clear lastLineControlUsed to prevent rebet
-        self.lastLineControlUsed = nil
-      }
     }
 
     passLineControl.canRemoveBet = { [weak self] in
@@ -988,19 +941,6 @@ class CrapsGameplayViewController: UIViewController {
       guard let self = self else { return }
       self.trackBet(amount: amount, type: .dontPass)
 
-      let hadManualRemoval = self.passLineManuallyRemoved || self.dontPassManuallyRemoved
-      let wasMovedFromOtherControl = self.lastLineControlUsed === self.passLineControl
-
-      self.dontPassManuallyRemoved = false
-
-      self.trackBetForRebet(amount: dp.betAmount)
-
-      if !hadManualRemoval && !wasMovedFromOtherControl {
-        self.lastLineControlUsed = dp
-      } else if wasMovedFromOtherControl {
-        self.lastLineControlUsed = nil
-      }
-
       self.balance -= amount
       self.updateCurrentBet()
       self.updateRollingState()
@@ -1024,22 +964,12 @@ class CrapsGameplayViewController: UIViewController {
       self.updateRollingState()
       NNTipManager.shared.dismissTip(CrapsTips.dragChipTip, afterDelay: 1.0)
       self.updatePassLineOddsVisibility()
-
-      self.dontPassManuallyRemoved = true
-
-      if self.lastLineControlUsed === dp {
-        self.lastLineControlUsed = nil
-      }
     }
 
     dp.addedBetCompletionHandler = { [weak self] in
       guard let self = self else { return }
       self.passLineControl.stopTitleShimmer()
       dp.stopTitleShimmer()
-
-      if self.lastLineControlUsed === self.passLineControl {
-        self.lastLineControlUsed = nil
-      }
     }
 
     dp.canRemoveBet = { [weak self] in
@@ -1658,7 +1588,8 @@ class CrapsGameplayViewController: UIViewController {
     var betControls: [SmallControl] = []
     for controlInfo in controls {
       let control = SmallControl(
-        dieValue1: controlInfo.dieValue1, dieValue2: controlInfo.dieValue2, odds: controlInfo.odds)
+        dieValue1: controlInfo.dieValue1, dieValue2: controlInfo.dieValue2, odds: controlInfo.odds,
+        hidesOddsWhileBetting: betType == .horn)
       control.translatesAutoresizingMaskIntoConstraints = false
       control.isPerpetualBet = isPerpetual
       control.getSelectedChipValue = { [weak self] in
@@ -2012,6 +1943,7 @@ class CrapsGameplayViewController: UIViewController {
     placeAcrossButton.isEnabled = betsAreOn
     PlaceAcrossMenuPresenter.configureButton(
       placeAcrossButton,
+      variant: variant,
       balanceProvider: { [weak self] in self?.balance ?? 0 },
       selectedChipProvider: { [weak self] in self?.selectedChipValue ?? 5 }
     ) { [weak self] allocation in
@@ -2380,11 +2312,6 @@ class CrapsGameplayViewController: UIViewController {
       return
     }
 
-    // Clear manual removal flag since this is a game outcome loss (not manual removal)
-    // This allows rebet to apply after game outcome losses
-    // Note: We already checked betAmount > 0 in the guard, so we know there's a bet
-    passLineManuallyRemoved = false
-
     // Process loss through manager
     let betAmount = passLineControl.betAmount
     passLineManager.processPassLineLoss(betAmount: betAmount)
@@ -2558,7 +2485,6 @@ class CrapsGameplayViewController: UIViewController {
     guard betAmount > 0, let dp = dontPassControl else { return }
     guard betsAreOn else { return }
 
-    dontPassManuallyRemoved = false
     flipDiceContainer.disableRolling()
 
     dp.oddsBetStack?.endPayoutAnimation()
@@ -4033,68 +3959,6 @@ class CrapsGameplayViewController: UIViewController {
     }
   }
 
-  // MARK: - Rebet Functionality
-
-  private func trackBetForRebet(amount: Int) {
-    passLineManager.trackBetForRebet(amount: amount)
-  }
-
-  func applyRebetIfNeeded() {
-    // Don't apply rebet if either control had a bet manually removed
-    // This prevents rebet when user manually removed a bet, even if lastLineControlUsed is set
-    if passLineManuallyRemoved || dontPassManuallyRemoved {
-      return
-    }
-
-    // Determine which control to apply rebet to based on last used
-    let targetControl: PlainControl
-    let currentBet: Int
-
-    if let lastUsed = lastLineControlUsed {
-      // Use whichever control was last used (pass line or don't pass)
-      targetControl = lastUsed
-      currentBet = lastUsed.betAmount
-
-      // Check if bet was manually removed for this specific control
-      // If manually removed, don't rebet even if currentBet == 0
-      if (targetControl === passLineControl && passLineManuallyRemoved)
-        || (targetControl === dontPassControl && dontPassManuallyRemoved)
-      {
-        return
-      }
-
-      // If currentBet == 0 but manual removal flag is false, that means the bet was lost
-      // In that case, we should still try to apply rebet (calculateRebetAmount handles currentBetAmount == 0)
-      // Only skip if currentBet == 0 AND we don't have a lastUsed control (which shouldn't happen here)
-    } else {
-      // No lastLineControlUsed set - check which control currently has a bet
-      if passLineControl.betAmount > 0 {
-        targetControl = passLineControl
-        currentBet = passLineControl.betAmount
-      } else if let dp = dontPassControl, dp.betAmount > 0 {
-        targetControl = dp
-        currentBet = dp.betAmount
-      } else {
-        // No active line bet and no history - don't apply rebet
-        return
-      }
-    }
-
-    // Calculate rebet amount to apply
-    // calculateRebetAmount handles the case where currentBetAmount == 0 (bet was lost)
-    if let rebetAmount = passLineManager.calculateRebetAmount(
-      currentBetAmount: currentBet, balance: balance)
-    {
-      // Deduct from balance and set bet on the control that was last used
-      balance -= rebetAmount
-      targetControl.setDirectBet(rebetAmount)
-      updateCurrentBet()
-
-      // Update lastLineControlUsed to reflect where rebet was applied
-      lastLineControlUsed = targetControl
-    }
-  }
-
   // MARK: - Animation Methods
 
   /// Animate winnings and original bet together (for one-time bets like field)
@@ -4485,9 +4349,9 @@ class CrapsGameplayViewController: UIViewController {
     HapticsHelper.successHaptic()
   }
 
-  /// Standard six box numbers only; on crapless, 2/3/11/12 are unchanged (same outside/inside split as standard).
   private func applyPlaceAcross(_ allocation: PlaceAcrossAllocation) {
     guard betsAreOn else { return }
+    guard allocation.variant == variant else { return }
     guard let pointStack = pointStack else { return }
     guard balance >= allocation.total else {
       instructionLabel.showMessage("Not enough balance for this spread.", shouldFade: true)
@@ -4495,8 +4359,9 @@ class CrapsGameplayViewController: UIViewController {
       return
     }
 
-    let outsidePoints = [4, 5, 9, 10]
-    let insidePoints = [6, 8]
+    let insideBoxes: Set<Int> = [6, 8]
+    let outsidePoints = rules.orderedPointNumbers.filter { !insideBoxes.contains($0) }
+    let insidePoints = rules.orderedPointNumbers.filter { insideBoxes.contains($0) }
     for n in outsidePoints {
       guard let control = pointStack.getPointControl(for: n) else { continue }
       control.addBetWithAnimation(allocation.outsideEach)
@@ -4506,8 +4371,9 @@ class CrapsGameplayViewController: UIViewController {
       control.addBetWithAnimation(allocation.insideEach)
     }
 
+    let outsideLabel = PlaceAcrossAllocator.outsideBoxesInstructionLabel(for: variant)
     instructionLabel.showMessage(
-      "Across $\(allocation.total): $\(allocation.outsideEach) on 4/5/9/10, $\(allocation.insideEach) on 6 & 8.",
+      "Across $\(allocation.total): $\(allocation.outsideEach) on \(outsideLabel), $\(allocation.insideEach) on 6 & 8.",
       shouldFade: true
     )
     HapticsHelper.successHaptic()
@@ -4672,10 +4538,6 @@ extension CrapsGameplayViewController: UIScrollViewDelegate {
 
 extension CrapsGameplayViewController: CrapsSettingsManagerDelegate {
   func settingsDidChange(_ settings: CrapsSettings) {
-    // Update pass line manager with new rebet settings
-    passLineManager.updateRebetSettings(
-      enabled: settings.rebetEnabled, amount: settings.rebetAmount)
-
     // Only rebuild bet views if bonus bet settings actually changed
     let currentBonusSettings = (
       hardways: settings.hardwaysEnabled, makeEm: settings.makeEmEnabled, horn: settings.hornEnabled
@@ -4770,11 +4632,6 @@ extension CrapsGameplayViewController: CrapsPassLineManagerDelegate {
 
   func passLineOddsLossProcessed(lostAmount: Int) {
     // Odds loss processed - animations handled in handlePassLineOddsLoss
-  }
-
-  func rebetAmountDidUpdate(amount: Int) {
-    // Update settings manager with new rebet amount
-    settingsManager.setRebetAmount(amount)
   }
 }
 

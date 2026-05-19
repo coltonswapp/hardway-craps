@@ -138,9 +138,22 @@ class FlipDiceScene: NSObject, SCNSceneRendererDelegate {
         // No per-frame updates needed
     }
 
-    func roll(completion: @escaping (Int, Int) -> Void) {
-        let value1 = Int.random(in: 1...6)
-        let value2 = Int.random(in: 1...6)
+    func roll(excludingTotals: Set<Int> = [], completion: @escaping (Int, Int) -> Void) {
+        let value1: Int
+        let value2: Int
+        if excludingTotals.isEmpty {
+            value1 = Int.random(in: 1...6)
+            value2 = Int.random(in: 1...6)
+        } else {
+            var v1 = 0
+            var v2 = 0
+            repeat {
+                v1 = Int.random(in: 1...6)
+                v2 = Int.random(in: 1...6)
+            } while excludingTotals.contains(v1 + v2)
+            value1 = v1
+            value2 = v2
+        }
 
         // Animate die 1
         animateDie(diceNode1, toValue: value1)

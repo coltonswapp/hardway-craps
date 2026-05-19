@@ -542,7 +542,9 @@ class OddsBetStack: UIView {
         // When bet is locked, add to odds instead of bet
         // When bet is not locked, add to bet
         if isLocked {
-            addOdds(amount)
+            // Bet moves from other controls use `remove*Silently` at the source — bankroll unchanged.
+            // Do not fire `onOddsPlaced` or the VC will debit the stake again.
+            _ = incrementOddsByStake(amount)
             return
         }
         
@@ -582,68 +584,18 @@ class OddsBetStack: UIView {
         HapticsHelper.lightHaptic()
     }
     
-    func addOdds(_ amount: Int) {
-        guard !isDraggingOdds else { return }
-
-        // CRITICAL: Only allow odds when bet is locked (i.e., point is set)
-        guard isLocked else { return }
-
-        if isLocked {
-            let wasEmpty = oddsAmount == 0
-            let previousOddsAmount = oddsAmount  // Capture previous amount BEFORE adding
-            oddsChip.addToBet(amount)
-            oddsChip.alpha = 1
-            oddsChip.isHidden = false
-            oddsChip.isUserInteractionEnabled = true  // Ensure interaction is enabled
-            
-            // Activate constraints if needed
-            if layout == .horizontal {
-                if oddsChipLeadingConstraint.isActive == false {
-                    NSLayoutConstraint.activate([
-                        oddsChipLeadingConstraint,
-                        oddsChipCenterYConstraint
-                    ])
-                }
-                if wasEmpty && isBetChipAtNormalPosition {
-                    animateBetChipSlide(left: true)
-                }
-            } else {
-                // Vertical layout
-                if oddsChipTopConstraint.isActive == false {
-                    NSLayoutConstraint.activate([
-                        oddsChipTopConstraint,
-                        oddsChip.centerXAnchor.constraint(equalTo: betChip.centerXAnchor)
-                    ])
-                }
-            }
-            
-            onOddsPlaced?(amount, previousOddsAmount)
-            bringSubviewToFront(oddsChip)
-            if let parentView = parentControl as? UIView {
-                parentView.bringSubviewToFront(self)
-            }
-        }
-    }
-    
-    func addOddsWithAnimation(_ amount: Int) {
-        guard !isDraggingOdds else { return }
-
-        guard isLocked else { return }
-
-        let wasEmpty = oddsAmount == 0
+    /// Applies `amount` to the odds chip and updates layout for locked bets.
+    /// Returns the odds total **before** the increment (used for payout / max-odds logic in `onOddsPlaced`).
+    @discardableResult
+    private func incrementOddsByStake(_ amount: Int) -> Int {
         let previousOddsAmount = oddsAmount
+        let wasEmpty = oddsAmount == 0
+
         oddsChip.addToBet(amount)
         oddsChip.alpha = 1
         oddsChip.isHidden = false
         oddsChip.isUserInteractionEnabled = true
-        
-        let hasPanGesture = oddsChip.gestureRecognizers?.contains { $0 is UIPanGestureRecognizer } ?? false
-        if !hasPanGesture {
-            let oddsPanGesture = UIPanGestureRecognizer(target: self, action: #selector(handleOddsChipPan(_:)))
-            oddsPanGesture.cancelsTouchesInView = false
-            oddsChip.addGestureRecognizer(oddsPanGesture)
-        }
-        
+
         if layout == .horizontal {
             if oddsChipLeadingConstraint.isActive == false {
                 NSLayoutConstraint.activate([
@@ -655,7 +607,6 @@ class OddsBetStack: UIView {
                 animateBetChipSlide(left: true)
             }
         } else {
-            // Vertical layout
             if oddsChipTopConstraint.isActive == false {
                 NSLayoutConstraint.activate([
                     oddsChipTopConstraint,
@@ -663,14 +614,41 @@ class OddsBetStack: UIView {
                 ])
             }
         }
-        
-        onOddsPlaced?(amount, previousOddsAmount)
+
         bringSubviewToFront(oddsChip)
-        // Also ensure parent brings this stack to front
         if let parentView = parentControl as? UIView {
             parentView.bringSubviewToFront(self)
         }
-        
+
+        return previousOddsAmount
+    }
+
+    func addOdds(_ amount: Int) {
+        guard !isDraggingOdds else { return }
+
+        // CRITICAL: Only allow odds when bet is locked (i.e., point is set)
+        guard isLocked else { return }
+
+        let previousOddsAmount = incrementOddsByStake(amount)
+        onOddsPlaced?(amount, previousOddsAmount)
+    }
+    
+    func addOddsWithAnimation(_ amount: Int) {
+        guard !isDraggingOdds else { return }
+
+        guard isLocked else { return }
+
+        let previousOddsAmount = incrementOddsByStake(amount)
+
+        let hasPanGesture = oddsChip.gestureRecognizers?.contains { $0 is UIPanGestureRecognizer } ?? false
+        if !hasPanGesture {
+            let oddsPanGesture = UIPanGestureRecognizer(target: self, action: #selector(handleOddsChipPan(_:)))
+            oddsPanGesture.cancelsTouchesInView = false
+            oddsChip.addGestureRecognizer(oddsPanGesture)
+        }
+
+        onOddsPlaced?(amount, previousOddsAmount)
+
         // Force layout to ensure chip frame is set before gestures can work
         layoutIfNeeded()
         

@@ -134,10 +134,9 @@ final class BlackjackSettingsManager {
         delegate?.settingsDidChange(currentSettings)
     }
 
-    /// Set selected side bets (max 2, defaults if empty)
+    /// Set selected side bets (max 2; empty means no bonus bets)
     func setSelectedSideBets(_ sideBets: [BlackjackSettingsViewController.SideBetType]) {
-        // Ensure max 2 side bets and handle empty array
-        let validatedBets = sideBets.isEmpty ? [.royalMatch, .perfectPairs] : Array(sideBets.prefix(2))
+        let validatedBets = Array(sideBets.prefix(2))
         currentSettings.selectedSideBets = validatedBets
         saveSettings()
         delegate?.settingsDidChange(currentSettings)
@@ -231,12 +230,13 @@ final class BlackjackSettingsManager {
         // Load selected side bets
         let selectedSideBets: [BlackjackSettingsViewController.SideBetType]
         if let savedSideBets = defaults.array(forKey: BlackjackSettingsKeys.selectedSideBets) as? [String] {
-            let loadedBets = savedSideBets.compactMap { BlackjackSettingsViewController.SideBetType(rawValue: $0) }
-            // Ensure we have at least some side bets after filtering invalid values
-            if loadedBets.isEmpty {
-                selectedSideBets = [.royalMatch, .perfectPairs]
+            if savedSideBets.isEmpty {
+                // User explicitly chose no side bets
+                selectedSideBets = []
             } else {
-                selectedSideBets = Array(loadedBets.prefix(2)) // Max 2 side bets
+                let loadedBets = savedSideBets.compactMap { BlackjackSettingsViewController.SideBetType(rawValue: $0) }
+                // All-invalid entries fall back to defaults; nil key still uses defaults below
+                selectedSideBets = loadedBets.isEmpty ? [.royalMatch, .perfectPairs] : Array(loadedBets.prefix(2))
             }
         } else {
             // Default to Royal Match and Perfect Pairs

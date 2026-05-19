@@ -28,6 +28,25 @@ class GameCategoryTabBar: UIView {
   /// briefly selecting the wrong tab (visible flashing).
   private var suspendSelectionSyncFromScroll = false
 
+  /// Continuous page index (0…count−1) driving tab scroll position. Kept in sync with the pager and with
+  /// user drags on this bar. `layoutSubviews` restores `contentOffset` from this value instead of snapping
+  /// to `selectedIndex`, so mid-swipe fractional positions are preserved and categories keep sliding with
+  /// the page view.
+  private var pageProgressTracking: CGFloat = 0
+
+  /// Stationary pill at the visual center. Its width morphs with the centered tab; labels in the
+  /// horizontally scrolling collection view slide over it.
+  private let pillBackground: UIView = {
+    let v = UIView()
+    v.layer.cornerRadius = 18
+    v.clipsToBounds = true
+    v.isUserInteractionEnabled = false
+    v.backgroundColor = HardwayColors.surfaceGray
+    return v
+  }()
+
+  private static let pillHeight: CGFloat = 36
+
   private lazy var collectionView: UICollectionView = {
     let layout = UICollectionViewFlowLayout()
     layout.scrollDirection = .horizontal
@@ -47,6 +66,8 @@ class GameCategoryTabBar: UIView {
     self.titles = titles
     super.init(frame: .zero)
     translatesAutoresizingMaskIntoConstraints = false
+    // Pill goes behind the collection view so labels slide on top of it.
+    addSubview(pillBackground)
     addSubview(collectionView)
     NSLayoutConstraint.activate([
       collectionView.topAnchor.constraint(equalTo: topAnchor),
@@ -59,14 +80,13 @@ class GameCategoryTabBar: UIView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    // Center the selected tab after layout
-    if collectionView.numberOfItems(inSection: 0) > 0 {
-      collectionView.scrollToItem(
-        at: IndexPath(item: selectedIndex, section: 0),
-        at: .centeredHorizontally,
-        animated: false
-      )
+    // Re-apply horizontal offset from continuous progress. Do not use `scrollToItem(selectedIndex)` here:
+    // that snaps to whole tabs and destroys fractional alignment while the pager is mid-swipe.
+    if collectionView.numberOfItems(inSection: 0) > 0, titles.count > 0 {
+      let p = max(0, min(pageProgressTracking, CGFloat(titles.count - 1)))
+      setPageProgress(p, animated: false)
     }
+    updatePillAndLabels(progress: pageProgressFromContentOffset())
   }
 
   required init?(coder: NSCoder) {
@@ -75,26 +95,13 @@ class GameCategoryTabBar: UIView {
 
   func selectTab(at index: Int, animated: Bool) {
     guard index >= 0, index < titles.count, index != selectedIndex else { return }
-    let previousIndex = selectedIndex
     selectedIndex = index
+    pageProgressTracking = CGFloat(index)
 
     HapticsHelper.lightHaptic()
 
-    let duration: TimeInterval = animated ? 0.25 : 0
-    UIView.animate(withDuration: duration, delay: 0, options: .curveEaseInOut) {
-      if let prev = self.collectionView.cellForItem(at: IndexPath(item: previousIndex, section: 0))
-        as? TabCell
-      {
-        prev.setSelected(false)
-      }
-      if let curr = self.collectionView.cellForItem(at: IndexPath(item: index, section: 0))
-        as? TabCell
-      {
-        curr.setSelected(true)
-      }
-    }
-
-    // Scroll to center the selected tab
+    // Scroll to center the selected tab; the scroll itself drives pill width and label color
+    // updates via `scrollViewDidScroll`, so no explicit per-cell animation is needed.
     if animated {
       suspendSelectionSyncFromScroll = true
     }
@@ -105,6 +112,7 @@ class GameCategoryTabBar: UIView {
     )
     if !animated {
       suspendSelectionSyncFromScroll = false
+      updatePillAndLabels(progress: CGFloat(index))
     }
   }
 
@@ -112,6 +120,7 @@ class GameCategoryTabBar: UIView {
   func setPageProgress(_ progress: CGFloat, animated: Bool) {
     guard titles.count > 0, let range = contentOffsetRangeX() else { return }
     let clamped = max(0, min(progress, CGFloat(titles.count - 1)))
+    pageProgressTracking = clamped
     let centerX = centerXInContent(forPageProgress: clamped)
     let cv = collectionView
     let offsetX = centerX - cv.bounds.width / 2
@@ -173,23 +182,49 @@ class GameCategoryTabBar: UIView {
     let index = Int(round(clampedProgress))
     let roundedIndex = max(0, min(index, titles.count - 1))
 
-    if roundedIndex != selectedIndex {
-      let previousIndex = selectedIndex
-      selectedIndex = roundedIndex
-      UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseInOut) {
-        if let prev = self.collectionView.cellForItem(at: IndexPath(item: previousIndex, section: 0)) as? TabCell {
-          prev.setSelected(false)
-        }
-        if let curr = self.collectionView.cellForItem(at: IndexPath(item: roundedIndex, section: 0)) as? TabCell {
-          curr.setSelected(true)
-        }
-      }
-    }
+    selectedIndex = roundedIndex
 
     isProgrammaticScroll = true
     suspendSelectionSyncFromScroll = true
     setPageProgress(CGFloat(roundedIndex), animated: true)
     delegate?.tabBar(self, didSelectTabAt: roundedIndex)
+  }
+
+  /// Sync the stationary pill's width and every visible label's color to the given page progress.
+  /// The pill stays centered in the bar; its width interpolates between the current and next tab's
+  /// widths so it appears to morph in place as labels slide beneath it.
+  private func updatePillAndLabels(progress: CGFloat) {
+    guard !titles.isEmpty, bounds.width > 0 else { return }
+    let count = titles.count
+    let clamped = max(0, min(progress, CGFloat(count - 1)))
+
+    let widths = titles.map { cellWidth(for: $0) }
+    let i = min(Int(clamped), count - 1)
+    let t = clamped - CGFloat(i)
+    let pillWidth: CGFloat
+    if i >= count - 1 || t <= 0 {
+      pillWidth = widths[i]
+    } else {
+      pillWidth = widths[i] + t * (widths[i + 1] - widths[i])
+    }
+
+    let height = Self.pillHeight
+    pillBackground.bounds = CGRect(x: 0, y: 0, width: pillWidth, height: height)
+    pillBackground.center = CGPoint(x: bounds.midX, y: bounds.midY)
+
+    for cell in collectionView.visibleCells {
+      guard
+        let tabCell = cell as? TabCell,
+        let indexPath = collectionView.indexPath(for: cell)
+      else { continue }
+      tabCell.setSelectedness(selectedness(forItem: indexPath.item, progress: clamped))
+    }
+  }
+
+  /// 1.0 when this item is fully centered, 0.0 when it's a full tab away.
+  private func selectedness(forItem item: Int, progress: CGFloat) -> CGFloat {
+    let distance = abs(CGFloat(item) - progress)
+    return max(0, min(1, 1 - distance))
   }
 
   /// From current contentOffset, compute which page progress is at the visible center.
@@ -235,7 +270,8 @@ extension GameCategoryTabBar: UICollectionViewDataSource {
       collectionView.dequeueReusableCell(withReuseIdentifier: TabCell.reuseID, for: indexPath)
       as! TabCell
     cell.configure(title: titles[indexPath.item])
-    cell.setSelected(indexPath.item == selectedIndex)
+    let progress = pageProgressFromContentOffset()
+    cell.setSelectedness(selectedness(forItem: indexPath.item, progress: progress))
     return cell
   }
 }
@@ -247,19 +283,16 @@ extension GameCategoryTabBar: UICollectionViewDelegate {
     guard scrollView === collectionView else { return }
     let progress = pageProgressFromContentOffset()
     let clampedProgress = max(0, min(progress, CGFloat(titles.count - 1)))
+    pageProgressTracking = clampedProgress
+
+    // Continuously drive pill width and label colors so the pill appears stationary at center
+    // while text labels slide horizontally beneath it.
+    updatePillAndLabels(progress: clampedProgress)
+
     let newIndex = Int(round(clampedProgress))
     let clamped = max(0, min(newIndex, titles.count - 1))
     if !suspendSelectionSyncFromScroll, clamped != selectedIndex {
-      let previousIndex = selectedIndex
       selectedIndex = clamped
-      UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseInOut) {
-        if let prev = self.collectionView.cellForItem(at: IndexPath(item: previousIndex, section: 0)) as? TabCell {
-          prev.setSelected(false)
-        }
-        if let curr = self.collectionView.cellForItem(at: IndexPath(item: clamped, section: 0)) as? TabCell {
-          curr.setSelected(true)
-        }
-      }
     }
     if !isProgrammaticScroll {
       delegate?.tabBar(self, didScrollToPageProgress: clampedProgress)
@@ -294,23 +327,13 @@ extension GameCategoryTabBar: UICollectionViewDelegate {
 
   func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
     guard indexPath.item != selectedIndex else { return }
-    let previousIndex = selectedIndex
     selectedIndex = indexPath.item
+    pageProgressTracking = CGFloat(indexPath.item)
 
     HapticsHelper.lightHaptic()
 
-    UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseInOut) {
-      if let prev = collectionView.cellForItem(at: IndexPath(item: previousIndex, section: 0))
-        as? TabCell
-      {
-        prev.setSelected(false)
-      }
-      if let curr = collectionView.cellForItem(at: indexPath) as? TabCell {
-        curr.setSelected(true)
-      }
-    }
-
-    // Prevent scrollViewDidScroll from reporting progress during this animation (avoids fight with page view).
+    // Prevent scrollViewDidScroll from reporting progress during this animation (avoids fight
+    // with page view). The animated scroll itself drives pill width and label color updates.
     isProgrammaticScroll = true
     suspendSelectionSyncFromScroll = true
     collectionView.scrollToItem(
@@ -367,23 +390,12 @@ private class TabCell: UICollectionViewCell {
     return label
   }()
 
-  private let pillBackground: UIView = {
-    let v = UIView()
-    v.translatesAutoresizingMaskIntoConstraints = false
-    v.layer.cornerRadius = 18
-    v.clipsToBounds = true
-    return v
-  }()
-
   override init(frame: CGRect) {
     super.init(frame: frame)
-    contentView.addSubview(pillBackground)
+    backgroundColor = .clear
+    contentView.backgroundColor = .clear
     contentView.addSubview(titleLabel)
     NSLayoutConstraint.activate([
-      pillBackground.topAnchor.constraint(equalTo: contentView.topAnchor),
-      pillBackground.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-      pillBackground.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-      pillBackground.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
       titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
       titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
     ])
@@ -397,8 +409,27 @@ private class TabCell: UICollectionViewCell {
     titleLabel.text = title
   }
 
-  func setSelected(_ selected: Bool) {
-    pillBackground.backgroundColor = selected ? HardwayColors.surfaceGray : .clear
-    titleLabel.textColor = selected ? .white : HardwayColors.label
+  /// `amount` is 1.0 when this cell is fully centered (and so sits inside the stationary pill),
+  /// fading to 0.0 as the cell scrolls a full tab-width away from center.
+  func setSelectedness(_ amount: CGFloat) {
+    let clamped = max(0, min(1, amount))
+    titleLabel.textColor = TabCell.blend(
+      from: HardwayColors.label,
+      to: .white,
+      t: clamped
+    )
+  }
+
+  private static func blend(from a: UIColor, to b: UIColor, t: CGFloat) -> UIColor {
+    var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
+    var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
+    a.getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+    b.getRed(&br, green: &bg, blue: &bb, alpha: &ba)
+    return UIColor(
+      red: ar + (br - ar) * t,
+      green: ag + (bg - ag) * t,
+      blue: ab + (bb - ab) * t,
+      alpha: aa + (ba - aa) * t
+    )
   }
 }

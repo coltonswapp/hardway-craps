@@ -160,10 +160,6 @@ extension CrapsGameplayViewController {
 
             flipDiceContainer.disableRolling()
 
-            if passLineBetAmount > 0 {
-                passLineManuallyRemoved = false
-            }
-
             Timing.after(Timing.BottomControls.oddsLossDelay) { [weak self] in
                 guard let self else { return }
                 self.chipAnimator.animateChipsAwayFromOddsStack(from: self.passLineControl) {

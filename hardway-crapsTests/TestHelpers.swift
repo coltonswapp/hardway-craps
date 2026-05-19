@@ -21,7 +21,6 @@ final class PassLineManagerDelegateSpy: CrapsPassLineManagerDelegate {
     var passLineOddsWins: [OddsWinCall] = []
     var passLineLosses: [Int] = []
     var passLineOddsLosses: [Int] = []
-    var rebetUpdates: [Int] = []
 
     func passLineWinProcessed(originalBet: Int, winnings: Int) {
         passLineWins.append(WinCall(originalBet: originalBet, winnings: winnings))
@@ -37,10 +36,6 @@ final class PassLineManagerDelegateSpy: CrapsPassLineManagerDelegate {
 
     func passLineOddsLossProcessed(lostAmount: Int) {
         passLineOddsLosses.append(lostAmount)
-    }
-
-    func rebetAmountDidUpdate(amount: Int) {
-        rebetUpdates.append(amount)
     }
 }
 
