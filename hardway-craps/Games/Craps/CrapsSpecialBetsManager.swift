@@ -34,6 +34,14 @@ struct FieldResult {
     let winAmount: Int
 }
 
+/// Result of an Any 7 bet evaluation
+struct AnySevenResult {
+    let isWin: Bool
+    let betAmount: Int
+    let oddsMultiplier: Double
+    let winAmount: Int
+}
+
 /// Result of a don't pass bet evaluation
 struct DontPassResult {
     let isWin: Bool
@@ -412,6 +420,26 @@ final class CrapsSpecialBetsManager {
     func calculateFieldPayout(total: Int, betAmount: Int) -> Int {
         let result = evaluateFieldBet(total: total, betAmount: betAmount)
         return result.winAmount
+    }
+
+    /// Evaluate an Any 7 bet (one-roll proposition, pays 4:1 profit on 7)
+    func evaluateAnySevenBet(total: Int, betAmount: Int) -> AnySevenResult {
+        if total == 7 {
+            let oddsMultiplier = 4.0
+            let winAmount = Int(Double(betAmount) * oddsMultiplier)
+            return AnySevenResult(
+                isWin: true,
+                betAmount: betAmount,
+                oddsMultiplier: oddsMultiplier,
+                winAmount: winAmount
+            )
+        }
+        return AnySevenResult(
+            isWin: false,
+            betAmount: betAmount,
+            oddsMultiplier: 0.0,
+            winAmount: 0
+        )
     }
 
     // MARK: - Don't Pass Methods

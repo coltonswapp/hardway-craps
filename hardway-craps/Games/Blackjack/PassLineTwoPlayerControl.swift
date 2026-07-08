@@ -59,8 +59,8 @@ final class PassLineTwoPlayerControl: PlainControl {
         }
     }
 
-    override init(title: String? = nil, mpChipStyle: MPSmallBetChipStyle? = nil) {
-        super.init(title: title ?? "Pass Line", mpChipStyle: mpChipStyle)
+    override init(title: String? = nil, mpChipStyle: MPSmallBetChipStyle? = nil, usesTopCenterChipLayout: Bool = false) {
+        super.init(title: title ?? "Pass Line", mpChipStyle: mpChipStyle, usesTopCenterChipLayout: usesTopCenterChipLayout)
         setupTwoPlayerGestures()
     }
 

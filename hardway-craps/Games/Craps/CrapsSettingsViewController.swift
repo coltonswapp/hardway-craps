@@ -33,6 +33,10 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
     // Additional callbacks
     var onFixedRoll: ((Int) -> Void)?
 
+    /// Session-only: reflects whether craps autoplay is running when the sheet opens.
+    var autoplayInitiallyEnabled: Bool = false
+    var onAutoplayChanged: ((Bool) -> Void)?
+
     override init() {
         super.init()
     }
@@ -86,8 +90,8 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
         switch section {
         case 0: // Actions
             return 2  // Game Details + Hit the ATM
-        case 1: // Game (speed + bonus bets)
-            return 4  // Game Speed + Hardways + Make Em + Horn
+        case 1: // Game (autoplay + speed + bonus bets)
+            return 5  // Game Speed + Hardways + Make Em + Horn
         case 2: // Explainer
             return 8
         case 3: // Testing
@@ -141,19 +145,23 @@ final class CrapsSettingsViewController: BaseSettingsViewController {
             }
         case 1: // Game
             switch indexPath.row {
-            case 0: // Game Speed
+            case 0:
+                configureSwitchCell(cell, title: "Autoplay", isOn: autoplayInitiallyEnabled) { [weak self] isOn in
+                    self?.onAutoplayChanged?(isOn)
+                }
+            case 1: // Game Speed
                 configureGameSpeedCell(cell)
-            case 1: // Hardways
+            case 2: // Hardways
                 configureSwitchCell(cell, title: "Hardways", isOn: hardwaysEnabled) { [weak self] isOn in
                     self?.hardwaysEnabled = isOn
                     self?.saveSettings()
                 }
-            case 2: // Make Em
+            case 3: // Make Em
                 configureSwitchCell(cell, title: "Make Em'", isOn: makeEmEnabled) { [weak self] isOn in
                     self?.makeEmEnabled = isOn
                     self?.saveSettings()
                 }
-            case 3: // Horn
+            case 4: // Horn
                 configureSwitchCell(cell, title: "Horn", isOn: hornEnabled) { [weak self] isOn in
                     self?.hornEnabled = isOn
                     self?.saveSettings()

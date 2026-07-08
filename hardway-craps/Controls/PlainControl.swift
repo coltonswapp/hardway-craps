@@ -80,6 +80,8 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
     
     private var titleCenterXConstraint: NSLayoutConstraint?
     private var titleLeadingConstraint: NSLayoutConstraint?
+    private var titleCenterYConstraint: NSLayoutConstraint?
+    private var titleBottomConstraint: NSLayoutConstraint?
 
     var betAmount: Int {
         get {
@@ -168,6 +170,9 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
     /// Used for compact bet controls where we want the animated shift behavior.
     var shouldAnimateTitleShift: Bool = false
 
+    /// TriZone horizontal zone layout: chip centered above the control, title shifts down when a bet is placed.
+    var usesTopCenterChipLayout: Bool = false
+
     /// Direction for winnings chip animation. Default is .trailing (30 points from the trailing edge)
     var winningsAnimationDirection: WinningsAnimationDirection = .trailing
 
@@ -238,9 +243,10 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
     /// Optional multiplayer chip style. If provided, uses MPSmallBetChip instead of SmallBetChip.
     var mpChipStyle: MPSmallBetChipStyle?
 
-    init(title: String? = nil, mpChipStyle: MPSmallBetChipStyle? = nil) {
+    init(title: String? = nil, mpChipStyle: MPSmallBetChipStyle? = nil, usesTopCenterChipLayout: Bool = false) {
         self.title = title
         self.mpChipStyle = mpChipStyle
+        self.usesTopCenterChipLayout = usesTopCenterChipLayout
         super.init(frame: .zero)
         setupView()
     }
@@ -290,10 +296,21 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
             // Create constraints for title alignment
             titleCenterXConstraint = titleLabel.centerXAnchor.constraint(equalTo: centerXAnchor)
             titleLeadingConstraint = titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16)
-            NSLayoutConstraint.activate([
-                titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
-            ])
-            updateTitleConstraints()
+
+            if usesTopCenterChipLayout {
+                titleCenterYConstraint = titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+                titleBottomConstraint = titleLabel.bottomAnchor.constraint(
+                    equalTo: bottomAnchor, constant: -6)
+                NSLayoutConstraint.activate([
+                    titleCenterXConstraint!,
+                    titleCenterYConstraint!,
+                ])
+            } else {
+                NSLayoutConstraint.activate([
+                    titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+                ])
+                updateTitleConstraints()
+            }
         }
 
         // Apply bet view constraints (can be overridden by subclasses)
@@ -354,6 +371,11 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
     /// Update title alignment based on whether any bets exist (including odds)
     /// If any bet is present, align left; otherwise, align centered
     private func updateTitleAlignment() {
+        if usesTopCenterChipLayout {
+            updateTopCenterChipTitleAlignment()
+            return
+        }
+
         // On iPad, don't animate title - there's plenty of space
         if UIDevice.current.userInterfaceIdiom == .pad {
             titleAlignment = .centered
@@ -375,6 +397,21 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
         // Shift title left when there's a bet
         let hasAnyBet = betAmount > 0 || oddsAmount > 0
         titleAlignment = hasAnyBet ? .left : .centered
+        betAmountDidChange()
+        syncUITestBetAccessibility()
+    }
+
+    private func updateTopCenterChipTitleAlignment() {
+        let hasBet = betAmount > 0
+
+        UIView.animate(
+            withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 1.0,
+            options: [.curveEaseInOut, .allowUserInteraction]
+        ) {
+            self.titleCenterYConstraint?.isActive = !hasBet
+            self.titleBottomConstraint?.isActive = hasBet
+            self.layoutIfNeeded()
+        }
         betAmountDidChange()
         syncUITestBetAccessibility()
     }
@@ -453,10 +490,17 @@ class PlainControl: UIControl, BetDropTarget, BetDragSource {
     /// Override this method in subclasses to customize betView positioning
     /// Default implementation places betView on the trailing edge, vertically centered
     func configureBetViewConstraints() {
-        NSLayoutConstraint.activate([
-            betView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            betView.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
+        if usesTopCenterChipLayout {
+            NSLayoutConstraint.activate([
+                betView.centerXAnchor.constraint(equalTo: centerXAnchor),
+                betView.topAnchor.constraint(equalTo: topAnchor, constant: -12),
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                betView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+                betView.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
+        }
     }
 
     @objc private func handleTap() {

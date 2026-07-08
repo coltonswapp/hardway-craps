@@ -188,7 +188,7 @@ final class CrapsSessionManager: BaseSessionManager {
         case .lay:
             gameplayMetrics.layBetCount += 1
             gameplayMetrics.totalLayAmount += amount
-        case .cAndE:
+        case .cAndE, .anySeven:
             break
         }
 
@@ -221,4 +221,5 @@ enum BetType {
     case comeBet
     case lay
     case cAndE
+    case anySeven
 }

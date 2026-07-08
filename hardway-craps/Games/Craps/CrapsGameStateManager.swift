@@ -46,6 +46,11 @@ final class CrapsGameStateManager {
         return game.rules.variant
     }
 
+    /// Active variant rules (pass-line events, payouts, etc.).
+    var rules: CrapsVariantRules {
+        return game.rules
+    }
+
     // MARK: - Initialization
 
     init(variant: CrapsVariant = .standard) {
