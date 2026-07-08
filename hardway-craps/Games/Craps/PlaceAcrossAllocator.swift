@@ -200,3 +200,14 @@ enum PlaceAcrossAllocator {
         return rows
     }
 }
+
+extension PlaceAcrossAllocation {
+
+  /// Total chips placed when the active **point** box is omitted (same outside vs inside amount rule as `applyPlaceAcross`).
+  func chipCostSkipping(pointNumber: Int?) -> Int {
+    guard let p = pointNumber else { return total }
+    let insideBoxes: Set<Int> = [6, 8]
+    let deduction = insideBoxes.contains(p) ? insideEach : outsideEach
+    return total - deduction
+  }
+}

@@ -13,7 +13,7 @@ class CrapsGameplayViewController: UIViewController {
 
   // MARK: - Managers
 
-  private var settingsManager: CrapsSettingsManager!
+  var settingsManager: CrapsSettingsManager!
   var sessionManager: CrapsSessionManager!
   var gameStateManager: CrapsGameStateManager!
   var passLineManager: CrapsPassLineManager!
@@ -50,6 +50,8 @@ class CrapsGameplayViewController: UIViewController {
   var passLineControlWidthConstraint: NSLayoutConstraint!
   var fieldControl: PlainControl!
   var comeBetControl: ComeBetControl!
+  /// One-roll Any 7 proposition (standard craps only), between Come and C&E.
+  var anySevenControl: PlainControl?
   /// Horizontal C / C&E / E proposition zones (standard craps only), beside Come.
   var cAndETriZoneControl: TriZoneBetControl?
   var dontPassControl: DontPassControl?
@@ -58,11 +60,14 @@ class CrapsGameplayViewController: UIViewController {
   // Spacing constraints for controls inside gameContainerView (adjustable per layout mode)
   var gameContainerSpacingConstraints: [NSLayoutConstraint] = []
   var flipDiceContainer: FlipDiceContainer!
+  var crapsAutoplayer: CrapsAutoplayer?
+  /// Dispatched `CrapsTableCommand`s for staggered autoplay placement (cancelled when autoplay stops).
+  var crapsAutoplayQueuedWorkItems: [DispatchWorkItem] = []
   private var balanceView: BalanceView!
   var instructionLabel: InstructionLabel!
-  private var hardwayView: QuadBetView?
+  var hardwayView: QuadBetView?
   private var makeEmView: UIView?
-  private var hornView: QuadBetView?
+  var hornView: QuadBetView?
   private var actionsView: UIView!
   var scrollContentView: UIView!
   private var scrollContentWidthConstraint: NSLayoutConstraint?
@@ -203,6 +208,19 @@ class CrapsGameplayViewController: UIViewController {
     // 2. Setup top stack view (instruction label and current bet)
     setupTopStackView()
 
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAutoplayStoppedNotification(_:)),
+      name: .crapsAutoplayDidStopFromUserInteraction,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAutoplayStoppedNotification(_:)),
+      name: .crapsAutoplayDidStopBankrupt,
+      object: nil
+    )
+
     // 4. Setup pass line control and odds control
     setupPassLineControls()
 
@@ -220,6 +238,7 @@ class CrapsGameplayViewController: UIViewController {
 
     setupComeBetControl()
     if !isCrapless {
+      setupAnySevenControl()
       setupCAndETriZoneControl()
     }
 
@@ -290,6 +309,16 @@ class CrapsGameplayViewController: UIViewController {
     NotificationCenter.default.removeObserver(self)
   }
 
+  @objc private func handleAutoplayStoppedNotification(_ notification: Notification) {
+    refreshAutoplayNavigationChrome()
+    if notification.name == .crapsAutoplayDidStopBankrupt {
+      instructionLabel.showMessage(
+        "Autoplay stopped — not enough balance for minimum bets.", shouldFade: true)
+    } else if notification.name == .crapsAutoplayDidStopFromUserInteraction {
+      instructionLabel.showMessage("Autoplay stopped.", shouldFade: true)
+    }
+  }
+
   @objc private func handleAppWillResignActive() {
     // Pause the session timer when app becomes inactive
     pauseSessionTimer()
@@ -331,6 +360,7 @@ class CrapsGameplayViewController: UIViewController {
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    stopCrapsAutoplaySilently()
     // Stop all tip observations
     NNTipManager.shared.stopAllTipObservations()
     // Save session if view controller is being dismissed (e.g., popped from navigation)
@@ -424,6 +454,7 @@ class CrapsGameplayViewController: UIViewController {
     if fieldControl.betAmount > 0 { concurrentCount += 1 }
     if let dp = dontPassControl, dp.betAmount > 0 { concurrentCount += 1 }
     if comeBetControl != nil && comeBetControl.betAmount > 0 { concurrentCount += 1 }
+    if let anySeven = anySevenControl, anySeven.betAmount > 0 { concurrentCount += 1 }
     if let cAndE = cAndETriZoneControl {
       for zone in TriZoneBetControl.Zone.allCases {
         if cAndE.betAmount(for: zone) > 0 {
@@ -510,11 +541,19 @@ class CrapsGameplayViewController: UIViewController {
       vc.onFixedRoll = { [weak self] total in
         self?.flipDiceContainer.rollFixedTotal(total)
       }
+      vc.autoplayInitiallyEnabled = crapsAutoplayer?.isRunning ?? false
+      vc.onAutoplayChanged = { [weak self] enabled in
+        self?.handleCrapsAutoplaySettingChanged(enabled: enabled)
+      }
       settingsVC = vc
     } else {
       let vc = CrapsSettingsViewController()
       vc.onFixedRoll = { [weak self] total in
         self?.flipDiceContainer.rollFixedTotal(total)
+      }
+      vc.autoplayInitiallyEnabled = crapsAutoplayer?.isRunning ?? false
+      vc.onAutoplayChanged = { [weak self] enabled in
+        self?.handleCrapsAutoplaySettingChanged(enabled: enabled)
       }
       settingsVC = vc
     }
@@ -808,15 +847,17 @@ class CrapsGameplayViewController: UIViewController {
 
   private func updateComeBetControlState() {
     let shouldEnableCome = game.isPointPhase && betsAreOn
-    let shouldEnableCAndE = betsAreOn
+    let shouldEnablePropositionBets = betsAreOn
 
     UIView.animate(withDuration: 0.2) {
       if let comeBet = self.comeBetControl {
         comeBet.isUserInteractionEnabled = shouldEnableCome
         comeBet.alpha = shouldEnableCome ? 1.0 : 0.5
       }
-      self.cAndETriZoneControl?.isUserInteractionEnabled = shouldEnableCAndE
-      self.cAndETriZoneControl?.alpha = shouldEnableCAndE ? 1.0 : 0.5
+      self.anySevenControl?.isUserInteractionEnabled = shouldEnablePropositionBets
+      self.anySevenControl?.alpha = shouldEnablePropositionBets ? 1.0 : 0.5
+      self.cAndETriZoneControl?.isUserInteractionEnabled = shouldEnablePropositionBets
+      self.cAndETriZoneControl?.alpha = shouldEnablePropositionBets ? 1.0 : 0.5
     }
   }
 
@@ -890,6 +931,35 @@ class CrapsGameplayViewController: UIViewController {
     comeBetControl.alpha = 0.5
 
     // Control will be added to gameContainerView in setupGameContainerView()
+  }
+
+  func setupAnySevenControl() {
+    let control = PlainControl(title: "Any 7", usesTopCenterChipLayout: true)
+    control.translatesAutoresizingMaskIntoConstraints = false
+    control.isPerpetualBet = false
+    control.getSelectedChipValue = { [weak self] in
+      return self?.selectedChipValue ?? 1
+    }
+    control.getBalance = { [weak self] in
+      return self?.balance ?? 200
+    }
+    control.onBetPlaced = { [weak self] amount in
+      guard let self else { return }
+      self.trackBet(amount: amount, type: .anySeven)
+      self.balance -= amount
+      self.updateCurrentBet()
+      self.updateRollingState()
+    }
+    control.onBetRemoved = { [weak self] amount in
+      guard let self else { return }
+      self.balance += amount
+      self.updateCurrentBet()
+      self.updateRollingState()
+      NNTipManager.shared.dismissTip(CrapsTips.dragChipTip, afterDelay: 1.0)
+    }
+    control.isUserInteractionEnabled = false
+    control.alpha = 0.5
+    anySevenControl = control
   }
 
   func setupCAndETriZoneControl() {
@@ -1022,6 +1092,9 @@ class CrapsGameplayViewController: UIViewController {
     gameContainerView.addSubview(pointStack)
     gameContainerView.addSubview(fieldControl)
     gameContainerView.addSubview(comeBetControl)
+    if let anySeven = anySevenControl {
+      gameContainerView.addSubview(anySeven)
+    }
     if let cAndE = cAndETriZoneControl {
       gameContainerView.addSubview(cAndE)
     }
@@ -1030,10 +1103,12 @@ class CrapsGameplayViewController: UIViewController {
       gameContainerView.addSubview(dontPass)
     }
 
-    let spacing: CGFloat = 12
+    let spacing: CGFloat = 6
 
     comeBetControl.setContentHuggingPriority(.required, for: .vertical)
     comeBetControl.setContentCompressionResistancePriority(.required, for: .vertical)
+    anySevenControl?.setContentHuggingPriority(.required, for: .vertical)
+    anySevenControl?.setContentCompressionResistancePriority(.required, for: .vertical)
     cAndETriZoneControl?.setContentHuggingPriority(.required, for: .vertical)
     cAndETriZoneControl?.setContentCompressionResistancePriority(.required, for: .vertical)
     fieldControl.setContentHuggingPriority(.required, for: .vertical)
@@ -1094,15 +1169,20 @@ class CrapsGameplayViewController: UIViewController {
 
       constraints += [pointToComeSpacing]
 
-      if let cAndE = cAndETriZoneControl {
+      if let cAndE = cAndETriZoneControl, let anySeven = anySevenControl {
         constraints += [
           comeBetControl.leadingAnchor.constraint(
             equalTo: gameContainerView.leadingAnchor, constant: 16),
-          comeBetControl.trailingAnchor.constraint(
+          anySeven.leadingAnchor.constraint(
+            equalTo: comeBetControl.trailingAnchor, constant: spacing),
+          anySeven.trailingAnchor.constraint(
             equalTo: cAndE.leadingAnchor, constant: -spacing),
           comeBetControl.topAnchor.constraint(equalTo: cAndE.topAnchor),
           comeBetControl.bottomAnchor.constraint(equalTo: cAndE.bottomAnchor),
-          comeBetControl.widthAnchor.constraint(equalTo: cAndE.widthAnchor, multiplier: 1.25),
+          anySeven.topAnchor.constraint(equalTo: cAndE.topAnchor),
+          anySeven.bottomAnchor.constraint(equalTo: cAndE.bottomAnchor),
+          comeBetControl.widthAnchor.constraint(equalTo: cAndE.widthAnchor, multiplier: 0.85),
+          anySeven.widthAnchor.constraint(equalTo: cAndE.widthAnchor, multiplier: 0.5),
           cAndE.trailingAnchor.constraint(equalTo: gameContainerView.trailingAnchor, constant: -16),
           comeToFieldSpacing,
         ]
@@ -1240,10 +1320,34 @@ class CrapsGameplayViewController: UIViewController {
       // Do something when roll starts
     }
 
-    flipDiceContainer.onRollComplete = { [weak self] die1, die2, total in
+    flipDiceContainer.onUserInitiatedRollAttempt = { [weak self] in
+      self?.crapsAutoplayer?.cancelDueToUserInteraction()
+      self?.refreshAutoplayNavigationChrome()
+    }
 
-      // Handle winnings based on roll
-      self?.handleRollResult(die1: die1, die2: die2, total: total)
+    flipDiceContainer.onRollComplete = { [weak self] die1, die2, total in
+      guard let self else { return }
+      // Snapshot before resolution — `handleRollResult` applies `game.processRoll`.
+      let hadPoint = self.game.isPointPhase
+      let pointBefore = self.game.currentPoint
+      let passBetBeforeResolution = self.passLineControl.betAmount
+
+      let passLineLostThisRoll: Bool
+      if hadPoint, let pointNumber = pointBefore {
+        passLineLostThisRoll =
+          self.game.rules.passLinePointEvent(for: total, pointNumber: pointNumber) == .sevenOut
+      } else {
+        passLineLostThisRoll =
+          passBetBeforeResolution > 0
+          && self.game.rules.passLineComeOutEvent(for: total) == .passLineLoss
+      }
+
+      self.handleRollResult(die1: die1, die2: die2, total: total)
+
+      let hitPassLinePoint = hadPoint && pointBefore == total
+      self.crapsAutoplayer?.notifyRollResolved(
+        hitPassLinePoint: hitPassLinePoint,
+        passLineLost: passLineLostThisRoll)
     }
 
     flipDiceContainer.onDisabledTap = { [weak self] in
@@ -2150,7 +2254,7 @@ class CrapsGameplayViewController: UIViewController {
   }
 
   /// Variant-aware max free odds (standard 3-4-5×; crapless includes 2,3,11,12 per `CrapsVariantRules`).
-  private func maxOddsMultiplier(for pointNumber: Int) -> Int {
+  func maxOddsMultiplier(for pointNumber: Int) -> Int {
     rules.maxOddsMultiplier(for: pointNumber)
   }
 
@@ -3705,6 +3809,33 @@ class CrapsGameplayViewController: UIViewController {
       }
     }
 
+    // Any 7: one-roll proposition; bet stays on table after a win until manually removed or a miss
+    if let anySeven = anySevenControl, anySeven.betAmount > 0 {
+      let result = specialBetsManager.evaluateAnySevenBet(
+        total: total, betAmount: anySeven.betAmount)
+
+      if result.isWin {
+        guard betsAreOn else {
+          return (winMessages, winningBets)
+        }
+
+        winningBets.append(
+          WinningBet(
+            control: anySeven, winAmount: result.winAmount, odds: result.oddsMultiplier,
+            isBonus: false, description: "Any 7"))
+
+        Timing.after(Timing.BottomControls.fieldWinDelay) { [weak self] in
+          guard let self else { return }
+          self.animateWinningsAndBetTogether(
+            for: anySeven, odds: result.oddsMultiplier, keepBetOnControl: true)
+        }
+
+        if case .none = event {
+          winMessages.append("Any 7 wins! You won $\(result.winAmount).")
+        }
+      }
+    }
+
     // Lay bets win on 7 during point phase (seven-out); off on come-out, matching place-bet working rules.
     if total == 7 && wasInPointPhase && betsAreOn {
       let layWinners = pointStack.getPointControlsWithLayBets()
@@ -3844,6 +3975,8 @@ class CrapsGameplayViewController: UIViewController {
         makeEmBets.append(bet)
       } else if bet.control === cAndETriZoneControl {
         hornBets.append(bet)
+      } else if bet.control === anySevenControl {
+        hornBets.append(bet)
       } else if bet.control is AnyHornControl {
         hornBets.append(bet)
       }
@@ -3963,7 +4096,9 @@ class CrapsGameplayViewController: UIViewController {
 
   /// Animate winnings and original bet together (for one-time bets like field)
   /// Uses ChipAnimationHelper for consistent animations
-  private func animateWinningsAndBetTogether(for control: PlainControl, odds: Double) {
+  private func animateWinningsAndBetTogether(
+    for control: PlainControl, odds: Double, keepBetOnControl: Bool = false
+  ) {
     guard control.betAmount > 0 else { return }
 
     let betAmount = control.betAmount
@@ -3975,7 +4110,8 @@ class CrapsGameplayViewController: UIViewController {
       for: control,
       betAmount: betAmount,
       winAmount: winAmount,
-      offset: offset
+      offset: offset,
+      keepBetOnControl: keepBetOnControl
     ) { [weak self] amount in
       guard let self = self else { return }
       self.balance += amount
@@ -4164,6 +4300,9 @@ class CrapsGameplayViewController: UIViewController {
     if let field = fieldControl {
       controls.append(field)
     }
+    if let anySeven = anySevenControl {
+      controls.append(anySeven)
+    }
     if let dontPass = dontPassControl {
       controls.append(dontPass)
     }
@@ -4222,17 +4361,18 @@ class CrapsGameplayViewController: UIViewController {
   }
 
   /// Check if any betting control has a bet placed
-  private func hasAnyBetPlaced() -> Bool {
+  func hasAnyBetPlaced() -> Bool {
     let allControls = getAllBettingControls()
     if allControls.contains(where: { $0.betAmount > 0 }) { return true }
     if comeBetControl != nil && comeBetControl.betAmount > 0 { return true }
+    if let anySeven = anySevenControl, anySeven.betAmount > 0 { return true }
     if let cAndE = cAndETriZoneControl, cAndE.totalBetAmount > 0 { return true }
     return false
   }
 
   // MARK: - Action Methods
 
-  @objc private func toggleBetsTapped() {
+  @objc func toggleBetsTapped() {
     betsAreOn.toggle()
 
     // Find the toggle button in the actions view to update its appearance
@@ -4270,7 +4410,7 @@ class CrapsGameplayViewController: UIViewController {
     updateComeBetControlState()
   }
 
-  @objc private func collectBetsTapped() {
+  @objc func collectBetsTapped() {
     // Collect all bets, but skip pass line and don't pass only when point is ON
     let allControls = getAllBettingControls()
     var controlsToCollect: [PlainControl] = []
@@ -4349,11 +4489,15 @@ class CrapsGameplayViewController: UIViewController {
     HapticsHelper.successHaptic()
   }
 
-  private func applyPlaceAcross(_ allocation: PlaceAcrossAllocation) {
+  func applyPlaceAcross(_ allocation: PlaceAcrossAllocation) {
     guard betsAreOn else { return }
     guard allocation.variant == variant else { return }
     guard let pointStack = pointStack else { return }
-    guard balance >= allocation.total else {
+
+    let skipNumber = game.currentPoint
+    let chipCost = allocation.chipCostSkipping(pointNumber: skipNumber)
+
+    guard balance >= chipCost else {
       instructionLabel.showMessage("Not enough balance for this spread.", shouldFade: true)
       HapticsHelper.lightHaptic()
       return
@@ -4362,18 +4506,31 @@ class CrapsGameplayViewController: UIViewController {
     let insideBoxes: Set<Int> = [6, 8]
     let outsidePoints = rules.orderedPointNumbers.filter { !insideBoxes.contains($0) }
     let insidePoints = rules.orderedPointNumbers.filter { insideBoxes.contains($0) }
+
+    var placedTotal = 0
+
     for n in outsidePoints {
+      if let skipNumber, n == skipNumber { continue }
       guard let control = pointStack.getPointControl(for: n) else { continue }
       control.addBetWithAnimation(allocation.outsideEach)
+      placedTotal += allocation.outsideEach
     }
     for n in insidePoints {
+      if let skipNumber, n == skipNumber { continue }
       guard let control = pointStack.getPointControl(for: n) else { continue }
       control.addBetWithAnimation(allocation.insideEach)
+      placedTotal += allocation.insideEach
     }
 
     let outsideLabel = PlaceAcrossAllocator.outsideBoxesInstructionLabel(for: variant)
+    let skipNote: String
+    if let pn = skipNumber {
+      skipNote = " Skipping \(pn) (point)."
+    } else {
+      skipNote = ""
+    }
     instructionLabel.showMessage(
-      "Across $\(allocation.total): $\(allocation.outsideEach) on \(outsideLabel), $\(allocation.insideEach) on 6 & 8.",
+      "Across $\(placedTotal): $\(allocation.outsideEach) on \(outsideLabel), $\(allocation.insideEach) on 6 & 8.\(skipNote)",
       shouldFade: true
     )
     HapticsHelper.successHaptic()
@@ -4517,6 +4674,8 @@ class CrapsGameplayViewController: UIViewController {
 
 extension CrapsGameplayViewController: ChipSelectorDelegate {
   func chipSelector(_ selector: ChipSelector, didSelectChipWithValue value: Int) {
+    crapsAutoplayer?.cancelDueToUserInteraction()
+    refreshAutoplayNavigationChrome()
   }
 }
 

@@ -27,6 +27,9 @@ final class CraplessSettingsViewController: BaseSettingsViewController {
 
     var onFixedRoll: ((Int) -> Void)?
 
+    var autoplayInitiallyEnabled: Bool = false
+    var onAutoplayChanged: ((Bool) -> Void)?
+
     override init() {
         super.init()
     }
@@ -73,7 +76,7 @@ final class CraplessSettingsViewController: BaseSettingsViewController {
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: return 2  // Game Details + Hit the ATM
-        case 1: return 4  // Game Speed + bonus bets
+        case 1: return 5  // Autoplay + Game Speed + bonus bets
         case 2: return 7  // Explainer (no Variant or Don't Pass rows)
         case 3: return 2  // Testing
         default: return 0
@@ -116,18 +119,22 @@ final class CraplessSettingsViewController: BaseSettingsViewController {
         case 1:
             switch indexPath.row {
             case 0:
-                configureGameSpeedCell(cell)
+                configureSwitchCell(cell, title: "Autoplay", isOn: autoplayInitiallyEnabled) { [weak self] isOn in
+                    self?.onAutoplayChanged?(isOn)
+                }
             case 1:
+                configureGameSpeedCell(cell)
+            case 2:
                 configureSwitchCell(cell, title: "Hardways", isOn: hardwaysEnabled) { [weak self] isOn in
                     self?.hardwaysEnabled = isOn
                     self?.saveSettings()
                 }
-            case 2:
+            case 3:
                 configureSwitchCell(cell, title: "Make Em'", isOn: makeEmEnabled) { [weak self] isOn in
                     self?.makeEmEnabled = isOn
                     self?.saveSettings()
                 }
-            case 3:
+            case 4:
                 configureSwitchCell(cell, title: "Horn", isOn: hornEnabled) { [weak self] isOn in
                     self?.hornEnabled = isOn
                     self?.saveSettings()

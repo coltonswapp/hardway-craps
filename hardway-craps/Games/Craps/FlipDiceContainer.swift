@@ -42,12 +42,21 @@ class FlipDiceContainer: UIControl {
     }()
 
     private var diceScene: FlipDiceScene!
-    private var isRollingEnabled: Bool = false
+    /// Whether `enableRolling` is active (tap-to-roll shimmer); exposed for autoplay gating.
+    private(set) var isRollingEnabled: Bool = false
     var isRolling: Bool = false
+
+    /// Called only when the player taps to roll successfully (not for programmatic `roll()`).
+    var onUserInitiatedRollAttempt: (() -> Void)?
 
     var onRollStarted: (() -> Void)?
     var onRollComplete: ((Int, Int, Int) -> Void)?
     var onDisabledTap: (() -> Void)?
+
+    /// Dice idle and the table has enabled rolling (`enableRolling` last won over `disableRolling`).
+    var allowsProgrammaticRoll: Bool {
+        isRollingEnabled && !isRolling
+    }
 
     init() {
         super.init(frame: .zero)
@@ -137,6 +146,7 @@ class FlipDiceContainer: UIControl {
         
         // Valid tap - roll the dice
         HapticsHelper.thwompHaptic()
+        onUserInitiatedRollAttempt?()
         roll()
         
         UIView.animate(withDuration: 0.15) {

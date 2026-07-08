@@ -291,6 +291,21 @@ final class CrapsSpecialBetsManagerTests: XCTestCase {
         XCTAssertEqual(manager.calculateFieldPayout(total: 7, betAmount: 10), 0)
     }
 
+    // MARK: - Any 7
+
+    func testAnySeven_7_pays4x() {
+        let result = manager.evaluateAnySevenBet(total: 7, betAmount: 10)
+        XCTAssertTrue(result.isWin)
+        XCTAssertEqual(result.oddsMultiplier, 4.0)
+        XCTAssertEqual(result.winAmount, 40)
+    }
+
+    func testAnySeven_nonSeven_loses() {
+        let result = manager.evaluateAnySevenBet(total: 8, betAmount: 10)
+        XCTAssertFalse(result.isWin)
+        XCTAssertEqual(result.winAmount, 0)
+    }
+
     // MARK: - Don't Pass: Come-Out
 
     func testDontPass_comeOut_2_wins() {
